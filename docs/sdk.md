@@ -79,7 +79,56 @@ for await (const msg of query({
 
 `claudeAgentHooks(issuer, matcher?)` returns entries for `PreToolUse`, `PostToolUse`, and `PostToolUseFailure` with the same behaviour as the command hook. The hook callback receives the same JSON fields, so the handler is shared. This adapter is typed loosely and does not import the SDK package; it has been exercised against the documented hook contract, not against a live `query()` run.
 
-## Any framework: wrap the tool function
+## OpenAI Agents SDK (JS)
+
+Two adapters in [src/sdk/openai-agents.ts](../src/sdk/openai-agents.ts). Both are tested against the real package with a scripted model and a real `Runner`, no network.
+
+```ts
+import { Agent, Runner } from "@openai/agents";
+import { wrapTools, observeRunner } from "agent-receipts/src/sdk/openai-agents.ts";
+
+// enforcement + receipts: wrap the tools you hand to the agent
+const agent = new Agent({ name: "billing", tools: wrapTools(issuer, [refundTool, lookupTool]) });
+
+// receipts only: attach to the runner's lifecycle events, nothing to wrap, no policy evaluated
+const runner = new Runner();
+observeRunner(issuer, runner);
+```
+
+`wrapTools` wraps each tool's `invoke`. On a policy deny the tool never runs; the model receives the denial text as the tool result, with the receipt id, and the run continues. That matches what a model sees when a human declines a tool. `observeRunner` listens to `agent_tool_start` and `agent_tool_end`, pairs them by call id, and records executed receipts with no policy. Use one or the other for a given tool, not both.
+
+## Vercel AI SDK
+
+[src/sdk/vercel-ai.ts](../src/sdk/vercel-ai.ts), tested with a real `generateText` loop over a mock model.
+
+```ts
+import { generateText } from "ai";
+import { wrapTools } from "agent-receipts/src/sdk/vercel-ai.ts";
+
+const result = await generateText({ model, prompt, tools: wrapTools(issuer, tools) });
+```
+
+`wrapTools` returns a new tool set with every `execute` wrapped. Tools without `execute` pass through untouched. On deny it throws `PolicyDeniedError`, which the AI SDK turns into a `tool-error` part that the model sees; the loop continues. The receipt records the `toolCallId`.
+
+## LangChain / LangGraph (JS)
+
+[src/sdk/langchain.ts](../src/sdk/langchain.ts), tested against real `StructuredTool` invocations.
+
+```ts
+import { tool } from "@langchain/core/tools";
+import { receiptCallbacks, ReceiptCallbackHandler } from "agent-receipts/src/sdk/langchain.ts";
+
+// receipts only: a callback handler, attach per call or on the whole graph
+await refund.invoke({ customer_id, amount }, receiptCallbacks(issuer));
+const graph = workflow.compile().withConfig({ callbacks: [new ReceiptCallbackHandler(issuer)] });
+
+// enforcement: build the tool from issuer.wrap()
+const refund = tool(issuer.wrap("stripe.refund", fn), { name: "stripe.refund", schema });
+```
+
+LangChain callbacks cannot block a tool, so the handler evaluates no policy; it records what happened, including the `tool_call_id` when one is present, and unwraps `ToolMessage` outputs. For enforcement wrap the function at construction. Do not do both on one tool or it will be recorded twice.
+
+## Any other framework: wrap the function
 
 Every agent framework ends up calling a function. Wrap it.
 
@@ -101,20 +150,27 @@ try {
 }
 ```
 
-`wrap` decides, runs, and records. It works wherever a tool is a function you construct:
-
-- **OpenAI Agents SDK (JS):** `tool({ name, parameters, execute: issuer.wrap("name", execute) })`.
-- **Vercel AI SDK:** `tool({ description, parameters, execute: issuer.wrap("name", execute) })`.
-- **LangChain / LangGraph (JS):** `tool(issuer.wrap("name", fn), { name, schema })`.
-
-These three lines describe how the wrapper composes with each package's API. The wrapper itself is tested; the composition with those packages is not yet, and they are not dependencies of this project. Framework-specific adapters that hook `on_tool_start` / `on_tool_end` callbacks, so nothing needs wrapping, are the next step on the roadmap.
-
 For finer control use the two primitives `wrap` is built from:
 
 ```ts
 const decision = issuer.decide({ tool, args });                       // PolicyDecision | null
 const bundle = issuer.record({ tool, args, model, session }, { status: "executed", result }, decision);
 ```
+
+## Which adapter enforces
+
+| framework | enforce + record | record only |
+| --- | --- | --- |
+| Claude Code | `hook` command, PreToolUse deny | PostToolUse |
+| Claude Agent SDK | `claudeAgentHooks` | same |
+| OpenAI Agents SDK | `wrapTools` | `observeRunner` |
+| Vercel AI SDK | `wrapTools` | wrap with a policy-less issuer |
+| LangChain / LangGraph | `tool(issuer.wrap(...))` | `ReceiptCallbackHandler` |
+| anything else | `issuer.wrap` | `issuer.record` |
+
+Record-only adapters evaluate no policy on purpose. A receipt that said "policy: deny" next to "execution: executed" would fail verification, and the verifier would be right: that is not a receipt, that is a finding. Enforce, or observe, but do not pretend.
+
+The three framework packages are optional peer dependencies. Each adapter imports only from its own package, so installing none of them costs nothing.
 
 ## What an SDK receipt is worth
 

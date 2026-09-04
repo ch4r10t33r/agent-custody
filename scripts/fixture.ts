@@ -60,3 +60,29 @@ export function buildFixture(dir: string, ttlMs = 3600_000): Fixture {
   writeFileSync(configFile, JSON.stringify(config, null, 2));
   return { dir, configFile, gatewayPub: gateway.pubFile, principalPub: principal.pubFile, receiptsDir: join(dir, "receipts"), logFile: join(dir, "log.jsonl") };
 }
+
+export interface SdkFixture {
+  dir: string;
+  configFile: string;
+  appPub: string;
+  receiptsDir: string;
+  logFile: string;
+}
+
+export const SDK_POLICY = `permit(principal, action == Action::"customer.lookup", resource);
+permit(principal, action == Action::"stripe.refund", resource) when { context.args.amount <= 100000 };
+`;
+
+/** An SDK working directory: an application key, a policy that sees only context.args, and a config. */
+export function buildSdkFixture(dir: string, policy: string = SDK_POLICY, framework = "test"): SdkFixture {
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
+  const app = writeKeyPair(generateKeyPair(), join(dir, "keys"), "app");
+  writeFileSync(join(dir, "policy.cedar"), policy);
+  const configFile = join(dir, "sdk.json");
+  writeFileSync(
+    configFile,
+    JSON.stringify({ agentId: "billing-bot", principalId: "user_456", identity: { keyFile: "keys/app.key" }, policyFile: "policy.cedar", receiptsDir: "receipts", logFile: "log.jsonl", framework }, null, 2),
+  );
+  return { dir, configFile, appPub: app.pubFile, receiptsDir: join(dir, "receipts"), logFile: join(dir, "log.jsonl") };
+}

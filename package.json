@@ -21,9 +21,28 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@langchain/core": "^1.2.9",
+    "@openai/agents": "^0.17.0",
     "@types/node": "^26.4.1",
+    "ai": "^7.0.92",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
+  },
+  "peerDependencies": {
+    "@langchain/core": ">=1.0.0",
+    "@openai/agents": ">=0.1.0",
+    "ai": ">=5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    },
+    "@openai/agents": {
+      "optional": true
+    },
+    "ai": {
+      "optional": true
+    }
   }
 }

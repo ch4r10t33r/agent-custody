@@ -162,6 +162,7 @@ src/issue.ts       sign, log, and write a receipt; shared by both producers
 src/gateway.ts     the MCP proxy: scope check, facts, policy, forward, receipt
 src/sdk/index.ts   the interceptor: policy decision, record, wrap(tool fn)
 src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hooks
+src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, tested against the real packages
 src/verify.ts      offline verification and the human-readable report
 src/cli.ts         keygen, grant, gateway, hook, verify
 scripts/           fake Stripe upstream, fixture builder, demo
@@ -180,16 +181,16 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - SDK core: policy decision, record, and a generic `wrap(tool, fn)` for any framework whose tools are functions.
 - Claude Code command hook for PreToolUse, PostToolUse, and PostToolUseFailure, with blocking on deny.
 - Claude Agent SDK in-process hooks over the same handler.
+- Framework adapters, each tested against the real package with a scripted model and no network: OpenAI Agents SDK (`wrapTools` enforces, `observeRunner` records from lifecycle events), Vercel AI SDK (`wrapTools` over a real `generateText` loop), LangChain (`ReceiptCallbackHandler` records, `issuer.wrap` enforces).
 
 **Next, in the order it pays off**
 
-1. Framework adapters that hook callbacks so nothing needs wrapping: OpenAI Agents SDK `RunHooks`, LangChain `on_tool_start` / `on_tool_end`, Vercel AI SDK middleware. Each tested against the real package.
-2. OpenTelemetry export: emit each receipt as a span with the receipt id and issuer kind as attributes, so existing collectors and dashboards carry them without a new pipeline.
-3. Embed upstream signed responses (Stripe webhook signatures, GitHub delivery signatures) so gateway execution can move from `observed` to `attested`.
-4. Consistency proofs between tree heads, so an auditor can check that a later log extends an earlier copy.
-5. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
-6. Delegation chains for sub-agents.
-7. Receiver-attested receipts for agent-to-agent calls.
-8. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
+1. OpenTelemetry export: emit each receipt as a span with the receipt id and issuer kind as attributes, so existing collectors and dashboards carry them without a new pipeline.
+2. Embed upstream signed responses (Stripe webhook signatures, GitHub delivery signatures) so gateway execution can move from `observed` to `attested`.
+3. Consistency proofs between tree heads, so an auditor can check that a later log extends an earlier copy.
+4. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
+5. Delegation chains for sub-agents.
+6. Receiver-attested receipts for agent-to-agent calls.
+7. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
 
 A Python SDK follows the same shape once the TypeScript adapters have settled.

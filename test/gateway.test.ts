@@ -20,7 +20,7 @@ const failing = (r: ReturnType<typeof verifyBundle>) => r.checks.filter((c) => !
 beforeAll(async () => {
   fx = buildFixture(mkdtempSync(join(tmpdir(), "agent-receipts-")));
   gw = await createGateway(loadConfig(fx.configFile));
-  opts = { gatewayKeys: [loadPublicKey(fx.gatewayPub)], principalKeys: [loadPublicKey(fx.principalPub)], logFile: fx.logFile };
+  opts = { issuerKeys: [loadPublicKey(fx.gatewayPub)], principalKeys: [loadPublicKey(fx.principalPub)], logFile: fx.logFile };
 }, 30_000);
 afterAll(async () => gw?.close());
 
@@ -39,6 +39,7 @@ describe("gateway", () => {
     expect(st.predicate.facts.customer?.provenance).toBe("observed");
     expect(st.predicate.request.provenance).toBe("claimed");
     expect(st.predicate.model).toEqual({ id: "m1", provenance: "claimed" });
+    expect(st.predicate.issuer.kind).toBe("gateway");
     const v = verifyBundle(bundle, opts);
     expect(failing(v)).toEqual([]);
     expect(v.checks.length).toBeGreaterThanOrEqual(12);
@@ -57,14 +58,14 @@ describe("gateway", () => {
     expect(r.isError).toBe(true);
     const st = decode(bundleFor(String(r._meta?.[RECEIPT_META_KEY])));
     expect(st.predicate.facts.customer?.value).toMatchObject({ verified: false });
-    expect(st.predicate.policy.decision).toBe("deny");
+    expect(st.predicate.policy?.decision).toBe("deny");
   });
 
   it("denies a tool outside the delegated scope before consulting policy", async () => {
     const r = await gw.handleCall({ name: "stripe.payout", arguments: { amount: 100 } });
     expect(r.isError).toBe(true);
     const st = decode(bundleFor(String(r._meta?.[RECEIPT_META_KEY])));
-    expect(st.predicate.policy.errors[0]).toMatch(/not in the delegation scopes/);
+    expect(st.predicate.policy?.errors[0]).toMatch(/not in the delegation scopes/);
     expect(st.predicate.facts).toEqual({});
   });
 
@@ -73,7 +74,7 @@ describe("gateway", () => {
     expect(r.isError).toBe(true);
     const st = decode(bundleFor(String(r._meta?.[RECEIPT_META_KEY])));
     expect(st.predicate.execution.status).toBe("denied");
-    expect(st.predicate.policy.errors[0]).toMatch(/no such customer/);
+    expect(st.predicate.policy?.errors[0]).toMatch(/no such customer/);
   });
 
   it("verification fails on a tampered receipt and on a substituted log", async () => {
@@ -83,7 +84,7 @@ describe("gateway", () => {
     const st = decode(bundle);
     st.predicate.request.args.amount = 1;
     const tampered = { ...bundle, envelope: { ...bundle.envelope, payload: Buffer.from(JSON.stringify(st)).toString("base64") } };
-    expect(failing(verifyBundle(tampered, opts))).toEqual(["receipt signature (gateway key)"]);
+    expect(failing(verifyBundle(tampered, opts))).toEqual(["receipt signature (issuer key)"]);
 
     const otherLog = buildFixture(mkdtempSync(join(tmpdir(), "agent-receipts-other-"))).logFile;
     const other = await createGateway(loadConfig(join(otherLog, "..", "gateway.json")));

@@ -1,19 +1,18 @@
 // The MCP gateway: sits between an agent and one upstream MCP server, enforces scope + Cedar policy,
 // and emits a signed, logged receipt for every tool call, allowed or denied.
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import type { FactConfig, GatewayConfig } from "./config.ts";
-import { canonicalize, digestOf, dsseSign, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto.ts";
+import { digestOf, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto.ts";
 import { delegationValidAt, verifyDelegation, type Delegation } from "./delegation.ts";
-import { MerkleLog } from "./log.ts";
+import { createIssuer } from "./issue.ts";
 import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
-import { buildStatement, RECEIPT_TYPE, TREEHEAD_TYPE, type FactRecord, type ReceiptBundle, type ReceiptPredicate } from "./receipt.ts";
+import type { FactRecord, ReceiptPredicate } from "./receipt.ts";
 
 export const GATEWAY_VERSION = "0.1.0";
 export const RECEIPT_META_KEY = "agent-receipts/receipt";
@@ -70,8 +69,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
 
   const policyText = readFileSync(cfg.policyFile, "utf8");
   const pDigest = policyDigest(policyText);
-  const log = new MerkleLog(cfg.logFile);
-  mkdirSync(cfg.receiptsDir, { recursive: true });
+  const issuer = createIssuer(gatewayKey, cfg.receiptsDir, cfg.logFile);
 
   const upstream = new Client({ name: "agent-receipts-gateway", version: GATEWAY_VERSION });
   await upstream.connect(
@@ -90,15 +88,6 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       facts[f.name] = { tool: f.tool, args: fargs, value: extractValue(result), resultDigest: digestOf(result), provenance: "observed" };
     }
     return facts;
-  }
-
-  function persist(predicate: ReceiptPredicate): ReceiptBundle {
-    const envelope = dsseSign(RECEIPT_TYPE, buildStatement(predicate), gatewayKey);
-    const entry = log.append(canonicalize(envelope));
-    const treeHead = dsseSign(TREEHEAD_TYPE, { treeSize: entry.treeSize, rootHash: entry.rootHash, timestamp: new Date().toISOString() }, gatewayKey);
-    const bundle: ReceiptBundle = { envelope, treeHead, inclusion: { leafIndex: entry.leafIndex, treeSize: entry.treeSize, hashes: entry.hashes } };
-    writeFileSync(join(cfg.receiptsDir, `${predicate.receiptId}.json`), JSON.stringify(bundle, null, 2));
-    return bundle;
   }
 
   async function handleCall(params: CallParams): Promise<CallToolResult> {
@@ -139,13 +128,14 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       execution = { status: "denied", reason: [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched", provenance: "observed" };
     }
 
-    persist({
+    issuer.issue({
       receiptId,
       timestamp,
-      gateway: { keyid: gatewayKey.keyid, version: GATEWAY_VERSION },
+      issuer: { kind: "gateway", keyid: issuer.keyid, version: GATEWAY_VERSION },
       principal: { id: delegation.principal, keyid: principalKeyid, provenance: "attested" },
       agent: { id: delegation.agent, provenance: "attested" },
       delegation: { envelope: grantEnvelope, provenance: "attested" },
+      session: { id: null, toolUseId: null, provenance: "claimed" },
       model: { id: typeof modelClaim === "string" ? modelClaim : null, provenance: "claimed" },
       tool: { name: tool, provenance: "observed" },
       request: { args, argsDigest: digestOf(args), provenance: "claimed" },

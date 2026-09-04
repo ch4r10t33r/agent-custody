@@ -7,6 +7,9 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { loadPublicKey } from "../src/crypto.ts";
 import { MODEL_META_KEY, RECEIPT_META_KEY } from "../src/gateway.ts";
 import type { ReceiptBundle, ReceiptStatement } from "../src/receipt.ts";
+import { loadSdkConfig } from "../src/config.ts";
+import { generateKeyPair, writeKeyPair } from "../src/crypto.ts";
+import { createSdkIssuer, PolicyDeniedError } from "../src/sdk/index.ts";
 import { formatReport, verifyBundle } from "../src/verify.ts";
 import { buildFixture } from "./fixture.ts";
 
@@ -37,7 +40,7 @@ for (const [label, name, args] of calls) {
 await agent.close();
 
 hr("2. auditor verifies every receipt with public keys and a copy of the log");
-const opts = { gatewayKeys: [loadPublicKey(fx.gatewayPub)], principalKeys: [loadPublicKey(fx.principalPub)], logFile: fx.logFile };
+const opts = { issuerKeys: [loadPublicKey(fx.gatewayPub)], principalKeys: [loadPublicKey(fx.principalPub)], logFile: fx.logFile };
 for (const id of receiptIds) {
   const bundle = JSON.parse(readFileSync(join(fx.receiptsDir, `${id}.json`), "utf8")) as ReceiptBundle;
   console.log(`\n--- ${id}`);
@@ -52,5 +55,34 @@ const tampered: ReceiptBundle = { ...original, envelope: { ...original.envelope,
 writeFileSync(join(fx.dir, "tampered.json"), JSON.stringify(tampered, null, 2));
 console.log(formatReport(verifyBundle(tampered, opts)));
 
-console.log(`\nArtifacts in ${fx.dir}: keys/, grant.json, policy.cedar, gateway.json, receipts/, log.jsonl, tampered.json`);
-console.log(`Try the CLI:\n  npx tsx src/cli.ts verify demo-out/receipts/${receiptIds[0]}.json --gateway-key demo-out/keys/gateway.pub --principal-key demo-out/keys/principal.pub --log demo-out/log.jsonl`);
+hr("4. the same tool wrapped by the in-process SDK, no gateway involved");
+const app = writeKeyPair(generateKeyPair(), join(fx.dir, "keys"), "app");
+writeFileSync(join(fx.dir, "sdk-policy.cedar"), `permit(principal, action == Action::"stripe.refund", resource) when { context.args.amount <= 100000 };\n`);
+writeFileSync(
+  join(fx.dir, "sdk.json"),
+  JSON.stringify({ agentId: "billing-bot", principalId: "user_456", identity: { keyFile: "keys/app.key" }, policyFile: "sdk-policy.cedar", receiptsDir: "sdk-receipts", logFile: "sdk-log.jsonl", framework: "demo" }, null, 2),
+);
+const sdk = createSdkIssuer(loadSdkConfig(join(fx.dir, "sdk.json")));
+const refund = sdk.wrap("stripe.refund", async (a: { customer_id: string; amount: number }) => ({ refund_id: "re_sdk", ...a, status: "succeeded" }), { model: "claude-fable-5-1" });
+const sdkIds: string[] = [];
+for (const amount of [50000, 500000]) {
+  try {
+    const r = await refund({ customer_id: "cust_123", amount });
+    console.log(`\n> sdk refund ${amount}\n  EXECUTED ${JSON.stringify(r)}`);
+  } catch (e) {
+    if (!(e instanceof PolicyDeniedError)) throw e;
+    console.log(`\n> sdk refund ${amount}\n  DENIED   ${e.message}`);
+  }
+}
+const sdkOpts = { issuerKeys: [loadPublicKey(app.pubFile)], principalKeys: [], logFile: join(fx.dir, "sdk-log.jsonl") };
+for (const line of readFileSync(join(fx.dir, "sdk-log.jsonl"), "utf8").trim().split("\n")) {
+  const env = JSON.parse(JSON.parse(line)) as ReceiptBundle["envelope"];
+  const id = (JSON.parse(Buffer.from(env.payload, "base64").toString()) as ReceiptStatement).predicate.receiptId;
+  sdkIds.push(id);
+  console.log(`\n--- ${id}`);
+  console.log(formatReport(verifyBundle(JSON.parse(readFileSync(join(fx.dir, "sdk-receipts", `${id}.json`), "utf8")) as ReceiptBundle, sdkOpts)));
+}
+
+console.log(`\nArtifacts in ${fx.dir}: keys/, grant.json, policy.cedar, gateway.json, receipts/, log.jsonl, tampered.json, sdk.json, sdk-receipts/, sdk-log.jsonl`);
+console.log(`Try the CLI:\n  npx tsx src/cli.ts verify demo-out/receipts/${receiptIds[0]}.json --issuer-key demo-out/keys/gateway.pub --principal-key demo-out/keys/principal.pub --log demo-out/log.jsonl`);
+console.log(`  node src/cli.ts verify demo-out/sdk-receipts/${sdkIds[0]}.json --issuer-key demo-out/keys/app.pub`);

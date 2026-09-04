@@ -2,11 +2,15 @@
 
 Signed, independently verifiable receipts for AI agent tool calls.
 
-An MCP gateway sits between an agent and the systems it can affect. For every tool call, allowed or denied, it checks a delegation grant signed by the human principal, gathers the facts the policy needs by calling upstream itself, evaluates a Cedar policy that fails closed, forwards the call only on allow, and emits a signed receipt appended to a Merkle transparency log. Anyone holding the public keys can verify a receipt offline.
+Two producers, one receipt format, one verifier.
 
-The agent is not trusted. The layer around it is, and the receipt says exactly how far that trust extends.
+- **The gateway** is an MCP proxy between an agent and the systems it can affect. For every tool call, allowed or denied, it checks a delegation grant signed by the human principal, gathers the facts the policy needs by calling upstream itself, evaluates a Cedar policy that fails closed, forwards the call only on allow, and emits a signed receipt appended to a Merkle transparency log.
+- **The SDK** is an interceptor inside the agent's own process, hooked into the framework's tool-call callbacks. It reaches everything the gateway cannot see and issues the same receipts, labelled as self-reported.
 
-- [Usage guide](docs/usage.md): setup, wiring into Claude Desktop, Claude Code, or your own agent loop
+Anyone holding the public keys can verify a receipt offline. The agent is not trusted. The layer around it is, and the receipt says exactly how far that trust extends, starting with who issued it.
+
+- [Usage guide](docs/usage.md): gateway setup, wiring into Claude Desktop, Claude Code, or your own agent loop
+- [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, and wrapping tool functions in any framework
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
 - [Verifying a receipt](docs/verification.md): what each check means and what a verified receipt does and does not prove
 
@@ -16,6 +20,7 @@ The agent is not trusted. The layer around it is, and the receipt says exactly h
 flowchart LR
     P["Principal<br/>(human or org, holds a signing key)"]
     A["Agent host<br/>Claude Desktop, Claude Code,<br/>LangGraph, custom loop"]
+    S["SDK interceptor<br/>inside the agent process:<br/>hooks or wrapped tools"]
     G["agent-receipts gateway<br/>scope check → fact lookups → Cedar policy"]
     U["Upstream MCP server<br/>Stripe, database, GitHub, ..."]
     R[("receipt bundles<br/>receipts/*.json")]
@@ -28,8 +33,11 @@ flowchart LR
     G -- "only on allow" --> U
     U -- "result" --> G
     G -- "result + receipt id, or denial + receipt id" --> A
-    G -- "signed receipt" --> R
+    G -- "signed receipt (issuer: gateway)" --> R
     G -- "leaf hash" --> L
+    A -. "in-process tool calls" .-> S
+    S -- "signed receipt (issuer: sdk)" --> R
+    S -- "leaf hash" --> L
     R --> V
     L -. "copy of the log (optional)" .-> V
     P -. "public key" .-> V
@@ -37,7 +45,20 @@ flowchart LR
     A -. "traces (unchanged)" .-> O
 ```
 
-Three parties hold keys. The **principal** signs a grant saying which agent may use which tools until when. The **gateway** signs every receipt and every tree head. The **verifier** holds only public keys and needs no access to the gateway, the agent, or the upstream system.
+Three parties hold keys. The **principal** signs a grant saying which agent may use which tools until when. The **issuer**, gateway or SDK, signs every receipt and every tree head. The **verifier** holds only public keys and needs no access to the issuer, the agent, or the upstream system.
+
+## Two producers, one receipt
+
+| | gateway | SDK |
+| --- | --- | --- |
+| where it runs | separate process between agent and tools | inside the agent's process |
+| what it sees | MCP tool calls | whatever the framework's hooks expose |
+| enforcement | yes, denied calls never reach upstream | only where a hook can block |
+| provenance of its fields | `attested` and `observed` | `claimed`, all of them |
+| what a verifier learns | the agent could not skip or forge this | the agent's process reported this and it has not changed since |
+| install | one line in the host's MCP config | a hook entry or a wrapped function |
+
+Every receipt names its issuer, and the verifier prints what that issuer kind is worth before anything else. A dashboard full of `sdk` rows is the reason to route the consequential calls through the gateway.
 
 ## One tool call, end to end
 
@@ -80,18 +101,19 @@ flowchart TB
     E --> S["in-toto Statement v1"]
     S --> SU["subject: tool-call:&lt;tool&gt;:&lt;id&gt;<br/>digest = sha256(args)"]
     S --> PR["predicate"]
-    PR --> P1["principal, agent, delegation<br/><b>attested</b>: signed by principal key"]
-    PR --> P2["tool, facts, policy decision, execution<br/><b>observed</b>: gateway obtained it"]
-    PR --> P3["args, model id<br/><b>claimed</b>: agent-supplied, unchecked"]
+    PR --> P0["issuer: gateway or sdk, keyid, framework"]
+    PR --> P1["principal, agent, delegation<br/><b>attested</b>: signed by principal key (gateway)"]
+    PR --> P2["tool, facts, policy decision, execution<br/><b>observed</b>: gateway obtained it (gateway)"]
+    PR --> P3["args, model id, session<br/><b>claimed</b>: agent-supplied, unchecked (both)<br/>every field, when issued by the sdk"]
 ```
 
 Every field carries a provenance label. This is the design decision that matters most, and it is what a verifier reads back.
 
 | provenance | meaning | today's examples |
 | --- | --- | --- |
-| `attested` | signed by a key other than the gateway's | principal id, agent id, the delegation grant |
-| `observed` | the gateway obtained it deterministically itself | upstream tool results, fact lookups, the policy decision, execution status |
-| `claimed` | originated from the agent or model, no independent check | tool arguments, the model id |
+| `attested` | signed by a key other than the issuer's | principal id, agent id, the delegation grant (gateway receipts) |
+| `observed` | the issuer obtained it deterministically, outside the agent's control | upstream tool results, fact lookups, the policy decision, execution status (gateway receipts) |
+| `claimed` | originated from the agent, the model, or the agent's own process, no independent check | tool arguments, the model id, session ids, and every field of an SDK receipt |
 
 ## Quick start
 
@@ -105,7 +127,7 @@ The demo leaves everything in `demo-out/`. Verify a receipt by hand:
 
 ```bash
 node src/cli.ts verify demo-out/receipts/<id>.json \
-  --gateway-key demo-out/keys/gateway.pub \
+  --issuer-key demo-out/keys/gateway.pub \
   --principal-key demo-out/keys/principal.pub \
   --log demo-out/log.jsonl
 ```
@@ -124,6 +146,7 @@ Exit code 0 means every check passed. See [docs/verification.md](docs/verificati
 | the upstream system actually executed the action | third party | operator | needs the upstream's own signed response embedded verbatim | **not done**, depends on the tool provider |
 | the operator itself cannot mint a false receipt | regulator, counterparty | operator | needs a TEE-hosted signer or a federated log | **not done** |
 | which model produced the call | anyone | operator | no hosted provider signs model identity | **not possible today**, labelled `claimed` |
+| an SDK receipt reflects what the tool really did | anyone | agent's own process | none; the SDK shares a process with the agent | **by design not claimed**; issuer kind `sdk` says so |
 
 If a vendor tells you their receipts prove more than the first five rows, ask them which key signed it.
 
@@ -135,19 +158,38 @@ src/log.ts         Merkle log: append, root, inclusion proof, verify, JSONL pers
 src/policy.ts      Cedar evaluation wrapper, fail-closed
 src/delegation.ts  signed delegation grants
 src/receipt.ts     receipt statement types and provenance labels
+src/issue.ts       sign, log, and write a receipt; shared by both producers
 src/gateway.ts     the MCP proxy: scope check, facts, policy, forward, receipt
+src/sdk/index.ts   the interceptor: policy decision, record, wrap(tool fn)
+src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hooks
 src/verify.ts      offline verification and the human-readable report
-src/cli.ts         keygen, grant, gateway, verify
+src/cli.ts         keygen, grant, gateway, hook, verify
 scripts/           fake Stripe upstream, fixture builder, demo
 test/              unit tests per module and an end-to-end gateway test
 docs/              usage, policies, verification
 ```
 
-## Roadmap, in the order it pays off
+## Plan
 
-1. Embed upstream signed responses (Stripe webhook signatures, GitHub delivery signatures) so execution can move from `observed` to `attested`.
-2. OpenTelemetry span ids on receipts so existing observability links to them.
-3. Consistency proofs between tree heads, so an auditor can check that a later log extends an earlier one.
-4. Delegation chains for sub-agents.
-5. Receiver-attested receipts for agent-to-agent calls.
-6. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
+The design is two producers feeding one verifier. The SDK is the top of the funnel: cheap to install, wide reach, honest about being self-reported. The gateway is what a security or compliance owner mandates for consequential actions. Both exist; the work is widening each.
+
+**Done**
+
+- Gateway: MCP proxy, signed delegation, gateway-fetched facts, Cedar policy, denial receipts, Merkle log, offline verifier.
+- Receipt schema carries the issuer kind, so a verifier reads gateway versus SDK before anything else.
+- SDK core: policy decision, record, and a generic `wrap(tool, fn)` for any framework whose tools are functions.
+- Claude Code command hook for PreToolUse, PostToolUse, and PostToolUseFailure, with blocking on deny.
+- Claude Agent SDK in-process hooks over the same handler.
+
+**Next, in the order it pays off**
+
+1. Framework adapters that hook callbacks so nothing needs wrapping: OpenAI Agents SDK `RunHooks`, LangChain `on_tool_start` / `on_tool_end`, Vercel AI SDK middleware. Each tested against the real package.
+2. OpenTelemetry export: emit each receipt as a span with the receipt id and issuer kind as attributes, so existing collectors and dashboards carry them without a new pipeline.
+3. Embed upstream signed responses (Stripe webhook signatures, GitHub delivery signatures) so gateway execution can move from `observed` to `attested`.
+4. Consistency proofs between tree heads, so an auditor can check that a later log extends an earlier copy.
+5. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
+6. Delegation chains for sub-agents.
+7. Receiver-attested receipts for agent-to-agent calls.
+8. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
+
+A Python SDK follows the same shape once the TypeScript adapters have settled.

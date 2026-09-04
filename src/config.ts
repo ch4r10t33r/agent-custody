@@ -45,3 +45,30 @@ export function loadConfig(path: string): GatewayConfig {
     logFile: r(cfg.logFile),
   };
 }
+
+export const SdkConfigSchema = z.object({
+  /** identity the receipts will name; nothing checks it, so it is recorded as claimed */
+  agentId: z.string().min(1),
+  principalId: z.string().min(1).optional(),
+  identity: z.object({ keyFile: z.string() }),
+  /** optional Cedar policy; when present, wrapped tools and PreToolUse hooks can deny */
+  policyFile: z.string().optional(),
+  receiptsDir: z.string(),
+  logFile: z.string(),
+  /** free-text label of the host framework, e.g. "claude-code", "openai-agents" */
+  framework: z.string().optional(),
+});
+export type SdkConfig = z.infer<typeof SdkConfigSchema>;
+
+export function loadSdkConfig(path: string): SdkConfig {
+  const cfg = SdkConfigSchema.parse(JSON.parse(readFileSync(path, "utf8")));
+  const base = dirname(resolve(path));
+  const r = (p: string) => resolve(base, p);
+  return {
+    ...cfg,
+    identity: { keyFile: r(cfg.identity.keyFile) },
+    ...(cfg.policyFile ? { policyFile: r(cfg.policyFile) } : {}),
+    receiptsDir: r(cfg.receiptsDir),
+    logFile: r(cfg.logFile),
+  };
+}

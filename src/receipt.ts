@@ -4,16 +4,23 @@ import type { InclusionProof } from "./log.ts";
 import type { PolicyDecision } from "./policy.ts";
 
 export const RECEIPT_TYPE = "application/vnd.in-toto+json";
-export const RECEIPT_PREDICATE_TYPE = "https://agent-receipts.dev/receipt/v0.1";
+export const RECEIPT_PREDICATE_TYPE = "https://agent-receipts.dev/receipt/v0.2";
 export const TREEHEAD_TYPE = "application/vnd.agent-receipts.treehead+json";
 
 /**
  * Provenance of a receipt field. This is the honest part of the design.
- *  - attested: signed by a key other than the gateway's (today: the principal's delegation key)
- *  - observed: the gateway itself obtained this deterministically (an upstream tool result, a policy evaluation)
- *  - claimed:  originates from the agent or model with no independent check (tool arguments, model id)
+ *  - attested: signed by a key other than the issuer's (today: the principal's delegation key)
+ *  - observed: the issuer obtained this deterministically, outside the agent's control (gateway only)
+ *  - claimed:  originates from the agent, the model, or the agent's own process, with no independent check
  */
 export type Provenance = "attested" | "observed" | "claimed";
+
+/**
+ * Who produced the receipt. This is the first thing a verifier should read.
+ *  - gateway: an out-of-process enforcement point; the agent could neither skip nor forge it
+ *  - sdk:     an interceptor inside the agent's own process; self-reported, tamper-evident after issue but not before
+ */
+export type IssuerKind = "gateway" | "sdk";
 
 export interface FactRecord {
   tool: string;
@@ -26,19 +33,23 @@ export interface FactRecord {
 export interface ReceiptPredicate {
   receiptId: string;
   timestamp: string;
-  gateway: { keyid: string; version: string };
-  principal: { id: string; keyid: string; provenance: "attested" };
-  agent: { id: string; provenance: "attested" };
-  delegation: { envelope: Envelope; provenance: "attested" };
+  issuer: { kind: IssuerKind; keyid: string; version: string; framework?: string };
+  principal: { id: string; keyid: string; provenance: "attested" } | { id: string | null; provenance: "claimed" };
+  agent: { id: string; provenance: Provenance };
+  /** Present on gateway receipts. Absent when the issuer had no signed grant to check against. */
+  delegation?: { envelope: Envelope; provenance: "attested" };
+  /** Correlation ids from the host, when it supplied any. Never checked, always claimed. */
+  session: { id: string | null; toolUseId: string | null; provenance: "claimed" };
   model: { id: string | null; provenance: "claimed" };
-  tool: { name: string; provenance: "observed" };
+  tool: { name: string; provenance: Provenance };
   request: { args: Record<string, unknown>; argsDigest: string; provenance: "claimed" };
   facts: Record<string, FactRecord>;
-  policy: PolicyDecision & { provenance: "observed" };
+  /** null when the issuer evaluated no policy. */
+  policy: (PolicyDecision & { provenance: Provenance }) | null;
   execution:
-    | { status: "executed" | "failed"; result: unknown; resultDigest: string; provenance: "observed" }
-    | { status: "denied"; reason: string; provenance: "observed" }
-    | { status: "error"; error: string; provenance: "observed" };
+    | { status: "executed" | "failed"; result: unknown; resultDigest: string; provenance: Provenance }
+    | { status: "denied"; reason: string; provenance: Provenance }
+    | { status: "error"; error: string; provenance: Provenance };
 }
 
 export interface ReceiptStatement {

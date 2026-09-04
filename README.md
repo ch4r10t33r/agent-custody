@@ -5,12 +5,12 @@ Signed, independently verifiable receipts for AI agent tool calls.
 Two producers, one receipt format, one verifier.
 
 - **The gateway** is an MCP proxy between an agent and the systems it can affect. For every tool call, allowed or denied, it checks a delegation grant signed by the human principal, gathers the facts the policy needs by calling upstream itself, evaluates a Cedar policy that fails closed, forwards the call only on allow, and emits a signed receipt appended to a Merkle transparency log.
-- **The SDK** is an interceptor inside the agent's own process, hooked into the framework's tool-call callbacks. It reaches everything the gateway cannot see and issues the same receipts, labelled as self-reported.
+- **The SDK** is an interceptor inside the agent's own process, hooked into the framework's tool-call callbacks: Claude Code, the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, or any function you wrap. It reaches everything the gateway cannot see and issues the same receipts, labelled as self-reported.
 
 Anyone holding the public keys can verify a receipt offline. The agent is not trusted. The layer around it is, and the receipt says exactly how far that trust extends, starting with who issued it.
 
 - [Usage guide](docs/usage.md): gateway setup, wiring into Claude Desktop, Claude Code, or your own agent loop
-- [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, and wrapping tool functions in any framework
+- [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, adapters for the OpenAI Agents SDK, Vercel AI SDK and LangChain, and wrapping tool functions in anything else
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
 - [Verifying a receipt](docs/verification.md): what each check means and what a verified receipt does and does not prove
 
@@ -59,6 +59,20 @@ Three parties hold keys. The **principal** signs a grant saying which agent may 
 | install | one line in the host's MCP config | a hook entry or a wrapped function |
 
 Every receipt names its issuer, and the verifier prints what that issuer kind is worth before anything else. A dashboard full of `sdk` rows is the reason to route the consequential calls through the gateway.
+
+### Supported hosts and frameworks
+
+| host or framework | producer | enforce + record | record only | tested against |
+| --- | --- | --- | --- | --- |
+| any MCP host: Claude Desktop, Claude Code, Cursor, custom | gateway | yes | | a real MCP client and upstream over stdio |
+| Claude Code | SDK | `hook` command, PreToolUse deny | PostToolUse | the documented hook contract, via stdin |
+| Claude Agent SDK | SDK | `claudeAgentHooks` | same | the same handler |
+| OpenAI Agents SDK (JS) | SDK | `wrapTools` | `observeRunner` | a real `Runner` with a scripted model |
+| Vercel AI SDK | SDK | `wrapTools` | | a real `generateText` loop over the SDK's mock model |
+| LangChain / LangGraph (JS) | SDK | `tool(issuer.wrap(fn))` | `ReceiptCallbackHandler` | real `StructuredTool` invocations |
+| anything else | SDK | `issuer.wrap(name, fn)` | `issuer.record` | plain functions |
+
+The framework packages are optional peer dependencies. Each adapter imports only from its own package.
 
 ## One tool call, end to end
 
@@ -119,11 +133,11 @@ Every field carries a provenance label. This is the design decision that matters
 
 ```bash
 bun install        # or pnpm / npm
-npm run demo       # keys, grant, policy, four tool calls, verification, a tampering attempt
+npm run demo       # gateway: keys, grant, policy, four tool calls, verification, a tampering attempt; then the SDK wrapping the same tool
 npm test
 ```
 
-The demo leaves everything in `demo-out/`. Verify a receipt by hand:
+The demo leaves everything in `demo-out/`, including receipts from both producers. Verify a receipt by hand:
 
 ```bash
 node src/cli.ts verify demo-out/receipts/<id>.json \
@@ -133,6 +147,18 @@ node src/cli.ts verify demo-out/receipts/<id>.json \
 ```
 
 Exit code 0 means every check passed. See [docs/verification.md](docs/verification.md) for what the report means.
+
+To issue receipts from your own agent code, without a gateway:
+
+```ts
+import { loadSdkConfig } from "./src/config.ts";
+import { createSdkIssuer } from "./src/sdk/index.ts";
+
+const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
+const refund = issuer.wrap("stripe.refund", async (args: { amount: number }) => stripe.refund(args));
+```
+
+[docs/sdk.md](docs/sdk.md) has the config file and the per-framework adapters.
 
 ## What a receipt proves, and what it does not
 
@@ -153,6 +179,7 @@ If a vendor tells you their receipts prove more than the first five rows, ask th
 ## Layout
 
 ```
+src/config.ts      gateway and SDK config schemas, path resolution
 src/crypto.ts      canonical JSON, sha256, Ed25519 keys, DSSE sign/verify
 src/log.ts         Merkle log: append, root, inclusion proof, verify, JSONL persistence
 src/policy.ts      Cedar evaluation wrapper, fail-closed
@@ -165,9 +192,10 @@ src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hook
 src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, tested against the real packages
 src/verify.ts      offline verification and the human-readable report
 src/cli.ts         keygen, grant, gateway, hook, verify
-scripts/           fake Stripe upstream, fixture builder, demo
-test/              unit tests per module and an end-to-end gateway test
-docs/              usage, policies, verification
+scripts/           fake Stripe upstream, fixture builders for gateway and SDK, demo
+test/              unit tests per module, end-to-end gateway test, SDK and hook tests,
+                   adapter tests against the real packages, and a test that runs every policy in docs/policies.md
+docs/              usage (gateway), sdk, policies, verification
 ```
 
 ## Plan

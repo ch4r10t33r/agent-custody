@@ -1,5 +1,5 @@
 // Aspect: identities and signatures. Source: src/crypto.ts
-// Run:    npx tsx examples/01-keys-and-signing.ts
+// Run:    node examples/01-keys-and-signing.ts
 //
 // Every party that signs anything, the gateway, an SDK application, a principal, is an Ed25519 key pair.
 // Signatures use DSSE envelopes over canonical JSON, so the same object always produces the same bytes.

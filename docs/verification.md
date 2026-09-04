@@ -19,7 +19,7 @@ node src/cli.ts verify receipts/<id>.json \
 
 Exit code 0 when every check passes, 1 otherwise. Add `--json` for machine-readable output. `--issuer-key` and `--principal-key` can be repeated to accept rotated keys; signatures are matched by keyid. `--gateway-key` is an alias for `--issuer-key`. `--principal-key` may be omitted for SDK receipts, which carry no delegation.
 
-A real report, produced by `npm run demo`:
+A real report, produced by `node scripts/demo.ts`:
 
 ```
 PASS  receipt signature (issuer key)  (keyid f2f53b689a84)

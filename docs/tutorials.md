@@ -3,7 +3,7 @@
 One runnable example per aspect of the code. Each prints what it is doing, step by step, and ends with `OK`. The test suite runs all of them, so what you read here is what the code does today.
 
 ```bash
-npx tsx examples/01-keys-and-signing.ts
+node examples/01-keys-and-signing.ts
 ```
 
 Suggested reading order is the numbering. Output lands in `examples-out/`, which is gitignored.

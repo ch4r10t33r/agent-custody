@@ -1,5 +1,5 @@
 // Aspect: what is inside a receipt. Source: src/receipt.ts
-// Run:    npx tsx examples/12-read-a-receipt.ts
+// Run:    node examples/12-read-a-receipt.ts
 //
 // A bundle is three things: a signed statement, a signed tree head, and an inclusion proof. This walks one.
 import { readFileSync } from "node:fs";

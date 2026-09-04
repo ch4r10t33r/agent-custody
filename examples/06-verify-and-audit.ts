@@ -1,5 +1,5 @@
 // Aspect: verification and auditing. Source: src/verify.ts
-// Run:    npx tsx examples/06-verify-and-audit.ts
+// Run:    node examples/06-verify-and-audit.ts
 //
 // A verifier holds a receipt bundle and public keys. Nothing else. Optionally a copy of the log.
 import { readFileSync } from "node:fs";

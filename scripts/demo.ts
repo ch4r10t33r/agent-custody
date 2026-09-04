@@ -84,5 +84,5 @@ for (const line of readFileSync(join(fx.dir, "sdk-log.jsonl"), "utf8").trim().sp
 }
 
 console.log(`\nArtifacts in ${fx.dir}: keys/, grant.json, policy.cedar, gateway.json, receipts/, log.jsonl, tampered.json, sdk.json, sdk-receipts/, sdk-log.jsonl`);
-console.log(`Try the CLI:\n  npx tsx src/cli.ts verify demo-out/receipts/${receiptIds[0]}.json --issuer-key demo-out/keys/gateway.pub --principal-key demo-out/keys/principal.pub --log demo-out/log.jsonl`);
+console.log(`Try the CLI:\n  node src/cli.ts verify demo-out/receipts/${receiptIds[0]}.json --issuer-key demo-out/keys/gateway.pub --principal-key demo-out/keys/principal.pub --log demo-out/log.jsonl`);
 console.log(`  node src/cli.ts verify demo-out/sdk-receipts/${sdkIds[0]}.json --issuer-key demo-out/keys/app.pub`);

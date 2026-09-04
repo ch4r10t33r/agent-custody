@@ -1,5 +1,5 @@
 // Aspect: the LangChain adapter. Source: src/sdk/langchain.ts
-// Run:    npx tsx examples/11-langchain.ts
+// Run:    node examples/11-langchain.ts
 //
 // LangChain callbacks observe but cannot block. Record with the handler; enforce by wrapping the function.
 import { tool } from "@langchain/core/tools";

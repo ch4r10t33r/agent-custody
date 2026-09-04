@@ -1,5 +1,5 @@
 // Aspect: the Vercel AI SDK adapter. Source: src/sdk/vercel-ai.ts
-// Run:    npx tsx examples/10-vercel-ai.ts
+// Run:    node examples/10-vercel-ai.ts
 //
 // The SDK's own MockLanguageModelV4 stands in for the LLM; generateText, tools, and the tool loop are real.
 import { generateText, stepCountIs, tool } from "ai";

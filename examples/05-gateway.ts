@@ -1,5 +1,5 @@
 // Aspect: the gateway as an MCP server. Source: src/gateway.ts, src/cli.ts
-// Run:    npx tsx examples/05-gateway.ts
+// Run:    node examples/05-gateway.ts
 //
 // An agent host spawns the gateway exactly as it would spawn any stdio MCP server. The gateway spawns the real
 // upstream behind it. This example is the agent: an MCP client that lists tools and calls two of them.

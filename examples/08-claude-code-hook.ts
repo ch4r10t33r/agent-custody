@@ -1,5 +1,5 @@
 // Aspect: Claude Code and Claude Agent SDK hooks. Source: src/sdk/claude.ts, src/cli.ts (hook)
-// Run:    npx tsx examples/08-claude-code-hook.ts
+// Run:    node examples/08-claude-code-hook.ts
 //
 // Claude Code runs a command hook with the event as JSON on stdin. The same handler serves the Agent SDK in-process.
 import { spawnSync } from "node:child_process";

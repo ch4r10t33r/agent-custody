@@ -1,5 +1,5 @@
 // Aspect: policies. Source: src/policy.ts, docs/policies.md
-// Run:    npx tsx examples/03-policies.ts
+// Run:    node examples/03-policies.ts
 //
 // Policies are Cedar. The gateway maps a tool call to principal Agent::"<agent>", action Action::"<tool>",
 // resource Tool::"<tool>", and a context with three parts: args (what the agent sent, claimed), facts (what the

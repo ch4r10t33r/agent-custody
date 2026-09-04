@@ -1,5 +1,5 @@
 // Aspect: delegated authority. Source: src/delegation.ts
-// Run:    npx tsx examples/02-delegation-grant.ts
+// Run:    node examples/02-delegation-grant.ts
 //
 // A principal (a person or an organisation) signs a grant: this agent may use these tools between these times.
 // The gateway refuses to start without a valid grant, and every gateway receipt embeds the grant it enforced.

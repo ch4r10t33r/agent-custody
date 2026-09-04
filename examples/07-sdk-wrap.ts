@@ -1,5 +1,5 @@
 // Aspect: the in-process SDK. Source: src/sdk/index.ts
-// Run:    npx tsx examples/07-sdk-wrap.ts
+// Run:    node examples/07-sdk-wrap.ts
 //
 // No gateway, no MCP. Wrap a function; every call gets a receipt. Everything the SDK records is labelled
 // "claimed" because it shares a process with the agent, and the receipt says so.

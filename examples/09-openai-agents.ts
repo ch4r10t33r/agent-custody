@@ -1,5 +1,5 @@
 // Aspect: the OpenAI Agents SDK adapter. Source: src/sdk/openai-agents.ts
-// Run:    npx tsx examples/09-openai-agents.ts
+// Run:    node examples/09-openai-agents.ts
 //
 // A scripted Model stands in for the LLM so this runs offline; everything else is the real SDK.
 import { Agent, Runner, setTracingDisabled, tool, Usage, type Model } from "@openai/agents";

@@ -133,11 +133,13 @@ Every field carries a provenance label. This is the design decision that matters
 ## Quick start
 
 ```bash
-bun install        # or pnpm / npm
-npm run demo       # gateway: keys, grant, policy, four tool calls, verification, a tampering attempt; then the SDK wrapping the same tool
-npm test
-npx tsx examples/01-keys-and-signing.ts   # first of twelve step-by-step examples, see docs/tutorials.md
+bun install                              # or npm install / pnpm install
+node scripts/demo.ts                     # gateway: keys, grant, policy, four tool calls, verification, a tampering attempt; then the SDK wrapping the same tool
+node examples/01-keys-and-signing.ts     # first of twelve step-by-step examples, see docs/tutorials.md
+bun run test                             # or npm test
 ```
+
+Everything runs on plain Node 22 or later. No build step, no `npx`, no `tsx` needed on the command line.
 
 The demo leaves everything in `demo-out/`, including receipts from both producers. Verify a receipt by hand:
 

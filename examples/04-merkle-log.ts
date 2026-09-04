@@ -1,5 +1,5 @@
 // Aspect: the transparency log. Source: src/log.ts
-// Run:    npx tsx examples/04-merkle-log.ts
+// Run:    node examples/04-merkle-log.ts
 //
 // Every receipt is appended to a Merkle log (RFC 6962 hashing). The receipt bundle carries an inclusion proof and a
 // signed tree head. An auditor holding a copy of the log file can recompute the root and detect any rewrite.

@@ -9,6 +9,7 @@ Two producers, one receipt format, one verifier.
 
 Anyone holding the public keys can verify a receipt offline. The agent is not trusted. The layer around it is, and the receipt says exactly how far that trust extends, starting with who issued it.
 
+- [Tutorials](docs/tutorials.md): twelve runnable examples, one per aspect of the code, all executed by the test suite
 - [Usage guide](docs/usage.md): gateway setup, wiring into Claude Desktop, Claude Code, or your own agent loop
 - [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, adapters for the OpenAI Agents SDK, Vercel AI SDK and LangChain, and wrapping tool functions in anything else
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
@@ -135,6 +136,7 @@ Every field carries a provenance label. This is the design decision that matters
 bun install        # or pnpm / npm
 npm run demo       # gateway: keys, grant, policy, four tool calls, verification, a tampering attempt; then the SDK wrapping the same tool
 npm test
+npx tsx examples/01-keys-and-signing.ts   # first of twelve step-by-step examples, see docs/tutorials.md
 ```
 
 The demo leaves everything in `demo-out/`, including receipts from both producers. Verify a receipt by hand:
@@ -193,9 +195,10 @@ src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, teste
 src/verify.ts      offline verification and the human-readable report
 src/cli.ts         keygen, grant, gateway, hook, verify
 scripts/           fake Stripe upstream, fixture builders for gateway and SDK, demo
+examples/          twelve runnable tutorials, one per aspect; each is run by the test suite
 test/              unit tests per module, end-to-end gateway test, SDK and hook tests,
                    adapter tests against the real packages, and a test that runs every policy in docs/policies.md
-docs/              usage (gateway), sdk, policies, verification
+docs/              tutorials, usage (gateway), sdk, policies, verification
 ```
 
 ## Plan

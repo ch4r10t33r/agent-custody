@@ -1,0 +1,51 @@
+// A stand-in upstream MCP server: a customer directory and a payments API. Nothing here is signed,
+// which is exactly why the receipt marks its results "observed" rather than "attested".
+import { randomUUID } from "node:crypto";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
+
+const CUSTOMERS: Record<string, { id: string; email: string; verified: boolean }> = {
+  cust_123: { id: "cust_123", email: "alex@example.com", verified: true },
+  cust_999: { id: "cust_999", email: "sam@example.com", verified: false },
+};
+
+const tools: Tool[] = [
+  {
+    name: "customer.lookup",
+    description: "Look up a customer record",
+    inputSchema: { type: "object", properties: { customer_id: { type: "string" } }, required: ["customer_id"] },
+  },
+  {
+    name: "stripe.refund",
+    description: "Refund a customer. amount is in minor units (pence).",
+    inputSchema: { type: "object", properties: { customer_id: { type: "string" }, amount: { type: "integer" } }, required: ["customer_id", "amount"] },
+  },
+  {
+    name: "stripe.payout",
+    description: "Pay out funds to the connected bank account. amount in minor units.",
+    inputSchema: { type: "object", properties: { amount: { type: "integer" } }, required: ["amount"] },
+  },
+];
+
+const json = (v: unknown): CallToolResult => ({ content: [{ type: "text", text: JSON.stringify(v) }] });
+const fail = (msg: string): CallToolResult => ({ isError: true, content: [{ type: "text", text: msg }] });
+
+const server = new Server({ name: "fake-stripe", version: "0.0.1" }, { capabilities: { tools: {} } });
+server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
+  const a = (params.arguments ?? {}) as Record<string, unknown>;
+  switch (params.name) {
+    case "customer.lookup": {
+      const c = CUSTOMERS[String(a.customer_id)];
+      return c ? json(c) : fail(`no such customer ${String(a.customer_id)}`);
+    }
+    case "stripe.refund":
+      return json({ refund_id: `re_${randomUUID().slice(0, 8)}`, customer_id: a.customer_id, amount: a.amount, status: "succeeded" });
+    case "stripe.payout":
+      return json({ payout_id: `po_${randomUUID().slice(0, 8)}`, amount: a.amount, status: "paid" });
+    default:
+      return fail(`unknown tool ${params.name}`);
+  }
+});
+await server.connect(new StdioServerTransport());

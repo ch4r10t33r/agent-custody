@@ -1,0 +1,29 @@
+{
+  "name": "agent-receipts",
+  "version": "0.1.0",
+  "description": "Signed, independently verifiable receipts for AI agent tool calls: MCP gateway + Cedar policy + Merkle transparency log",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "agent-receipts": "./src/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "demo": "tsx scripts/demo.ts"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@cedar-policy/cedar-wasm": "^4.12.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}

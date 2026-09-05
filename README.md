@@ -1,6 +1,6 @@
-# agent-receipts
+# agent-custody
 
-Signed, independently verifiable receipts for AI agent tool calls.
+Chain of custody for AI agents: signed, independently verifiable receipts for every tool call.
 
 Two producers, one receipt format, one verifier.
 
@@ -22,7 +22,7 @@ flowchart LR
     P["Principal<br/>(human or org, holds a signing key)"]
     A["Agent host<br/>Claude Desktop, Claude Code,<br/>LangGraph, custom loop"]
     S["SDK interceptor<br/>inside the agent process:<br/>hooks or wrapped tools"]
-    G["agent-receipts gateway<br/>scope check → fact lookups → Cedar policy"]
+    G["agent-custody gateway<br/>scope check → fact lookups → Cedar policy"]
     U["Upstream MCP server<br/>Stripe, database, GitHub, ..."]
     R[("receipt bundles<br/>receipts/*.json")]
     L[("Merkle log<br/>log.jsonl")]
@@ -100,7 +100,7 @@ sequenceDiagram
     Gateway->>Log: append canonical envelope
     Log-->>Gateway: leaf index, inclusion proof, root
     Gateway->>Gateway: sign tree head, write bundle to receipts/
-    Gateway-->>Agent: result or denial, _meta["agent-receipts/receipt"] = id
+    Gateway-->>Agent: result or denial, _meta["agent-custody/receipt"] = id
 ```
 
 Denied calls get receipts too. "The agent tried to pay out funds and was refused" is evidence worth keeping.

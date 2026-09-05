@@ -12,7 +12,7 @@ import { out, step } from "./_out.ts";
 
 const fx = buildFixture(out("12-receipt"));
 const gw = await createGateway(loadConfig(fx.configFile));
-const r = await gw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 }, _meta: { "agent-receipts/model": "claude-fable-5-1" } });
+const r = await gw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 }, _meta: { "agent-custody/model": "claude-fable-5-1" } });
 await gw.close();
 const bundle = JSON.parse(readFileSync(join(fx.receiptsDir, `${String(r._meta?.[RECEIPT_META_KEY])}.json`), "utf8")) as ReceiptBundle;
 

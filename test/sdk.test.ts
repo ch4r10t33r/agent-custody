@@ -24,7 +24,7 @@ const bundleFor = (id: string) => JSON.parse(readFileSync(join(dir, "receipts", 
 const failing = (r: ReturnType<typeof verifyBundle>) => r.checks.filter((c) => !c.ok).map((c) => c.name);
 
 beforeAll(() => {
-  dir = mkdtempSync(join(tmpdir(), "agent-receipts-sdk-"));
+  dir = mkdtempSync(join(tmpdir(), "agent-custody-sdk-"));
   const app = writeKeyPair(generateKeyPair(), join(dir, "keys"), "app");
   writeFileSync(join(dir, "policy.cedar"), POLICY);
   configFile = join(dir, "sdk.json");

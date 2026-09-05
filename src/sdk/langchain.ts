@@ -31,7 +31,7 @@ function unwrapOutput(output: unknown): unknown {
 }
 
 export class ReceiptCallbackHandler extends BaseCallbackHandler {
-  name = "agent-receipts";
+  name = "agent-custody";
   private readonly issuer: SdkIssuer;
   private readonly pending = new Map<string, ToolEvent>();
 

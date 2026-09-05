@@ -2,7 +2,7 @@
 import { z } from "zod";
 import { dsseSign, dsseVerify, type Envelope, type KeyPair, type PublicKeyRef } from "./crypto.ts";
 
-export const DELEGATION_TYPE = "application/vnd.agent-receipts.delegation+json";
+export const DELEGATION_TYPE = "application/vnd.agent-custody.delegation+json";
 
 export const DelegationSchema = z.object({
   version: z.literal("0.1"),

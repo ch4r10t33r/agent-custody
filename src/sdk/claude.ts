@@ -46,7 +46,7 @@ export function handleHookEvent(issuer: SdkIssuer, input: HookInput): HookOutput
           hookSpecificOutput: {
             hookEventName: "PreToolUse",
             permissionDecision: "deny",
-            permissionDecisionReason: `agent-receipts: ${reason} (receipt ${receiptIdOf(bundle)})`,
+            permissionDecisionReason: `agent-custody: ${reason} (receipt ${receiptIdOf(bundle)})`,
           },
         };
       }

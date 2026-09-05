@@ -4,8 +4,8 @@ import type { InclusionProof } from "./log.ts";
 import type { PolicyDecision } from "./policy.ts";
 
 export const RECEIPT_TYPE = "application/vnd.in-toto+json";
-export const RECEIPT_PREDICATE_TYPE = "https://agent-receipts.dev/receipt/v0.2";
-export const TREEHEAD_TYPE = "application/vnd.agent-receipts.treehead+json";
+export const RECEIPT_PREDICATE_TYPE = "https://agent-custody.dev/receipt/v0.2";
+export const TREEHEAD_TYPE = "application/vnd.agent-custody.treehead+json";
 
 /**
  * Provenance of a receipt field. This is the honest part of the design.

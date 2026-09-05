@@ -102,7 +102,7 @@ In `claude_desktop_config.json`:
   "mcpServers": {
     "stripe": {
       "command": "node",
-      "args": ["/abs/path/agent-receipts/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"]
+      "args": ["/abs/path/agent-custody/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"]
     }
   }
 }
@@ -113,7 +113,7 @@ Claude sees only the tools inside the grant's scopes. Every call it makes produc
 ### Claude Code
 
 ```bash
-claude mcp add stripe -- node /abs/path/agent-receipts/src/cli.ts gateway --config /abs/path/gateway.json
+claude mcp add stripe -- node /abs/path/agent-custody/src/cli.ts gateway --config /abs/path/gateway.json
 ```
 
 ### Your own agent loop (TypeScript)
@@ -127,7 +127,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const agent = new Client({ name: "my-agent", version: "1.0.0" });
 await agent.connect(new StdioClientTransport({
   command: "node",
-  args: ["/abs/path/agent-receipts/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"],
+  args: ["/abs/path/agent-custody/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"],
 }));
 
 const { tools } = await agent.listTools();               // only tools in the grant's scopes
@@ -135,10 +135,10 @@ const { tools } = await agent.listTools();               // only tools in the gr
 const result = await agent.callTool({
   name: "stripe.refund",
   arguments: { customer_id: "cust_123", amount: 50000 },
-  _meta: { "agent-receipts/model": "claude-fable-5-1" },  // optional, recorded as "claimed"
+  _meta: { "agent-custody/model": "claude-fable-5-1" },  // optional, recorded as "claimed"
 });
 
-const receiptId = result._meta?.["agent-receipts/receipt"];
+const receiptId = result._meta?.["agent-custody/receipt"];
 if (result.isError) {
   // denied by scope or policy, or upstream failed; the text says which, and a receipt exists either way
 }
@@ -150,7 +150,7 @@ Any other MCP client works the same way: Python's `mcp` package, LangGraph's MCP
 
 | outcome | `isError` | content | receipt |
 | --- | --- | --- | --- |
-| executed | as returned by upstream | upstream's content, untouched | `_meta["agent-receipts/receipt"]` |
+| executed | as returned by upstream | upstream's content, untouched | `_meta["agent-custody/receipt"]` |
 | upstream returned an error | `true` | upstream's content | same |
 | denied by scope or policy | `true` | `Denied by policy: <reason> (receipt <id>)` | same |
 | upstream unreachable | `true` | `Upstream error: <message> (receipt <id>)` | same |

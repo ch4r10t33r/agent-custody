@@ -18,7 +18,7 @@ const bundleFor = (id: string) => JSON.parse(readFileSync(join(fx.receiptsDir, `
 const failing = (r: ReturnType<typeof verifyBundle>) => r.checks.filter((c) => !c.ok).map((c) => c.name);
 
 beforeAll(async () => {
-  fx = buildFixture(mkdtempSync(join(tmpdir(), "agent-receipts-")));
+  fx = buildFixture(mkdtempSync(join(tmpdir(), "agent-custody-")));
   gw = await createGateway(loadConfig(fx.configFile));
   opts = { issuerKeys: [loadPublicKey(fx.gatewayPub)], principalKeys: [loadPublicKey(fx.principalPub)], logFile: fx.logFile };
 }, 30_000);
@@ -30,7 +30,7 @@ describe("gateway", () => {
   });
 
   it("executes an in-policy refund and produces a fully verifiable receipt", async () => {
-    const r = await gw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 }, _meta: { "agent-receipts/model": "m1" } });
+    const r = await gw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 }, _meta: { "agent-custody/model": "m1" } });
     expect(r.isError).toBeFalsy();
     const bundle = bundleFor(String(r._meta?.[RECEIPT_META_KEY]));
     const st = decode(bundle);
@@ -86,7 +86,7 @@ describe("gateway", () => {
     const tampered = { ...bundle, envelope: { ...bundle.envelope, payload: Buffer.from(JSON.stringify(st)).toString("base64") } };
     expect(failing(verifyBundle(tampered, opts))).toEqual(["receipt signature (issuer key)"]);
 
-    const otherLog = buildFixture(mkdtempSync(join(tmpdir(), "agent-receipts-other-"))).logFile;
+    const otherLog = buildFixture(mkdtempSync(join(tmpdir(), "agent-custody-other-"))).logFile;
     const other = await createGateway(loadConfig(join(otherLog, "..", "gateway.json")));
     await other.handleCall({ name: "customer.lookup", arguments: { customer_id: "cust_123" } });
     await other.close();

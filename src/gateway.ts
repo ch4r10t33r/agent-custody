@@ -15,8 +15,8 @@ import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
 import type { FactRecord, ReceiptPredicate } from "./receipt.ts";
 
 export const GATEWAY_VERSION = "0.1.0";
-export const RECEIPT_META_KEY = "agent-receipts/receipt";
-export const MODEL_META_KEY = "agent-receipts/model";
+export const RECEIPT_META_KEY = "agent-custody/receipt";
+export const MODEL_META_KEY = "agent-custody/model";
 
 export interface CallParams {
   name: string;
@@ -71,7 +71,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
   const pDigest = policyDigest(policyText);
   const issuer = createIssuer(gatewayKey, cfg.receiptsDir, cfg.logFile);
 
-  const upstream = new Client({ name: "agent-receipts-gateway", version: GATEWAY_VERSION });
+  const upstream = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
   await upstream.connect(
     new StdioClientTransport({ command: cfg.upstream.command, args: cfg.upstream.args, env: cfg.upstream.env, stderr: "inherit" }),
   );
@@ -172,7 +172,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
 
 /** Exposes the gateway as an MCP server over stdio. Everything diagnostic must go to stderr. */
 export async function serveStdio(gw: Gateway): Promise<void> {
-  const server = new Server({ name: "agent-receipts-gateway", version: GATEWAY_VERSION }, { capabilities: { tools: {} } });
+  const server = new Server({ name: "agent-custody-gateway", version: GATEWAY_VERSION }, { capabilities: { tools: {} } });
   server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: await gw.listTools() }));
   server.setRequestHandler(CallToolRequestSchema, async (req) => gw.handleCall(req.params as CallParams));
   await server.connect(new StdioServerTransport());

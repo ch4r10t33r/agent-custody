@@ -30,7 +30,7 @@ console.log("   tools:", (await agent.listTools()).tools.map((t) => t.name).join
 
 step(4, "an in-policy refund executes; the receipt id comes back in _meta");
 const ok = (await agent.callTool({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 } })) as CallToolResult;
-console.log("   isError:", ok.isError ?? false, "receipt:", ok._meta?.["agent-receipts/receipt"]);
+console.log("   isError:", ok.isError ?? false, "receipt:", ok._meta?.["agent-custody/receipt"]);
 
 step(5, "an out-of-policy refund is refused before it reaches upstream, and still gets a receipt");
 const denied = (await agent.callTool({ name: "stripe.refund", arguments: { customer_id: "cust_999", amount: 50000 } })) as CallToolResult;

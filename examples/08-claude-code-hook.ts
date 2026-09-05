@@ -16,7 +16,7 @@ const issuer = createSdkIssuer(loadSdkConfig(fx.configFile));
 step(1, "register the hook in .claude/settings.json (one command for all three events)");
 console.log(
   JSON.stringify(
-    { hooks: { PreToolUse: [{ matcher: "mcp__.*", hooks: [{ type: "command", command: "node /abs/agent-receipts/src/cli.ts hook --config /abs/sdk.json" }] }], PostToolUse: [{ hooks: [{ type: "command", command: "node /abs/agent-receipts/src/cli.ts hook --config /abs/sdk.json" }] }] } },
+    { hooks: { PreToolUse: [{ matcher: "mcp__.*", hooks: [{ type: "command", command: "node /abs/agent-custody/src/cli.ts hook --config /abs/sdk.json" }] }], PostToolUse: [{ hooks: [{ type: "command", command: "node /abs/agent-custody/src/cli.ts hook --config /abs/sdk.json" }] }] } },
     null,
     2,
   )

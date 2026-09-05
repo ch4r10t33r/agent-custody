@@ -10,7 +10,7 @@ import { createSdkIssuer } from "./sdk/index.ts";
 import { handleHookEvent, type HookInput } from "./sdk/claude.ts";
 import { formatReport, verifyBundle } from "./verify.ts";
 
-const USAGE = `agent-receipts <command>
+const USAGE = `agent-custody <command>
 
   keygen  --dir <dir> --name <name>
   grant   --key <principal.key> --principal <id> --agent <id> --scopes <a,b> [--ttl-hours 24] --out <file>
@@ -60,7 +60,7 @@ async function main(argv: string[]): Promise<number> {
       const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
       if (!values.config) throw new Error("gateway needs --config");
       const gw = await createGateway(loadConfig(values.config));
-      console.error(`agent-receipts gateway: agent=${gw.agentId} principal=${gw.delegation.principal} scopes=[${gw.delegation.scopes.join(", ")}]`);
+      console.error(`agent-custody gateway: agent=${gw.agentId} principal=${gw.delegation.principal} scopes=[${gw.delegation.scopes.join(", ")}]`);
       await serveStdio(gw);
       await gw.close();
       return 0;

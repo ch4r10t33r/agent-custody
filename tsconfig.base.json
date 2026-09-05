@@ -12,11 +12,5 @@
     "types": [
       "node"
     ]
-  },
-  "include": [
-    "src",
-    "scripts",
-    "test",
-    "examples"
-  ]
+  }
 }

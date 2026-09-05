@@ -1,0 +1,22 @@
+{
+  "name": "@agent-custody/state",
+  "version": "0.1.0",
+  "description": "Governed memory for AI agents: a fact ledger with provenance, valid time, rollback, and lineage, built on @agent-custody/receipts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@agent-custody/receipts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  }
+}

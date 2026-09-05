@@ -19,7 +19,7 @@ One gateway process serves one delegation grant. That maps cleanly onto "one age
 
 ## Setup, step by step
 
-All commands run from the repository root. `node src/cli.ts` works on Node 22 and later without a build step.
+All commands run from `packages/receipts`. `node src/cli.ts` works on Node 22 and later without a build step.
 
 **1. Generate keys.** One pair for the gateway, one for the principal. Keep the `.key` files private; distribute the `.pub` files to anyone who will verify receipts.
 
@@ -102,7 +102,7 @@ In `claude_desktop_config.json`:
   "mcpServers": {
     "stripe": {
       "command": "node",
-      "args": ["/abs/path/agent-custody/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"]
+      "args": ["/abs/path/agent-custody/packages/receipts/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"]
     }
   }
 }
@@ -113,7 +113,7 @@ Claude sees only the tools inside the grant's scopes. Every call it makes produc
 ### Claude Code
 
 ```bash
-claude mcp add stripe -- node /abs/path/agent-custody/src/cli.ts gateway --config /abs/path/gateway.json
+claude mcp add stripe -- node /abs/path/agent-custody/packages/receipts/src/cli.ts gateway --config /abs/path/gateway.json
 ```
 
 ### Your own agent loop (TypeScript)
@@ -127,7 +127,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 const agent = new Client({ name: "my-agent", version: "1.0.0" });
 await agent.connect(new StdioClientTransport({
   command: "node",
-  args: ["/abs/path/agent-custody/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"],
+  args: ["/abs/path/agent-custody/packages/receipts/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"],
 }));
 
 const { tools } = await agent.listTools();               // only tools in the grant's scopes

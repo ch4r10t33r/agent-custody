@@ -1,48 +1,17 @@
 {
   "name": "agent-custody",
   "version": "0.1.0",
-  "description": "Chain of custody for AI agents: signed, independently verifiable receipts for tool calls. MCP gateway + Cedar policy + Merkle transparency log",
-  "type": "module",
+  "description": "Chain of custody for AI agents: what an agent did and what it believes, signed, verifiable, and revertible",
   "private": true,
-  "bin": {
-    "agent-custody": "./src/cli.ts"
-  },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "demo": "tsx scripts/demo.ts"
+    "typecheck": "bun run --filter '*' typecheck",
+    "test": "bun run --filter '*' test",
+    "demo": "bun run --cwd packages/receipts demo"
   },
   "engines": {
     "node": ">=22"
-  },
-  "dependencies": {
-    "@cedar-policy/cedar-wasm": "^4.12.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
-    "zod": "^4.5.4"
-  },
-  "devDependencies": {
-    "@langchain/core": "^1.2.9",
-    "@openai/agents": "^0.17.0",
-    "@types/node": "^26.4.1",
-    "ai": "^7.0.92",
-    "tsx": "^4.23.13",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
-  },
-  "peerDependencies": {
-    "@langchain/core": ">=1.0.0",
-    "@openai/agents": ">=0.1.0",
-    "ai": ">=5.0.0"
-  },
-  "peerDependenciesMeta": {
-    "@langchain/core": {
-      "optional": true
-    },
-    "@openai/agents": {
-      "optional": true
-    },
-    "ai": {
-      "optional": true
-    }
   }
 }

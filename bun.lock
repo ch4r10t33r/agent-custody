@@ -4,6 +4,13 @@
   "workspaces": {
     "": {
       "name": "agent-custody",
+    },
+    "packages/receipts": {
+      "name": "@agent-custody/receipts",
+      "version": "0.1.0",
+      "bin": {
+        "agent-custody": "./src/cli.ts",
+      },
       "dependencies": {
         "@cedar-policy/cedar-wasm": "^4.12.0",
         "@modelcontextprotocol/sdk": "^1.30.0",
@@ -29,8 +36,24 @@
         "ai",
       ],
     },
+    "packages/state": {
+      "name": "@agent-custody/state",
+      "version": "0.1.0",
+      "dependencies": {
+        "@agent-custody/receipts": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/node": "^26.4.1",
+        "typescript": "^7.0.2",
+        "vitest": "^5.0.0",
+      },
+    },
   },
   "packages": {
+    "@agent-custody/receipts": ["@agent-custody/receipts@workspace:packages/receipts"],
+
+    "@agent-custody/state": ["@agent-custody/state@workspace:packages/state"],
+
     "@ai-sdk/gateway": ["@ai-sdk/gateway@4.0.74", "", { "dependencies": { "@ai-sdk/provider": "4.0.10", "@ai-sdk/provider-utils": "5.0.36", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-6hpLUtAD162KLyyj9LN2OuEyze7lzq4wwj7PyQPYdMmA8PBYwyMbmvmu1C7OzfexLSPltZK29pX8R6hrJsqBqA=="],
 
     "@ai-sdk/provider": ["@ai-sdk/provider@4.0.10", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-fX2ENAc7iDpZ+Wp4+Rk06Usn/Ys7dI9uAkGv0jlF6XVrW13NkRWx5Ou+U6lIM2E1fTLkCs16GGrUAaVvroag7A=="],

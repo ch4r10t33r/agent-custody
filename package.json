@@ -2,6 +2,7 @@
   "name": "agent-custody",
   "version": "0.1.0",
   "description": "Chain of custody for AI agents: what an agent did and what it believes, signed, verifiable, and revertible",
+  "license": "Apache-2.0",
   "private": true,
   "workspaces": [
     "packages/*"

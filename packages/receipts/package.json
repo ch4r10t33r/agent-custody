@@ -2,8 +2,16 @@
   "name": "@agent-custody/receipts",
   "version": "0.1.0",
   "description": "Chain of custody for AI agents: signed, independently verifiable receipts for tool calls. MCP gateway + Cedar policy + Merkle transparency log",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ch4r10t33r/agent-custody.git",
+    "directory": "packages/receipts"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
-  "private": true,
   "bin": {
     "agent-custody": "./dist/cli.js"
   },

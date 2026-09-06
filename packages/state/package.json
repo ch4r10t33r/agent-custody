@@ -2,8 +2,16 @@
   "name": "@agent-custody/state",
   "version": "0.1.0",
   "description": "Governed memory for AI agents: a fact ledger with provenance, valid time, rollback, and lineage, built on @agent-custody/receipts",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ch4r10t33r/agent-custody.git",
+    "directory": "packages/state"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "type": "module",
-  "private": true,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

@@ -9,6 +9,7 @@ The agent is not trusted. The layer around it is, and every record says exactly 
 | package | what it is | status |
 | --- | --- | --- |
 | [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, fourteen runnable tutorials |
+| [`agent-custody` on PyPI](packages/python/README.md) | The Python client of the sidecar: `decide`, `record`, `wrap`, and adapters for LangChain, the OpenAI Agents SDK, and the Claude Agent SDK, tested against the real packages | working; Go, Java, and Rust clients live in [examples/languages](packages/receipts/examples/languages) |
 | [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | bitemporal fact ledger with supersession, retraction, and as-of queries |
 
 Receipts are the unit. State is the ledger of what the agent came to believe from them. Both append to the same kind of signed log and are checked by the same kind of verifier.
@@ -100,7 +101,8 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 - Write policies and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
 - Log to a server the operator does not control, so tree heads are signed by a key that is not yours. [verification.md](packages/receipts/docs/verification.md)
 - Prove a log was never rewritten: keep any receipt's tree head, later audit that the log still extends it. [verification.md](packages/receipts/docs/verification.md)
-- Sixteen step-by-step examples across the two packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
+- Agents in Python, Go, Java, Rust, or anything else: the gateway is an MCP server and needs nothing from your language; for in-process receipts run the sidecar and use the Python package or a forty-line client. [sdk.md](packages/receipts/docs/sdk.md#other-languages-the-sidecar)
+- Seventeen step-by-step examples across the packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
 
 ## Working in the repository
 
@@ -108,6 +110,7 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 bun install                         # one install for the whole workspace
 bun run test                        # every package
 bun run build                       # dist/ for every package, what consumers install
+bun run test:python                 # the Python package, with uv; needs node for the sidecar
 bun run demo                        # the receipts demo: keys, grant, policy, tool calls, verification, a tampering attempt
 ```
 
@@ -119,6 +122,7 @@ Everything runs on plain Node 22 or later. No build step. Package-level commands
 package.json          workspace root: typecheck, test, and demo across packages
 tsconfig.base.json    compiler options shared by every package
 packages/receipts/    the receipts package: src, test, examples, scripts, docs
+packages/python/      the Python client package: agent_custody, tests run with uv against a real sidecar
 packages/state/       the state package: src, test, examples
 ```
 

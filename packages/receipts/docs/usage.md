@@ -124,6 +124,31 @@ Claude sees only the tools inside the grant's scopes. Every call it makes produc
 claude mcp add stripe -- node /abs/path/agent-custody/packages/receipts/src/cli.ts gateway --config /abs/path/gateway.json
 ```
 
+### Python hosts
+
+The gateway is language-neutral: any host that can launch a stdio MCP server can use it. Claude Agent SDK for Python:
+
+```python
+from claude_agent_sdk import ClaudeAgentOptions, query
+
+options = ClaudeAgentOptions(mcp_servers={"stripe": {"command": "node", "args": ["/abs/path/agent-custody/packages/receipts/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"]}})
+async for message in query(prompt="Refund customer cust_123 by 50 dollars", options=options):
+    ...
+```
+
+OpenAI Agents SDK for Python:
+
+```python
+from agents import Agent, Runner
+from agents.mcp import MCPServerStdio
+
+async with MCPServerStdio(params={"command": "node", "args": ["/abs/path/agent-custody/packages/receipts/src/cli.ts", "gateway", "--config", "/abs/path/gateway.json"]}) as stripe:
+    agent = Agent(name="support", instructions="...", mcp_servers=[stripe])
+    result = await Runner.run(agent, "Refund customer cust_123 by 50 dollars")
+```
+
+With the npm package installed globally, `"command": "agent-custody", "args": ["gateway", "--config", ...]` replaces the node invocation. Every tool the agent sees comes through the gateway; denied calls never reach Stripe and still produce a receipt. For receipts from tools that are plain Python functions rather than MCP servers, use the sidecar and the Python package, in [sdk.md](sdk.md).
+
 ### Your own agent loop (TypeScript)
 
 This is what [scripts/demo.ts](../scripts/demo.ts) does.

@@ -24,6 +24,7 @@ Suggested reading order is the numbering. Output lands in `examples-out/`, which
 | 12 | inside a receipt | [12-read-a-receipt.ts](../examples/12-read-a-receipt.ts) | the bundle's three parts, the in-toto statement, every predicate field with its provenance, the tree head | `src/receipt.ts` |
 | 13 | a log run by someone else | [13-remote-log.ts](../examples/13-remote-log.ts) | the reference log server on a free port, an SDK config that logs to it, a tree head signed by the log's key, verification failing without that key and passing with it, the root endpoint, a refused token | `src/log-sink.ts` |
 | 14 | proving history was not rewritten | [14-audit-history.ts](../examples/14-audit-history.ts) | three receipts and a kept tree head, a consistency proof that passes, the operator rewriting one leaf and appending a fourth call, the audit failing while the fourth receipt still verifies alone | `src/log.ts`, `src/verify.ts` |
+| 15 | agents in other languages | [15-sidecar.ts](../examples/15-sidecar.ts) | the sidecar on a free port, a client written as a Python or Go program would write it: decide, run, record; a denial recorded without running the tool; both receipts verified | `src/sidecar.ts` |
 
 ## How policies are defined, in one paragraph
 

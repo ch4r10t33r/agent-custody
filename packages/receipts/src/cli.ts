@@ -6,6 +6,7 @@ import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./
 import { createDelegation } from "./delegation.ts";
 import { createGateway, serveStdio } from "./gateway.ts";
 import { serveLog } from "./log-sink.ts";
+import { serveSidecar } from "./sidecar.ts";
 import type { ReceiptBundle, TreeHead } from "./receipt.ts";
 import type { Envelope } from "./crypto.ts";
 import { MerkleLog } from "./log.ts";
@@ -19,6 +20,7 @@ const USAGE = `agent-custody <command>
   grant   --key <principal.key> --principal <id> --agent <id> --scopes <a,b> [--ttl-hours 24] --out <file>
   gateway --config <gateway.json>
   hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_CUSTODY_CONFIG)
+  serve   --config <sdk.json> [--port 8788] [--host 127.0.0.1]   the SDK as a local HTTP API for agents in other languages
   log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
   verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--log <log.jsonl>] [--json]
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--json]
@@ -78,6 +80,16 @@ async function main(argv: string[]): Promise<number> {
       const input = JSON.parse(readFileSync(0, "utf8")) as HookInput;
       const out = await handleHookEvent(createSdkIssuer(loadSdkConfig(configPath)), input);
       console.log(JSON.stringify(out));
+      return 0;
+    }
+    case "serve": {
+      const { values } = parseArgs({ args: rest, options: { config: { type: "string" }, port: { type: "string", default: "8788" }, host: { type: "string", default: "127.0.0.1" } } });
+      if (!values.config) throw new Error("serve needs --config");
+      const issuer = createSdkIssuer(loadSdkConfig(values.config));
+      const running = await serveSidecar(issuer, { port: Number(values.port), host: values.host });
+      console.error(`agent-custody serve: ${running.url} agent=${issuer.agentId} keyid=${issuer.keyid} log=${issuer.log.kind}:${issuer.log.where}`);
+      await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+      await running.close();
       return 0;
     }
     case "log": {

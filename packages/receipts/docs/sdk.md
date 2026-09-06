@@ -177,3 +177,26 @@ The three framework packages are optional peer dependencies. Each adapter import
 ## What an SDK receipt is worth
 
 A verified SDK receipt establishes that a process holding the application key reported this call, at this time, with these arguments and this result, and that the record has not changed since. It does not establish that the process reported every call, that the arguments are what the tool really received, or that anyone outside the process checked anything. The verifier prints exactly that sentence under `ISSUER`. Keep it in the dashboard too.
+
+## Other languages: the sidecar
+
+The interceptor above is TypeScript. Agents in any other language get the same receipts through the sidecar: the SDK issuer behind a local HTTP API, started from the same config file.
+
+```bash
+agent-custody serve --config sdk.json          # 127.0.0.1:8788 by default; --port and --host to change
+```
+
+| | |
+| --- | --- |
+| `GET /health` | `{ agentId, keyid, log: { kind, where } }` |
+| `POST /decide` with a `ToolEvent` `{ tool, args, model?, session? }` | the `PolicyDecision`, or `null` when no policy is configured |
+| `POST /record` with `{ event, outcome, policy? }` | the `ReceiptBundle`; `outcome` is `{ status: "executed" \| "failed", result }`, `{ status: "denied", reason }`, or `{ status: "error", error }` |
+
+The client's loop is decide, run the tool, record. A malformed body gets a 400 and nothing is written; a log that refuses the leaf gets a 502 and nothing is written. Bind the sidecar to loopback: it is a per-host companion holding the signing key, not a shared service, and everything it records is `claimed` exactly as with the in-process SDK, because it trusts what the client reports.
+
+**Python** has a real package, [packages/python](../../python/README.md): `pip install agent-custody`, a standard-library client with `decide`, `record`, and `wrap`, and adapters for LangChain callbacks, OpenAI Agents function tools, and Claude Agent SDK hooks, each tested against the real package with receipts checked by this verifier.
+
+**Go, Java, Rust, and Python without the package** each have a complete client in [examples/languages](../examples/languages): one file, standard library where the language has an HTTP client, decide then record. The test suite runs every one of them against a live sidecar. Any language with an HTTP client is the same forty lines.
+
+The gateway needs none of this. It is an MCP server, so a Python or Go agent host that speaks MCP puts it in front of its tools with a config change; [usage.md](usage.md) shows the Python hosts.
+

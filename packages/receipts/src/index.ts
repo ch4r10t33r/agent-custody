@@ -10,3 +10,4 @@ export * from "./policy.ts";
 export * from "./receipt.ts";
 export * from "./verify.ts";
 export * from "./sdk/index.ts";
+export * from "./sidecar.ts";

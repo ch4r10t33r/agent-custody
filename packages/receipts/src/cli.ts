@@ -6,10 +6,12 @@ import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./
 import { createDelegation } from "./delegation.ts";
 import { createGateway, serveStdio } from "./gateway.ts";
 import { serveLog } from "./log-sink.ts";
-import type { ReceiptBundle } from "./receipt.ts";
+import type { ReceiptBundle, TreeHead } from "./receipt.ts";
+import type { Envelope } from "./crypto.ts";
+import { MerkleLog } from "./log.ts";
 import { createSdkIssuer } from "./sdk/index.ts";
 import { handleHookEvent, type HookInput } from "./sdk/claude.ts";
-import { formatReport, verifyBundle } from "./verify.ts";
+import { auditExtends, formatReport, verifyBundle } from "./verify.ts";
 
 const USAGE = `agent-custody <command>
 
@@ -19,6 +21,8 @@ const USAGE = `agent-custody <command>
   hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_CUSTODY_CONFIG)
   log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
   verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--log <log.jsonl>] [--json]
+  audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--json]
+          checks that the newer receipt's log extends the older one's: nothing between them was rewritten
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -115,6 +119,41 @@ async function main(argv: string[]): Promise<number> {
         ...(values.log ? { logFile: values.log } : {}),
       });
       console.log(values.json ? JSON.stringify(result, null, 2) : formatReport(result));
+      return result.ok ? 0 : 1;
+    }
+    case "audit": {
+      const { values } = parseArgs({
+        args: rest,
+        options: {
+          older: { type: "string" },
+          newer: { type: "string" },
+          log: { type: "string" },
+          "log-url": { type: "string" },
+          "issuer-key": { type: "string", multiple: true },
+          "log-key": { type: "string", multiple: true },
+          json: { type: "boolean", default: false },
+        },
+      });
+      const keyFiles = [...(values["issuer-key"] ?? []), ...(values["log-key"] ?? [])];
+      if (!values.older || !values.newer || keyFiles.length === 0) throw new Error("audit needs --older, --newer, and at least one --issuer-key or --log-key");
+      if (!values.log === !values["log-url"]) throw new Error("audit needs exactly one of --log or --log-url");
+      const older = (JSON.parse(readFileSync(values.older, "utf8")) as ReceiptBundle).treeHead;
+      const newer = (JSON.parse(readFileSync(values.newer, "utf8")) as ReceiptBundle).treeHead;
+      const sizeOf = (env: Envelope) => (JSON.parse(Buffer.from(env.payload, "base64").toString()) as TreeHead).treeSize;
+      const [m, n] = [sizeOf(older), sizeOf(newer)];
+      let proof: string[];
+      if (values.log) proof = new MerkleLog(values.log).consistencyProof(Math.min(m, n), Math.max(m, n));
+      else {
+        const res = await fetch(new URL(`consistency?old=${Math.min(m, n)}&new=${Math.max(m, n)}`, values["log-url"]!.endsWith("/") ? values["log-url"]! : `${values["log-url"]}/`));
+        if (!res.ok) throw new Error(`log refused the consistency query: ${res.status}`);
+        proof = ((await res.json()) as { hashes: string[] }).hashes;
+      }
+      const result = auditExtends(older, newer, proof, keyFiles.map(loadPublicKey));
+      if (values.json) console.log(JSON.stringify(result, null, 2));
+      else {
+        for (const c of result.checks) console.log(`${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.detail ? `  (${c.detail})` : ""}`);
+        console.log(`\nRESULT: ${result.ok ? "NEWER LOG EXTENDS OLDER LOG" : "NOT CONSISTENT"}`);
+      }
       return result.ok ? 0 : 1;
     }
     default:

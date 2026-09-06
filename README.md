@@ -8,10 +8,26 @@ The agent is not trusted. The layer around it is, and every record says exactly 
 
 | package | what it is | status |
 | --- | --- | --- |
-| [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, thirteen runnable tutorials |
+| [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, fourteen runnable tutorials |
 | [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | bitemporal fact ledger with supersession, retraction, and as-of queries |
 
 Receipts are the unit. State is the ledger of what the agent came to believe from them. Both append to the same kind of signed log and are checked by the same kind of verifier.
+
+## What each piece is for, and when you need it
+
+Each part exists because a specific thing goes wrong without it. Use the table to decide what to turn on.
+
+| piece | the failure it prevents | you need it when |
+| --- | --- | --- |
+| **SDK interceptor** (`@agent-custody/receipts`, in the agent's process) | The only record of what an agent did is its own log: mutable, unsigned, written by the thing you are trying to check. | Any agent that calls tools. Turn it on first; it is a hook or a wrapped function. It is honest about being self-reported: every field is labelled `claimed`. |
+| **Gateway** (`@agent-custody/receipts`, a separate process between agent and tools) | An in-process hook can be skipped, and a policy that reads the agent's own arguments can be fed lies. | The call moves money, touches production, or handles personal data, or a security owner has to sign off on what agents may do. Denied calls never reach the tool and still produce a receipt. |
+| **Delegation grant and Cedar policy** (used by the gateway) | "The agent was allowed to do that" is a comment in a config file, not something a human signed. | Always with the gateway. The grant is signed by the principal and names agent, tools, and validity window; the policy decides on facts the gateway fetched itself, never on the agent's claims. |
+| **Transparency log** (local file, automatic) | A signed receipt can be deleted or replaced after the fact and nobody would know. | Always; every receipt is a leaf with an inclusion proof. Costs nothing to use. |
+| **Remote log** (`log` in the config, plus the `log` command or a hosted log) | The operator holds the local log file and can rewrite history in it. | A receipt will be shown to someone who does not trust the operator: an auditor, a counterparty, a customer, a regulator. The log's key, not yours, signs the tree heads. |
+| **Verifier** (`verify` and `audit` commands, or `verifyBundle`) | Trust that depends on access to the system that produced the record is not trust. | Whenever a receipt leaves the team that made it: an audit, a CI gate, acceptance by the other side of an agent-to-agent call. It needs public keys and nothing else. |
+| **State ledger** (`@agent-custody/state`) | Agents act on beliefs. A wrong belief spreads to other agents, cannot be traced to its source, and is overwritten rather than corrected, so "what did it believe on Tuesday" has no answer. | The agent remembers across sessions, shares memory with other agents, or takes actions whose justification you may later have to explain or undo. Every belief cites the receipt that produced it. |
+
+The rule of thumb: record everything with the SDK, enforce the consequential calls with the gateway, log remotely once a receipt has an audience outside the team, and put beliefs in the ledger the moment memory outlives a session.
 
 ## Getting started
 
@@ -83,7 +99,8 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 - Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
 - Write policies and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
 - Log to a server the operator does not control, so tree heads are signed by a key that is not yours. [verification.md](packages/receipts/docs/verification.md)
-- Fifteen step-by-step examples across the two packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
+- Prove a log was never rewritten: keep any receipt's tree head, later audit that the log still extends it. [verification.md](packages/receipts/docs/verification.md)
+- Sixteen step-by-step examples across the two packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
 
 ## Working in the repository
 

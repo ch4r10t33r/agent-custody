@@ -141,3 +141,19 @@ node src/cli.ts verify receipts/<id>.json --issuer-key ... --principal-key ... -
 The last check recomputes the root at the receipt's tree size from your copy. If the operator later deletes, reorders, or edits a line before that position, the recomputed root changes and the check fails.
 
 Today a copy must be at least as long as the receipt's tree size. Consistency proofs between two tree heads, which would let you check that a newer log extends an older copy without holding the whole file, are on the roadmap.
+
+## Proving history was not rewritten
+
+An inclusion proof says a receipt was in the log at one moment. It does not say the log still contains, unchanged, everything it contained earlier. That is what a consistency proof is for: given two tree heads, it proves the larger tree extends the smaller one, so nothing before the older head was rewritten. Keep the tree head from any receipt; it is the older head in every later audit.
+
+```bash
+node src/cli.ts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log log.jsonl --issuer-key keys/gateway.pub
+node src/cli.ts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log-url https://log.example.com/ --log-key keys/log.pub
+```
+
+Both tree heads must be signed by a trusted key. With `--log` the proof is computed from a copy of the log; with `--log-url` it is fetched from the log's `GET /consistency?old=M&new=N`. Exit code 0 means the newer log extends the older one. A failure means either history was rewritten between the two heads or the proof belongs to other tree heads; example 14 shows a rewritten log failing this way while every individual receipt still verifies.
+
+Programmatically, `auditExtends(older.treeHead, newer.treeHead, proof, keys)` returns the same checks. The proof algorithm is RFC 9162 section 2.1.4, so any log implementing it can answer, and any verifier implementing it can check.
+
+The remote log also serves `GET /head`, its current tree head signed with the log's key, so an auditor can record heads on a schedule and later audit any two of them without holding a receipt for each.
+

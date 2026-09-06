@@ -7,9 +7,10 @@ import { loadSdkConfig } from "../src/config.ts";
 import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "../src/crypto.ts";
 import { httpLog, serveLog, type RunningLog } from "../src/log-sink.ts";
 import { createSdkIssuer } from "../src/sdk/index.ts";
-import { verifyBundle } from "../src/verify.ts";
+import { auditExtends, verifyBundle } from "../src/verify.ts";
 
 const failing = (r: ReturnType<typeof verifyBundle>) => r.checks.filter((c) => !c.ok).map((c) => c.name);
+const failingAudit = (r: ReturnType<typeof auditExtends>) => r.checks.filter((c) => !c.ok).map((c) => c.name);
 
 describe("HTTP log sink", () => {
   let dir: string;
@@ -50,6 +51,22 @@ describe("HTTP log sink", () => {
     const remote = (await (await fetch(new URL(`root?size=${head.treeSize}`, log.url))).json()) as { rootHash: string };
     expect(remote.rootHash).toBe(head.rootHash);
     expect(readFileSync(serverLogFile, "utf8").trim().split("\n")).toHaveLength(head.treeSize);
+  });
+
+  it("an auditor holding two receipts asks the log for a consistency proof and learns nothing was rewritten between them", async () => {
+    const issuer = createSdkIssuer(loadSdkConfig(join(dir, "sdk.json")));
+    const older = await issuer.record({ tool: "t", args: { n: 1 } }, { status: "executed", result: null });
+    await issuer.record({ tool: "t", args: { n: 2 } }, { status: "executed", result: null });
+    const newer = await issuer.record({ tool: "t", args: { n: 3 } }, { status: "executed", result: null });
+    const size = (b: typeof older) => (JSON.parse(Buffer.from(b.treeHead.payload, "base64").toString()) as { treeSize: number }).treeSize;
+    const proof = (await (await fetch(new URL(`consistency?old=${size(older)}&new=${size(newer)}`, log.url))).json()) as { hashes: string[] };
+    const keys = [loadPublicKey(logPub)];
+    expect(auditExtends(older.treeHead, newer.treeHead, proof.hashes, keys).ok).toBe(true);
+    // the same proof against a tree head signed by someone else, or the wrong way round, does not pass
+    expect(failingAudit(auditExtends(older.treeHead, newer.treeHead, proof.hashes, [loadPublicKey(appPub)]))).toContain("older tree head signature");
+    expect(failingAudit(auditExtends(newer.treeHead, older.treeHead, proof.hashes, keys))).toEqual(["older is not larger than newer"]);
+    const head = (await (await fetch(new URL("head", log.url))).json()) as { treeHead: typeof older.treeHead };
+    expect(auditExtends(newer.treeHead, head.treeHead, [], keys).ok).toBe(true);
   });
 
   it("a wrong token is refused and no receipt is written", async () => {

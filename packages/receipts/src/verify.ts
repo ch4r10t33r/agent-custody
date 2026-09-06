@@ -1,7 +1,7 @@
 // Independent verification of a receipt bundle. Needs only public keys, and optionally a copy of the log.
-import { canonicalize, digestOf, dsseVerify, type PublicKeyRef } from "./crypto.ts";
+import { canonicalize, digestOf, dsseVerify, type Envelope, type PublicKeyRef } from "./crypto.ts";
 import { delegationValidAt, verifyDelegation } from "./delegation.ts";
-import { leafHash, MerkleLog, verifyInclusion } from "./log.ts";
+import { leafHash, MerkleLog, verifyConsistency, verifyInclusion } from "./log.ts";
 import { RECEIPT_PREDICATE_TYPE, RECEIPT_TYPE, TREEHEAD_TYPE, type ReceiptBundle, type ReceiptStatement, type TreeHead } from "./receipt.ts";
 
 export interface Check {
@@ -97,6 +97,37 @@ export function verifyBundle(bundle: ReceiptBundle, opts: VerifyOptions): Verify
     }
   }
   return done(st);
+}
+
+export interface AuditResult {
+  ok: boolean;
+  checks: Check[];
+  older: TreeHead | null;
+  newer: TreeHead | null;
+}
+
+/**
+ * Does the newer tree head extend the older one? Both must be signed by a trusted log or issuer key, and the proof
+ * must be the log's consistency proof between the two sizes. A pass means nothing in the older log was rewritten.
+ */
+export function auditExtends(older: Envelope, newer: Envelope, proof: string[], keys: PublicKeyRef[]): AuditResult {
+  const checks: Check[] = [];
+  const add = (name: string, ok: boolean, detail?: string) => {
+    checks.push(detail === undefined ? { name, ok } : { name, ok, detail });
+    return ok;
+  };
+  const decode = (label: string, env: Envelope): TreeHead | null => {
+    const v = dsseVerify(env, keys);
+    add(`${label} tree head signature`, v.ok && env.payloadType === TREEHEAD_TYPE, v.ok ? `keyid ${short(v.keyid)}` : v.error);
+    return v.ok ? (v.payload as TreeHead) : null;
+  };
+  const a = decode("older", older);
+  const b = decode("newer", newer);
+  if (!a || !b) return { ok: false, checks, older: a, newer: b };
+  if (!add("older is not larger than newer", a.treeSize <= b.treeSize, `${a.treeSize} -> ${b.treeSize}`)) return { ok: false, checks, older: a, newer: b };
+  const consistent = verifyConsistency(a.treeSize, a.rootHash, b.treeSize, b.rootHash, proof);
+  add("newer log extends older log", consistent, consistent ? `${proof.length} proof hashes` : "history was rewritten, or the proof is for other tree heads");
+  return { ok: checks.every((c) => c.ok), checks, older: a, newer: b };
 }
 
 const ISSUER_NOTE: Record<string, string> = {

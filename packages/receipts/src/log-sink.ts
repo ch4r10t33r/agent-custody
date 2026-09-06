@@ -93,6 +93,8 @@ export interface LogServerOptions {
  * The reference log server as a node:http request handler.
  *   POST /append  {leaf}   -> LogAppend, tree head signed with the log's key
  *   GET  /root?size=N      -> {treeSize, rootHash}, for auditors checking a tree head against the log
+ *   GET  /consistency?old=M&new=N -> {oldSize, newSize, hashes}, proof that the log at N extends the log at M
+ *   GET  /head             -> {treeHead}, the current tree head signed with the log's key
  */
 export function logHandler(file: string, key: KeyPair, opts: LogServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const log = new MerkleLog(file);
@@ -129,6 +131,16 @@ export function logHandler(file: string, key: KeyPair, opts: LogServerOptions = 
       const size = url.searchParams.has("size") ? Number(url.searchParams.get("size")) : log.size;
       if (!Number.isInteger(size) || size < 0 || size > log.size) return json(400, { error: `size must be an integer in 0..${log.size}` });
       return json(200, { treeSize: size, rootHash: log.root(size) });
+    }
+    if (req.method === "GET" && url.pathname.endsWith("/consistency")) {
+      const oldSize = Number(url.searchParams.get("old"));
+      const newSize = url.searchParams.has("new") ? Number(url.searchParams.get("new")) : log.size;
+      if (![oldSize, newSize].every(Number.isInteger) || oldSize < 0 || oldSize > newSize || newSize > log.size) return json(400, { error: `old and new must be integers with 0 <= old <= new <= ${log.size}` });
+      return json(200, { oldSize, newSize, hashes: log.consistencyProof(oldSize, newSize) });
+    }
+    if (req.method === "GET" && url.pathname.endsWith("/head")) {
+      const head: TreeHead = { treeSize: log.size, rootHash: log.root(), timestamp: new Date().toISOString() };
+      return json(200, { treeHead: dsseSign(TREEHEAD_TYPE, head, key) });
     }
     return json(404, { error: "not found" });
   };

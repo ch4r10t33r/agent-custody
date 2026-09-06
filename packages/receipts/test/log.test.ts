@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { inclusionProof, leafHash, MerkleLog, rootOf, verifyInclusion } from "../src/log.ts";
+import { consistencyProof, inclusionProof, leafHash, MerkleLog, rootOf, verifyConsistency, verifyInclusion } from "../src/log.ts";
 
 describe("Merkle log", () => {
   it("proves inclusion of every leaf for every tree size up to 10", () => {
@@ -49,5 +49,35 @@ describe("Merkle log", () => {
     const second = log.append("two");
     writeFileSync(file, JSON.stringify("one") + "\n" + JSON.stringify("TWO") + "\n");
     expect(MerkleLog.rootFromFile(file, 2)).not.toBe(second.rootHash);
+  });
+
+  it("proves that every later tree extends every earlier one, for every pair of sizes up to 12", () => {
+    const leaves = Array.from({ length: 12 }, (_, i) => leafHash(`leaf-${i}`));
+    for (let n = 0; n <= 12; n++) {
+      for (let m = 0; m <= n; m++) {
+        const proof = consistencyProof(leaves, m, n);
+        expect(verifyConsistency(m, rootOf(leaves, m), n, rootOf(leaves, n), proof), `m=${m} n=${n}`).toBe(true);
+      }
+    }
+  });
+
+  it("a rewritten prefix fails consistency: the whole point of keeping old tree heads", () => {
+    const honest = Array.from({ length: 9 }, (_, i) => leafHash(`leaf-${i}`));
+    const oldRoot = rootOf(honest, 5);
+    const rewritten = honest.map((h, i) => (i === 2 ? leafHash("leaf-2-edited") : h));
+    expect(verifyConsistency(5, oldRoot, 9, rootOf(rewritten, 9), consistencyProof(rewritten, 5, 9))).toBe(false);
+    // a proof for other sizes, or a truncated proof, is rejected too
+    expect(verifyConsistency(5, oldRoot, 9, rootOf(honest, 9), consistencyProof(honest, 4, 9))).toBe(false);
+    expect(verifyConsistency(5, oldRoot, 9, rootOf(honest, 9), consistencyProof(honest, 5, 9).slice(1))).toBe(false);
+    expect(verifyConsistency(5, oldRoot, 9, rootOf(honest, 9), [])).toBe(false);
+  });
+
+  it("the log serves consistency proofs between its own states", () => {
+    const dir = mkdtempSync(join(tmpdir(), "mlog-"));
+    const log = new MerkleLog(join(dir, "log.jsonl"));
+    const heads = ["a", "b", "c", "d", "e", "f"].map((s) => log.append(s));
+    expect(verifyConsistency(2, heads[1]!.rootHash, 6, heads[5]!.rootHash, log.consistencyProof(2, 6))).toBe(true);
+    expect(verifyConsistency(2, heads[1]!.rootHash, 5, heads[4]!.rootHash, log.consistencyProof(2, 5))).toBe(true);
+    expect(() => log.consistencyProof(4, 3)).toThrow(/out of range/);
   });
 });

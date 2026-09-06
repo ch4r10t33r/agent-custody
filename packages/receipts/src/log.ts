@@ -46,6 +46,57 @@ function path(m: number, leaves: Buffer[], lo: number, hi: number): Buffer[] {
     : [...path(m - k, leaves, lo + k, hi), mth(leaves, lo, lo + k)];
 }
 
+/** RFC 9162 section 2.1.4.1: SUBPROOF(m, D[n], b). */
+function subproof(m: number, leaves: Buffer[], lo: number, hi: number, b: boolean): Buffer[] {
+  const n = hi - lo;
+  if (m === n) return b ? [] : [mth(leaves, lo, hi)];
+  const k = split(n);
+  return m <= k
+    ? [...subproof(m, leaves, lo, lo + k, b), mth(leaves, lo + k, hi)]
+    : [...subproof(m - k, leaves, lo + k, hi, false), mth(leaves, lo, lo + k)];
+}
+
+/** Proof that the tree of size newSize extends the tree of size oldSize. Empty when oldSize is 0 or equal to newSize. */
+export function consistencyProof(leafHashes: Buffer[], oldSize: number, newSize = leafHashes.length): string[] {
+  if (oldSize < 0 || oldSize > newSize || newSize > leafHashes.length) throw new Error("sizes out of range");
+  if (oldSize === 0 || oldSize === newSize) return [];
+  return subproof(oldSize, leafHashes, 0, newSize, true).map((b) => b.toString("hex"));
+}
+
+/** RFC 9162 section 2.1.4.2. Pure: needs only the two sizes, the two roots, and the proof. */
+export function verifyConsistency(oldSize: number, oldRootHex: string, newSize: number, newRootHex: string, proofHex: string[]): boolean {
+  if (oldSize < 0 || oldSize > newSize) return false;
+  if (oldSize === newSize) return proofHex.length === 0 && oldRootHex === newRootHex;
+  if (oldSize === 0) return proofHex.length === 0;
+  if (proofHex.length === 0) return false;
+  const proof = proofHex.map((x) => Buffer.from(x, "hex"));
+  if ((oldSize & (oldSize - 1)) === 0) proof.unshift(Buffer.from(oldRootHex, "hex"));
+  let fn = oldSize - 1;
+  let sn = newSize - 1;
+  while (fn % 2 === 1) {
+    fn = Math.floor(fn / 2);
+    sn = Math.floor(sn / 2);
+  }
+  let fr = proof[0]!;
+  let sr = proof[0]!;
+  for (const c of proof.slice(1)) {
+    if (sn === 0) return false;
+    if (fn % 2 === 1 || fn === sn) {
+      fr = nodeHash(c, fr);
+      sr = nodeHash(c, sr);
+      while (fn % 2 === 0 && fn !== 0) {
+        fn = Math.floor(fn / 2);
+        sn = Math.floor(sn / 2);
+      }
+    } else {
+      sr = nodeHash(sr, c);
+    }
+    fn = Math.floor(fn / 2);
+    sn = Math.floor(sn / 2);
+  }
+  return sn === 0 && fr.toString("hex") === oldRootHex && sr.toString("hex") === newRootHex;
+}
+
 export function rootOf(leafHashes: Buffer[], size = leafHashes.length): string {
   return mth(leafHashes, 0, size).toString("hex");
 }
@@ -110,6 +161,11 @@ export class MerkleLog {
 
   root(size = this.size): string {
     return rootOf(this.hashes, size);
+  }
+
+  /** Proof that this log at newSize extends its own earlier state at oldSize. */
+  consistencyProof(oldSize: number, newSize = this.size): string[] {
+    return consistencyProof(this.hashes, oldSize, newSize);
   }
 
   /** Reads a log file and returns the root at the given size, for auditors holding a copy of the log. */

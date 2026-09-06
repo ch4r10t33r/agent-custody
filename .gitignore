@@ -4,3 +4,4 @@ dist/
 demo-out/
 examples-out/
 *.tgz
+.npmrc

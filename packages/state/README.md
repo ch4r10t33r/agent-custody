@@ -10,13 +10,7 @@ Retrieval stays with whatever store you already use. This package owns provenanc
 npm install @agent-custody/state           # or bun add, pnpm add
 ```
 
-Not on npm yet: the `@agent-custody` scope is still to be claimed. Until then, build from a clone and install the tarball:
-
-```bash
-bun install && bun run build               # at the repository root
-cd packages/state && bun pm pack           # writes agent-custody-state-0.1.0.tgz here
-npm install /path/to/agent-custody/packages/state/agent-custody-state-0.1.0.tgz   # in your project
-```
+Published on npm as [`@agent-custody/state`](https://www.npmjs.com/package/@agent-custody/state): compiled JavaScript with type declarations, Node 22 or later, Apache-2.0.
 
 ```ts
 import { Ledger } from "@agent-custody/state";

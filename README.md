@@ -20,7 +20,7 @@ npm install @agent-custody/receipts        # signed receipts for tool calls
 npm install @agent-custody/state           # the governed fact ledger
 ```
 
-Neither is on npm yet; the `@agent-custody` scope is still to be claimed. Each package README has the install-from-a-clone steps and a first program: [receipts](packages/receipts/README.md#getting-started), [state](packages/state/README.md#getting-started). Consumers get compiled JavaScript with type declarations and need only Node 22.
+Both are on npm under Apache-2.0. Each package README has a first program: [receipts](packages/receipts/README.md#getting-started), [state](packages/state/README.md#getting-started). Consumers get compiled JavaScript with type declarations and need only Node 22.
 
 ## Working in the repository
 

@@ -21,13 +21,7 @@ Anyone holding the public keys can verify a receipt offline. The agent is not tr
 npm install @agent-custody/receipts        # or bun add, pnpm add
 ```
 
-Not on npm yet: the `@agent-custody` scope is still to be claimed. Until then, build from a clone and install the tarball:
-
-```bash
-bun install && bun run build               # at the repository root
-cd packages/receipts && bun pm pack        # writes agent-custody-receipts-0.1.0.tgz here
-npm install /path/to/agent-custody/packages/receipts/agent-custody-receipts-0.1.0.tgz   # in your project
-```
+Published on npm as [`@agent-custody/receipts`](https://www.npmjs.com/package/@agent-custody/receipts): compiled JavaScript with type declarations, Node 22 or later, Apache-2.0.
 
 Record receipts from inside your own agent, no gateway needed. Generate a signing key, point a config at it, wrap the functions the agent calls:
 

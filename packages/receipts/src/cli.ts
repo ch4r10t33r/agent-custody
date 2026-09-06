@@ -15,7 +15,7 @@ const USAGE = `agent-custody <command>
   keygen  --dir <dir> --name <name>
   grant   --key <principal.key> --principal <id> --agent <id> --scopes <a,b> [--ttl-hours 24] --out <file>
   gateway --config <gateway.json>
-  hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_RECEIPTS_CONFIG)
+  hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_CUSTODY_CONFIG)
   verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log <log.jsonl>] [--json]
 `;
 
@@ -67,8 +67,8 @@ async function main(argv: string[]): Promise<number> {
     }
     case "hook": {
       const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
-      const configPath = values.config ?? process.env.AGENT_RECEIPTS_CONFIG;
-      if (!configPath) throw new Error("hook needs --config or AGENT_RECEIPTS_CONFIG");
+      const configPath = values.config ?? process.env.AGENT_CUSTODY_CONFIG;
+      if (!configPath) throw new Error("hook needs --config or AGENT_CUSTODY_CONFIG");
       const input = JSON.parse(readFileSync(0, "utf8")) as HookInput;
       const out = handleHookEvent(createSdkIssuer(loadSdkConfig(configPath)), input);
       console.log(JSON.stringify(out));

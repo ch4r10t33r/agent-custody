@@ -13,11 +13,21 @@ The agent is not trusted. The layer around it is, and every record says exactly 
 
 Receipts are the unit. State is the ledger of what the agent came to believe from them. Both append to the same kind of signed log and are checked by the same kind of verifier.
 
-## Quick start
+## Getting started
+
+```bash
+npm install @agent-custody/receipts        # signed receipts for tool calls
+npm install @agent-custody/state           # the governed fact ledger
+```
+
+Neither is on npm yet; the `@agent-custody` scope is still to be claimed. Each package README has the install-from-a-clone steps and a first program: [receipts](packages/receipts/README.md#getting-started), [state](packages/state/README.md#getting-started). Consumers get compiled JavaScript with type declarations and need only Node 22.
+
+## Working in the repository
 
 ```bash
 bun install                         # one install for the whole workspace
 bun run test                        # every package
+bun run build                       # dist/ for every package, what consumers install
 bun run demo                        # the receipts demo: keys, grant, policy, tool calls, verification, a tampering attempt
 ```
 
@@ -29,7 +39,7 @@ Everything runs on plain Node 22 or later. No build step. Package-level commands
 package.json          workspace root: typecheck, test, and demo across packages
 tsconfig.base.json    compiler options shared by every package
 packages/receipts/    the receipts package: src, test, examples, scripts, docs
-packages/state/       the state package: src, test
+packages/state/       the state package: src, test, examples
 ```
 
 ## Plan

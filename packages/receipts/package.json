@@ -5,9 +5,40 @@
   "type": "module",
   "private": true,
   "bin": {
-    "agent-custody": "./src/cli.ts"
+    "agent-custody": "./dist/cli.js"
   },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./sdk": {
+      "types": "./dist/sdk/index.d.ts",
+      "default": "./dist/sdk/index.js"
+    },
+    "./sdk/claude": {
+      "types": "./dist/sdk/claude.d.ts",
+      "default": "./dist/sdk/claude.js"
+    },
+    "./sdk/openai-agents": {
+      "types": "./dist/sdk/openai-agents.d.ts",
+      "default": "./dist/sdk/openai-agents.js"
+    },
+    "./sdk/vercel-ai": {
+      "types": "./dist/sdk/vercel-ai.d.ts",
+      "default": "./dist/sdk/vercel-ai.js"
+    },
+    "./sdk/langchain": {
+      "types": "./dist/sdk/langchain.d.ts",
+      "default": "./dist/sdk/langchain.js"
+    }
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "demo": "tsx scripts/demo.ts"

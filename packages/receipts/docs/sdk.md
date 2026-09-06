@@ -52,7 +52,7 @@ Register the hook command in `.claude/settings.json`. The same command handles a
 }
 ```
 
-`AGENT_RECEIPTS_CONFIG` works instead of `--config`. Behaviour per event:
+`AGENT_CUSTODY_CONFIG` works instead of `--config`. Behaviour per event:
 
 - **PreToolUse.** Evaluates the policy. On deny, issues a denial receipt and returns `permissionDecision: "deny"` with the receipt id in the reason. On allow, or with no policy, returns no decision, so Claude Code's own permission prompts still apply. The hook never auto-approves.
 - **PostToolUse.** Issues an executed receipt carrying `tool_response`.
@@ -64,8 +64,8 @@ Session and tool-use ids from the event are recorded so a receipt can be matched
 
 ```ts
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import { loadSdkConfig } from "@agent-custody/receipts/src/config.ts";
-import { claudeAgentHooks, createSdkIssuer } from "@agent-custody/receipts/src/sdk/claude.ts";
+import { loadSdkConfig } from "@agent-custody/receipts";
+import { claudeAgentHooks, createSdkIssuer } from "@agent-custody/receipts/sdk/claude";
 
 const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
 
@@ -85,7 +85,7 @@ Two adapters in [src/sdk/openai-agents.ts](../src/sdk/openai-agents.ts). Both ar
 
 ```ts
 import { Agent, Runner } from "@openai/agents";
-import { wrapTools, observeRunner } from "@agent-custody/receipts/src/sdk/openai-agents.ts";
+import { wrapTools, observeRunner } from "@agent-custody/receipts/sdk/openai-agents";
 
 // enforcement + receipts: wrap the tools you hand to the agent
 const agent = new Agent({ name: "billing", tools: wrapTools(issuer, [refundTool, lookupTool]) });
@@ -103,7 +103,7 @@ observeRunner(issuer, runner);
 
 ```ts
 import { generateText } from "ai";
-import { wrapTools } from "@agent-custody/receipts/src/sdk/vercel-ai.ts";
+import { wrapTools } from "@agent-custody/receipts/sdk/vercel-ai";
 
 const result = await generateText({ model, prompt, tools: wrapTools(issuer, tools) });
 ```
@@ -116,7 +116,7 @@ const result = await generateText({ model, prompt, tools: wrapTools(issuer, tool
 
 ```ts
 import { tool } from "@langchain/core/tools";
-import { receiptCallbacks, ReceiptCallbackHandler } from "@agent-custody/receipts/src/sdk/langchain.ts";
+import { receiptCallbacks, ReceiptCallbackHandler } from "@agent-custody/receipts/sdk/langchain";
 
 // receipts only: a callback handler, attach per call or on the whole graph
 await refund.invoke({ customer_id, amount }, receiptCallbacks(issuer));
@@ -133,8 +133,8 @@ LangChain callbacks cannot block a tool, so the handler evaluates no policy; it 
 Every agent framework ends up calling a function. Wrap it.
 
 ```ts
-import { loadSdkConfig } from "@agent-custody/receipts/src/config.ts";
-import { createSdkIssuer, PolicyDeniedError } from "@agent-custody/receipts/src/sdk/index.ts";
+import { loadSdkConfig } from "@agent-custody/receipts";
+import { createSdkIssuer, PolicyDeniedError } from "@agent-custody/receipts";
 
 const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
 

@@ -4,7 +4,17 @@
   "description": "Governed memory for AI agents: a fact ledger with provenance, valid time, rollback, and lineage, built on @agent-custody/receipts",
   "type": "module",
   "private": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },

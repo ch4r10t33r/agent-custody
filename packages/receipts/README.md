@@ -15,6 +15,43 @@ Anyone holding the public keys can verify a receipt offline. The agent is not tr
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
 - [Verifying a receipt](docs/verification.md): what each check means and what a verified receipt does and does not prove
 
+## Getting started
+
+```bash
+npm install @agent-custody/receipts        # or bun add, pnpm add
+```
+
+Not on npm yet: the `@agent-custody` scope is still to be claimed. Until then, build from a clone and install the tarball:
+
+```bash
+bun install && bun run build               # at the repository root
+cd packages/receipts && bun pm pack        # writes agent-custody-receipts-0.1.0.tgz here
+npm install /path/to/agent-custody/packages/receipts/agent-custody-receipts-0.1.0.tgz   # in your project
+```
+
+Record receipts from inside your own agent, no gateway needed. Generate a signing key, point a config at it, wrap the functions the agent calls:
+
+```bash
+npx agent-custody keygen --dir keys --name app
+```
+
+```json
+{ "agentId": "billing-bot", "identity": { "keyFile": "keys/app.key" }, "receiptsDir": "receipts", "logFile": "log.jsonl" }
+```
+
+```ts
+import { createSdkIssuer, loadSdkConfig, loadPublicKey, verifyBundle } from "@agent-custody/receipts";
+
+const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
+const refund = issuer.wrap("stripe.refund", async (args: { amount: number }) => stripe.refund(args));
+await refund({ amount: 5000 });                 // one signed receipt in receipts/, one leaf in log.jsonl
+
+const bundle = JSON.parse(readFileSync("receipts/<id>.json", "utf8"));
+verifyBundle(bundle, { issuerKeys: [loadPublicKey("keys/app.pub")], logFile: "log.jsonl" }).ok;   // true
+```
+
+Framework hooks and adapters, including Claude Code, the OpenAI Agents SDK, the Vercel AI SDK and LangChain, are in [docs/sdk.md](docs/sdk.md). To enforce rather than record, put the gateway between the agent and its tools: `npx agent-custody gateway --config gateway.json`, set up in [docs/usage.md](docs/usage.md).
+
 ## How it fits together
 
 ```mermaid
@@ -197,6 +234,8 @@ src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hook
 src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, tested against the real packages
 src/verify.ts      offline verification and the human-readable report
 src/cli.ts         keygen, grant, gateway, hook, verify
+src/index.ts       the package's public surface; adapters are exported on ./sdk/<framework> subpaths
+tsconfig.build.json  emits dist/ (JavaScript plus declarations) for consumers; the repo itself runs the .ts directly
 scripts/           fake Stripe upstream, fixture builders for gateway and SDK, demo
 examples/          twelve runnable tutorials, one per aspect; each is run by the test suite
 test/              unit tests per module, end-to-end gateway test, SDK and hook tests,

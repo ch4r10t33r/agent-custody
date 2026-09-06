@@ -109,7 +109,7 @@ describe("Claude Code hook handler", () => {
   it("CLI `hook` reads the event from stdin and prints the decision", () => {
     const r = spawnSync(process.execPath, [resolve("src/cli.ts"), "hook"], {
       input: JSON.stringify({ hook_event_name: "PreToolUse", tool_name: "stripe.refund", tool_input: { amount: 999999 } }),
-      env: { ...process.env, AGENT_RECEIPTS_CONFIG: configFile },
+      env: { ...process.env, AGENT_CUSTODY_CONFIG: configFile },
       encoding: "utf8",
     });
     expect(r.status, r.stderr).toBe(0);

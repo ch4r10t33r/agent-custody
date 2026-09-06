@@ -4,6 +4,32 @@ Governed memory for AI agents. Not a vector store: a ledger of facts where every
 
 Retrieval stays with whatever store you already use. This package owns provenance, time, and undo.
 
+## Getting started
+
+```bash
+npm install @agent-custody/state           # or bun add, pnpm add
+```
+
+Not on npm yet: the `@agent-custody` scope is still to be claimed. Until then, build from a clone and install the tarball:
+
+```bash
+bun install && bun run build               # at the repository root
+cd packages/state && bun pm pack           # writes agent-custody-state-0.1.0.tgz here
+npm install /path/to/agent-custody/packages/state/agent-custody-state-0.1.0.tgz   # in your project
+```
+
+```ts
+import { Ledger } from "@agent-custody/state";
+
+const ledger = new Ledger("./state/ledger.jsonl");
+const a = ledger.assert({ subject: "acct:42", predicate: "plan", value: "pro", space: "org", actor: "agent:support", source: { receiptId } });
+ledger.assert({ subject: "acct:42", predicate: "plan", value: "enterprise", space: "org", actor: "agent:sales", supersedes: a.fact.factId });
+ledger.retract({ factId: a.fact.factId, actor: "user:admin", reason: "poisoned by a tool result" });
+ledger.asOf({ validAt: "2026-09-01T00:00:00Z", txAt: "2026-09-01T00:00:00Z" });
+```
+
+[examples/01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo, step by step; run it with `node examples/01-ledger.ts` from this directory. The test suite runs it too.
+
 ## The ledger
 
 `src/ledger.ts` is an append-only JSONL log of two kinds of event.
@@ -20,16 +46,6 @@ Two clocks, kept apart on purpose:
 
 `asOf({ validAt, txAt, space, subject, predicate })` returns the facts believed at a moment. Setting both times to the same instant answers "what did the agent believe on Tuesday", including beliefs later retracted. `history(factId)` returns every event that touched a fact.
 
-```ts
-import { Ledger } from "@agent-custody/state/src/index.ts";
-
-const ledger = new Ledger("./state/ledger.jsonl");
-const a = ledger.assert({ subject: "acct:42", predicate: "plan", value: "pro", space: "org", actor: "agent:support", source: { receiptId } });
-ledger.assert({ subject: "acct:42", predicate: "plan", value: "enterprise", space: "org", actor: "agent:sales", supersedes: a.fact.factId });
-ledger.retract({ factId: a.fact.factId, actor: "user:admin", reason: "poisoned by a tool result" });
-ledger.asOf({ validAt: "2026-09-01T00:00:00Z", txAt: "2026-09-01T00:00:00Z" });
-```
-
 The ledger refuses to supersede a fact that is unknown, already superseded, or retracted, and refuses a replacement whose validity starts before the fact it replaces.
 
 ## Layout
@@ -37,7 +53,9 @@ The ledger refuses to supersede a fact that is unknown, already superseded, or r
 ```
 src/ledger.ts   the fact record, the two event kinds, as-of queries, supersession, retraction, JSONL persistence
 src/index.ts    public surface
+examples/       runnable walkthroughs, each ends with OK and is run by the test suite
 test/           one test per question a platform owner asks after a memory incident
+tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts directly
 ```
 
 ## Plan

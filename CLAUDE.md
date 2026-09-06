@@ -10,5 +10,5 @@ This is a Bun workspace. `packages/receipts` is the receipts package, `packages/
 - Framework adapters are tested against the real package with a scripted model and no network. Do not add an adapter with only a hand-written stand-in.
 - Record-only adapters evaluate no policy. Enforce or observe, never both on one tool.
 - Money is integer minor units; Cedar has no floats.
-- The CLI runs on plain Node 22 via native type stripping: no parameter properties, no enums, `.ts` import specifiers. The state package imports the receipts package through its `exports` map, `@agent-custody/receipts` or `@agent-custody/receipts/sdk/<name>`, which resolves to `dist/`, so run `bun run build` first.
+- The CLI runs on plain Node 22 via native type stripping: no parameter properties, no enums, `.ts` import specifiers. The state package imports the receipts package through its `exports` map, `@agent-custody/receipts` or `@agent-custody/receipts/sdk/<name>`, which resolves to `dist/`; the state test script builds receipts first, and running a state example by hand needs `bun run build` at the root.
 - Commit messages carry no attribution trailers.

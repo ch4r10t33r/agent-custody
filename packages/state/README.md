@@ -22,7 +22,7 @@ ledger.retract({ factId: a.fact.factId, actor: "user:admin", reason: "poisoned b
 ledger.asOf({ validAt: "2026-09-01T00:00:00Z", txAt: "2026-09-01T00:00:00Z" });
 ```
 
-[examples/01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo, step by step; run it with `node examples/01-ledger.ts` from this directory. The test suite runs it too.
+Two runnable examples, both executed by the test suite. [01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo. [02-receipt-to-belief.ts](examples/02-receipt-to-belief.ts) runs the whole loop with the receipts package: a tool call gets a signed receipt, the receipt is verified, the belief taken from it is recorded citing the receipt, and later retracted. Run them with `node examples/<file>` from this directory, after `bun run build` at the repository root.
 
 ## The ledger
 

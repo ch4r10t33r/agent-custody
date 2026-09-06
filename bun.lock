@@ -7,7 +7,7 @@
     },
     "packages/receipts": {
       "name": "@agent-custody/receipts",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "bin": {
         "agent-custody": "./dist/cli.js",
       },
@@ -38,7 +38,7 @@
     },
     "packages/state": {
       "name": "@agent-custody/state",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "dependencies": {
         "@agent-custody/receipts": "workspace:*",
       },

@@ -22,15 +22,15 @@ export function wrapTools<T extends Record<string, { execute?: ExecuteFn }>>(iss
       const policy = issuer.decide(ev);
       if (policy && policy.decision === "deny") {
         const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
-        const bundle = issuer.record(ev, { status: "denied", reason }, policy);
+        const bundle = await issuer.record(ev, { status: "denied", reason }, policy);
         throw new PolicyDeniedError(name, reason, receiptIdOf(bundle));
       }
       try {
         const result = await original(input, options);
-        issuer.record(ev, { status: "executed", result }, policy);
+        await issuer.record(ev, { status: "executed", result }, policy);
         return result;
       } catch (e) {
-        issuer.record(ev, { status: "error", error: e instanceof Error ? e.message : String(e) }, policy);
+        await issuer.record(ev, { status: "error", error: e instanceof Error ? e.message : String(e) }, policy);
         throw e;
       }
     };

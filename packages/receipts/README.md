@@ -9,7 +9,7 @@ Two producers, one receipt format, one verifier.
 
 Anyone holding the public keys can verify a receipt offline. The agent is not trusted. The layer around it is, and the receipt says exactly how far that trust extends, starting with who issued it.
 
-- [Tutorials](docs/tutorials.md): twelve runnable examples, one per aspect of the code, all executed by the test suite
+- [Tutorials](docs/tutorials.md): thirteen runnable examples, one per aspect of the code, all executed by the test suite
 - [Usage guide](docs/usage.md): gateway setup, wiring into Claude Desktop, Claude Code, or your own agent loop
 - [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, adapters for the OpenAI Agents SDK, Vercel AI SDK and LangChain, and wrapping tool functions in anything else
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
@@ -56,7 +56,7 @@ flowchart LR
     G["agent-custody gateway<br/>scope check → fact lookups → Cedar policy"]
     U["Upstream MCP server<br/>Stripe, database, GitHub, ..."]
     R[("receipt bundles<br/>receipts/*.json")]
-    L[("Merkle log<br/>log.jsonl")]
+    L[("Merkle log<br/>local file, or a remote log<br/>run by someone else")]
     V["Verifier<br/>auditor, counterparty, CI job"]
     O["Observability<br/>OTel, LangSmith, Arize"]
 
@@ -167,7 +167,7 @@ Every field carries a provenance label. This is the design decision that matters
 bun install                              # from the repository root, once for the workspace
 cd packages/receipts
 node scripts/demo.ts                     # gateway: keys, grant, policy, four tool calls, verification, a tampering attempt; then the SDK wrapping the same tool
-node examples/01-keys-and-signing.ts     # first of twelve step-by-step examples, see docs/tutorials.md
+node examples/01-keys-and-signing.ts     # first of thirteen step-by-step examples, see docs/tutorials.md
 bun run test                             # this package; `bun run test` at the root runs every package
 ```
 
@@ -218,6 +218,7 @@ If a vendor tells you their receipts prove more than the first five rows, ask th
 src/config.ts      gateway and SDK config schemas, path resolution
 src/crypto.ts      canonical JSON, sha256, Ed25519 keys, DSSE sign/verify
 src/log.ts         Merkle log: append, root, inclusion proof, verify, JSONL persistence
+src/log-sink.ts    where leaves go: the local file, or a remote log over HTTP; plus the reference log server
 src/policy.ts      Cedar evaluation wrapper, fail-closed
 src/delegation.ts  signed delegation grants
 src/receipt.ts     receipt statement types and provenance labels
@@ -227,11 +228,11 @@ src/sdk/index.ts   the interceptor: policy decision, record, wrap(tool fn)
 src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hooks
 src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, tested against the real packages
 src/verify.ts      offline verification and the human-readable report
-src/cli.ts         keygen, grant, gateway, hook, verify
+src/cli.ts         keygen, grant, gateway, hook, log, verify
 src/index.ts       the package's public surface; adapters are exported on ./sdk/<framework> subpaths
 tsconfig.build.json  emits dist/ (JavaScript plus declarations) for consumers; the repo itself runs the .ts directly
 scripts/           fake Stripe upstream, fixture builders for gateway and SDK, demo
-examples/          twelve runnable tutorials, one per aspect; each is run by the test suite
+examples/          thirteen runnable tutorials, one per aspect; each is run by the test suite
 test/              unit tests per module, end-to-end gateway test, SDK and hook tests,
                    adapter tests against the real packages, and a test that runs every policy in docs/policies.md
 docs/              tutorials, usage (gateway), sdk, policies, verification
@@ -248,6 +249,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - SDK core: policy decision, record, and a generic `wrap(tool, fn)` for any framework whose tools are functions.
 - Claude Code command hook for PreToolUse, PostToolUse, and PostToolUseFailure, with blocking on deny.
 - Claude Agent SDK in-process hooks over the same handler.
+- Remote log: the issuer can append to a log run by someone else over HTTP, whose key then signs the tree heads, so a verifier learns the receipt was in a log the operator could not rewrite. Includes the reference log server, bearer-token auth, and a root endpoint for auditors.
 - Framework adapters, each tested against the real package with a scripted model and no network: OpenAI Agents SDK (`wrapTools` enforces, `observeRunner` records from lifecycle events), Vercel AI SDK (`wrapTools` over a real `generateText` loop), LangChain (`ReceiptCallbackHandler` records, `issuer.wrap` enforces).
 
 **Next, in the order it pays off**

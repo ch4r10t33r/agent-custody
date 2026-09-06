@@ -11,6 +11,7 @@ import type { FactConfig, GatewayConfig } from "./config.ts";
 import { digestOf, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto.ts";
 import { delegationValidAt, verifyDelegation, type Delegation } from "./delegation.ts";
 import { createIssuer } from "./issue.ts";
+import { openLog } from "./log-sink.ts";
 import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
 import type { FactRecord, ReceiptPredicate } from "./receipt.ts";
 
@@ -69,7 +70,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
 
   const policyText = readFileSync(cfg.policyFile, "utf8");
   const pDigest = policyDigest(policyText);
-  const issuer = createIssuer(gatewayKey, cfg.receiptsDir, cfg.logFile);
+  const issuer = createIssuer(gatewayKey, cfg.receiptsDir, openLog(cfg, gatewayKey));
 
   const upstream = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
   await upstream.connect(
@@ -128,7 +129,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       execution = { status: "denied", reason: [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched", provenance: "observed" };
     }
 
-    issuer.issue({
+    await issuer.issue({
       receiptId,
       timestamp,
       issuer: { kind: "gateway", keyid: issuer.keyid, version: GATEWAY_VERSION },

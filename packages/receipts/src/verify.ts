@@ -14,6 +14,8 @@ export interface VerifyOptions {
   /** keys trusted to have issued receipts: gateway keys, SDK application keys */
   issuerKeys: PublicKeyRef[];
   principalKeys: PublicKeyRef[];
+  /** keys of logs run by someone other than the issuer; tree heads are checked against these and the issuer keys */
+  logKeys?: PublicKeyRef[];
   /** If given, the root is recomputed from this log file at the receipt's tree size and compared. */
   logFile?: string;
 }
@@ -75,8 +77,10 @@ export function verifyBundle(bundle: ReceiptBundle, opts: VerifyOptions): Verify
     add("no policy errors on an allow", !(p.policy.decision === "allow" && p.policy.errors.length > 0));
   }
 
-  const th = dsseVerify(bundle.treeHead, opts.issuerKeys);
-  add("tree head signature", th.ok && bundle.treeHead.payloadType === TREEHEAD_TYPE, th.ok ? undefined : th.error);
+  const logKeys = opts.logKeys ?? [];
+  const th = dsseVerify(bundle.treeHead, [...logKeys, ...opts.issuerKeys]);
+  const byLog = th.ok && logKeys.some((k) => k.keyid === th.keyid);
+  add("tree head signature", th.ok && bundle.treeHead.payloadType === TREEHEAD_TYPE, th.ok ? `${byLog ? "log key" : "issuer key"} ${short(th.keyid)}` : th.error);
   if (th.ok) {
     const head = th.payload as TreeHead;
     add("tree head matches inclusion proof size", head.treeSize === bundle.inclusion.treeSize);

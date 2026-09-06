@@ -22,6 +22,7 @@ Suggested reading order is the numbering. Output lands in `examples-out/`, which
 | 10 | Vercel AI SDK | [10-vercel-ai.ts](../examples/10-vercel-ai.ts) | a real generateText loop over the SDK's mock model, a denial as a tool-error part | `src/sdk/vercel-ai.ts` |
 | 11 | LangChain | [11-langchain.ts](../examples/11-langchain.ts) | the callback handler, tool_call ids, enforcement by wrapping the function | `src/sdk/langchain.ts` |
 | 12 | inside a receipt | [12-read-a-receipt.ts](../examples/12-read-a-receipt.ts) | the bundle's three parts, the in-toto statement, every predicate field with its provenance, the tree head | `src/receipt.ts` |
+| 13 | a log run by someone else | [13-remote-log.ts](../examples/13-remote-log.ts) | the reference log server on a free port, an SDK config that logs to it, a tree head signed by the log's key, verification failing without that key and passing with it, the root endpoint, a refused token | `src/log-sink.ts` |
 
 ## How policies are defined, in one paragraph
 

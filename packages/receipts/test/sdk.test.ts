@@ -86,8 +86,8 @@ describe("sdk wrap()", () => {
 });
 
 describe("Claude Code hook handler", () => {
-  it("PreToolUse: denies an over-limit call with the documented JSON and a receipt id", () => {
-    const out = handleHookEvent(sdk, { hook_event_name: "PreToolUse", session_id: "s1", tool_use_id: "t1", tool_name: "stripe.refund", tool_input: { amount: 999999 } });
+  it("PreToolUse: denies an over-limit call with the documented JSON and a receipt id", async () => {
+    const out = await handleHookEvent(sdk, { hook_event_name: "PreToolUse", session_id: "s1", tool_use_id: "t1", tool_name: "stripe.refund", tool_input: { amount: 999999 } });
     expect(out.hookSpecificOutput?.permissionDecision).toBe("deny");
     const id = /receipt ([0-9a-f-]{36})/.exec(out.hookSpecificOutput!.permissionDecisionReason!)![1]!;
     const st = decode(bundleFor(id));
@@ -95,12 +95,12 @@ describe("Claude Code hook handler", () => {
     expect(st.predicate.execution.status).toBe("denied");
   });
 
-  it("PreToolUse: on allow returns no decision, so the host's own permission flow still applies", () => {
-    expect(handleHookEvent(sdk, { hook_event_name: "PreToolUse", tool_name: "stripe.refund", tool_input: { amount: 1 } })).toEqual({});
+  it("PreToolUse: on allow returns no decision, so the host's own permission flow still applies", async () => {
+    expect(await handleHookEvent(sdk, { hook_event_name: "PreToolUse", tool_name: "stripe.refund", tool_input: { amount: 1 } })).toEqual({});
   });
 
-  it("PostToolUse: issues an executed receipt carrying the tool response", () => {
-    handleHookEvent(sdk, { hook_event_name: "PostToolUse", tool_name: "customer.lookup", tool_input: { id: "c1" }, tool_response: { verified: true } });
+  it("PostToolUse: issues an executed receipt carrying the tool response", async () => {
+    await handleHookEvent(sdk, { hook_event_name: "PostToolUse", tool_name: "customer.lookup", tool_input: { id: "c1" }, tool_response: { verified: true } });
     const st = decode(bundleFor(lastReceiptId()));
     expect(st.predicate.execution).toMatchObject({ status: "executed", result: { verified: true } });
     expect(st.predicate.tool.name).toBe("customer.lookup");

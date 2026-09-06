@@ -2,6 +2,11 @@ import { z } from "zod";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
+/** Where receipts are logged: a local file, or a log reached over HTTP whose bearer token comes from an environment variable. */
+const LogSchema = z.object({ url: z.string().url(), tokenEnv: z.string().min(1).optional() });
+const oneLog = { message: "exactly one of logFile or log is required" };
+const hasOneLog = (c: { logFile?: string | undefined; log?: unknown }) => (c.logFile ? 1 : 0) + (c.log ? 1 : 0) === 1;
+
 const FactSchema = z.object({
   /** key under context.facts */
   name: z.string().min(1),
@@ -25,8 +30,9 @@ export const GatewayConfigSchema = z.object({
   policyFile: z.string(),
   facts: z.array(FactSchema).default([]),
   receiptsDir: z.string(),
-  logFile: z.string(),
-});
+  logFile: z.string().optional(),
+  log: LogSchema.optional(),
+}).refine(hasOneLog, oneLog);
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 export type FactConfig = z.infer<typeof FactSchema>;
 
@@ -42,7 +48,7 @@ export function loadConfig(path: string): GatewayConfig {
     trustedPrincipalKeys: cfg.trustedPrincipalKeys.map(r),
     policyFile: r(cfg.policyFile),
     receiptsDir: r(cfg.receiptsDir),
-    logFile: r(cfg.logFile),
+    ...(cfg.logFile ? { logFile: r(cfg.logFile) } : {}),
   };
 }
 
@@ -54,10 +60,11 @@ export const SdkConfigSchema = z.object({
   /** optional Cedar policy; when present, wrapped tools and PreToolUse hooks can deny */
   policyFile: z.string().optional(),
   receiptsDir: z.string(),
-  logFile: z.string(),
+  logFile: z.string().optional(),
+  log: LogSchema.optional(),
   /** free-text label of the host framework, e.g. "claude-code", "openai-agents" */
   framework: z.string().optional(),
-});
+}).refine(hasOneLog, oneLog);
 export type SdkConfig = z.infer<typeof SdkConfigSchema>;
 
 export function loadSdkConfig(path: string): SdkConfig {
@@ -69,6 +76,6 @@ export function loadSdkConfig(path: string): SdkConfig {
     identity: { keyFile: r(cfg.identity.keyFile) },
     ...(cfg.policyFile ? { policyFile: r(cfg.policyFile) } : {}),
     receiptsDir: r(cfg.receiptsDir),
-    logFile: r(cfg.logFile),
+    ...(cfg.logFile ? { logFile: r(cfg.logFile) } : {}),
   };
 }

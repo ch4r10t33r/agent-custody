@@ -26,13 +26,13 @@ console.log(
 );
 
 step(2, "PreToolUse with a call the policy allows: no decision, so Claude Code's own permission prompt still applies");
-console.log("   output:", JSON.stringify(handleHookEvent(issuer, { hook_event_name: "PreToolUse", session_id: "s1", tool_use_id: "t1", tool_name: "stripe.refund", tool_input: { amount: 100 } })));
+console.log("   output:", JSON.stringify(await handleHookEvent(issuer, { hook_event_name: "PreToolUse", session_id: "s1", tool_use_id: "t1", tool_name: "stripe.refund", tool_input: { amount: 100 } })));
 
 step(3, "PreToolUse with a call the policy denies: blocked, with the receipt id in the reason");
-console.log("   output:", JSON.stringify(handleHookEvent(issuer, { hook_event_name: "PreToolUse", session_id: "s1", tool_use_id: "t2", tool_name: "stripe.refund", tool_input: { amount: 999999 } })));
+console.log("   output:", JSON.stringify(await handleHookEvent(issuer, { hook_event_name: "PreToolUse", session_id: "s1", tool_use_id: "t2", tool_name: "stripe.refund", tool_input: { amount: 999999 } })));
 
 step(4, "PostToolUse: the executed receipt, carrying tool_response");
-console.log("   output:", JSON.stringify(handleHookEvent(issuer, { hook_event_name: "PostToolUse", session_id: "s1", tool_use_id: "t1", tool_name: "stripe.refund", tool_input: { amount: 100 }, tool_response: { refund_id: "re_1" } })));
+console.log("   output:", JSON.stringify(await handleHookEvent(issuer, { hook_event_name: "PostToolUse", session_id: "s1", tool_use_id: "t1", tool_name: "stripe.refund", tool_input: { amount: 100 }, tool_response: { refund_id: "re_1" } })));
 
 step(5, "the real command path: the CLI reads the event from stdin");
 const r = spawnSync(process.execPath, [resolve(import.meta.dirname, "..", "src", "cli.ts"), "hook", "--config", fx.configFile], {

@@ -33,14 +33,14 @@ function toEvent(input: HookInput): ToolEvent {
  * so the host's normal permission flow still applies. This adapter never auto-approves.
  * PostToolUse / PostToolUseFailure: issue the receipt for the completed call.
  */
-export function handleHookEvent(issuer: SdkIssuer, input: HookInput): HookOutput {
+export async function handleHookEvent(issuer: SdkIssuer, input: HookInput): Promise<HookOutput> {
   const ev = toEvent(input);
   switch (input.hook_event_name) {
     case "PreToolUse": {
       const policy = issuer.decide(ev);
       if (policy && policy.decision === "deny") {
         const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
-        const bundle = issuer.record(ev, { status: "denied", reason }, policy);
+        const bundle = await issuer.record(ev, { status: "denied", reason }, policy);
         return {
           continue: true,
           hookSpecificOutput: {
@@ -53,10 +53,10 @@ export function handleHookEvent(issuer: SdkIssuer, input: HookInput): HookOutput
       return {};
     }
     case "PostToolUse":
-      issuer.record(ev, { status: "executed", result: input.tool_response ?? null }, issuer.decide(ev));
+      await issuer.record(ev, { status: "executed", result: input.tool_response ?? null }, issuer.decide(ev));
       return {};
     case "PostToolUseFailure":
-      issuer.record(ev, { status: "failed", result: input.error ?? input.tool_response ?? null }, issuer.decide(ev));
+      await issuer.record(ev, { status: "failed", result: input.error ?? input.tool_response ?? null }, issuer.decide(ev));
       return {};
     default:
       return {};

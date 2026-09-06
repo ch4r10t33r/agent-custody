@@ -8,7 +8,7 @@ The agent is not trusted. The layer around it is, and every record says exactly 
 
 | package | what it is | status |
 | --- | --- | --- |
-| [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, twelve runnable tutorials |
+| [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, thirteen runnable tutorials |
 | [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | bitemporal fact ledger with supersession, retraction, and as-of queries |
 
 Receipts are the unit. State is the ledger of what the agent came to believe from them. Both append to the same kind of signed log and are checked by the same kind of verifier.
@@ -82,7 +82,8 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 - Enforce instead of record: put the gateway between the agent and its MCP tools, with a signed delegation grant and a Cedar policy. Denied calls never reach the tool and still get a receipt. [packages/receipts/docs/usage.md](packages/receipts/docs/usage.md)
 - Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
 - Write policies and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
-- Thirteen step-by-step examples across the two packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
+- Log to a server the operator does not control, so tree heads are signed by a key that is not yours. [verification.md](packages/receipts/docs/verification.md)
+- Fifteen step-by-step examples across the two packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
 
 ## Working in the repository
 

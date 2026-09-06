@@ -79,6 +79,14 @@ when {
 
 `upstream` is spawned by the gateway exactly as an MCP host would spawn it. `env` is passed through, which is where upstream credentials go. The agent never sees them.
 
+`logFile` is the local Merkle log, with tree heads signed by the gateway's own key. To log to a server the operator does not control, replace it with `log`:
+
+```json
+  "log": { "url": "https://log.example.com/", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN" }
+```
+
+Exactly one of the two. The bearer token comes from the named environment variable, never from the file, and a missing variable fails at startup. With a remote log the tree head in each receipt is signed by the log's key, and a verifier must be given that key with `--log-key`. If the log refuses a leaf, the receipt is not issued and the call returns an error to the agent; for an executed call the upstream action has already happened by then, which is the honest outcome, since a receipt that was never logged must not be handed out. The reference log server is `node src/cli.ts log --file log.jsonl --key keys/log.key --port 8787 --token-env AGENT_CUSTODY_LOG_TOKEN`; [verification.md](verification.md) says what it proves.
+
 `facts` tells the gateway which upstream tool to call before evaluating policy for a given tool. `$args.<key>` copies a value from the intercepted call. The result appears in Cedar as `context.facts.<name>` and in the receipt with its own digest, labelled `observed`. If a fact lookup fails, the call is denied and the receipt says why.
 
 **5. Run the gateway.** It speaks MCP on stdin/stdout and logs to stderr only.

@@ -28,7 +28,7 @@ Use the SDK for reach. Use the gateway for anything that moves money, touches pr
 }
 ```
 
-`policyFile` and `principalId` are optional. Without a policy the SDK records and never denies. Paths resolve relative to the config file. Generate the key with `node src/cli.ts keygen --dir keys --name app`.
+`policyFile` and `principalId` are optional. Without a policy the SDK records and never denies. Paths resolve relative to the config file. Instead of `logFile`, `"log": { "url": "https://log.example.com/", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN" }` sends every leaf to a log run by someone else, whose key then signs the tree heads; see [usage.md](usage.md) for what that changes and [verification.md](verification.md) for what it proves. Generate the key with `node src/cli.ts keygen --dir keys --name app`.
 
 Policies see `context.args` and an empty `context.facts`. A policy that reads `context.facts` or `context.grant` errors, which is a deny. That is intended: an SDK policy cannot pretend it checked something outside the agent's process.
 
@@ -154,8 +154,10 @@ For finer control use the two primitives `wrap` is built from:
 
 ```ts
 const decision = issuer.decide({ tool, args });                       // PolicyDecision | null
-const bundle = issuer.record({ tool, args, model, session }, { status: "executed", result }, decision);
+const bundle = await issuer.record({ tool, args, model, session }, { status: "executed", result }, decision);
 ```
+
+`record` returns a promise because the log may be remote. It rejects, and writes no bundle, if the log refuses the leaf. `handleHookEvent` is asynchronous for the same reason. The record-only adapters that cannot await, such as `observeRunner`, report a refused leaf on stderr.
 
 ## Which adapter enforces
 

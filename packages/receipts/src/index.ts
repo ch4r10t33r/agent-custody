@@ -5,6 +5,7 @@ export * from "./delegation.ts";
 export * from "./gateway.ts";
 export * from "./issue.ts";
 export * from "./log.ts";
+export * from "./log-sink.ts";
 export * from "./policy.ts";
 export * from "./receipt.ts";
 export * from "./verify.ts";

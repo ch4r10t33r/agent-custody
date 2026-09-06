@@ -6,7 +6,9 @@ A verifier needs three things and no network access:
 2. the issuer's public key: the gateway key, or the application key for SDK receipts
 3. the principal's public key, for gateway receipts, which carry a signed delegation
 
-A fourth is optional: a copy of the issuer's log file, which lets the verifier confirm the receipt sits in a log whose root the verifier recomputed, not one the issuer merely asserted.
+A fourth is optional: a copy of the log file, which lets the verifier confirm the receipt sits in a log whose root the verifier recomputed, not one the issuer merely asserted.
+
+When the issuer logs to a remote log, the tree head is signed by the log's key rather than the issuer's. The verifier then needs that public key too, and the report says which key signed the tree head. That is the point of a remote log: a tree head signed by a party that is not the operator says the receipt was in a log the operator could not rewrite. A tree head signed by the issuer's own key says only that the issuer has not changed its story since.
 
 ## From the command line
 
@@ -14,6 +16,7 @@ A fourth is optional: a copy of the issuer's log file, which lets the verifier c
 node src/cli.ts verify receipts/<id>.json \
   --issuer-key keys/gateway.pub \
   --principal-key keys/principal.pub \
+  --log-key keys/log.pub \  # only for receipts logged to a remote log
   --log log.jsonl          # optional
 ```
 
@@ -106,6 +109,7 @@ const bundle = JSON.parse(readFileSync("receipts/<id>.json", "utf8"));
 const result = verifyBundle(bundle, {
   issuerKeys: [loadPublicKey("keys/gateway.pub")],   // gateway keys and SDK application keys
   principalKeys: [loadPublicKey("keys/principal.pub")],
+  logKeys: [loadPublicKey("keys/log.pub")],           // only for receipts logged to a remote log
   logFile: "log.jsonl",           // optional
 });
 
@@ -128,7 +132,7 @@ The formats are standard on purpose, so a verifier in another language needs no 
 
 ## Auditing a log copy
 
-Take copies of `log.jsonl` on a schedule and keep them where the operator cannot write. Then for any receipt:
+Take copies of `log.jsonl` on a schedule and keep them where the operator cannot write. A remote log serves `GET /root?size=N` so an auditor can compare a tree head with the log's own root without a copy; example 13 does this. Then for any receipt:
 
 ```bash
 node src/cli.ts verify receipts/<id>.json --issuer-key ... --principal-key ... --log /audit/copies/log-2026-09-04.jsonl

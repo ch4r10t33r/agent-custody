@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import type { SdkConfig } from "../config.ts";
 import { digestOf, loadPrivateKey } from "../crypto.ts";
 import { createIssuer } from "../issue.ts";
+import { openLog, type LogSink } from "../log-sink.ts";
 import { evaluate, type PolicyDecision } from "../policy.ts";
 import type { ReceiptBundle, ReceiptPredicate } from "../receipt.ts";
 
@@ -25,10 +26,12 @@ export type Outcome =
 export interface SdkIssuer {
   agentId: string;
   keyid: string;
+  /** where the leaves go: the local file or the remote log */
+  log: LogSink;
   /** Evaluates the configured policy for a call. Returns null when no policy is configured. */
   decide(ev: ToolEvent): PolicyDecision | null;
-  /** Issues one receipt for a completed, failed, denied, or errored call. */
-  record(ev: ToolEvent, outcome: Outcome, policy?: PolicyDecision | null): ReceiptBundle;
+  /** Issues one receipt for a completed, failed, denied, or errored call. Rejects if the log refuses it. */
+  record(ev: ToolEvent, outcome: Outcome, policy?: PolicyDecision | null): Promise<ReceiptBundle>;
   /** Wraps a tool function: decide, run, record. Throws PolicyDeniedError on deny, after issuing the denial receipt. */
   wrap<A extends Record<string, unknown>, R>(tool: string, fn: (args: A) => R | Promise<R>, meta?: Omit<ToolEvent, "tool" | "args">): (args: A) => Promise<R>;
 }
@@ -48,13 +51,13 @@ export class PolicyDeniedError extends Error {
 
 export function createSdkIssuer(cfg: SdkConfig): SdkIssuer {
   const key = loadPrivateKey(cfg.identity.keyFile);
-  const issuer = createIssuer(key, cfg.receiptsDir, cfg.logFile);
+  const issuer = createIssuer(key, cfg.receiptsDir, openLog(cfg, key));
   const policyText = cfg.policyFile ? readFileSync(cfg.policyFile, "utf8") : null;
 
   const decide = (ev: ToolEvent): PolicyDecision | null =>
     policyText === null ? null : evaluate(policyText, { agentId: cfg.agentId, tool: ev.tool, context: { args: ev.args, facts: {} } });
 
-  function record(ev: ToolEvent, outcome: Outcome, policy: PolicyDecision | null = null): ReceiptBundle {
+  function record(ev: ToolEvent, outcome: Outcome, policy: PolicyDecision | null = null): Promise<ReceiptBundle> {
     const execution: ReceiptPredicate["execution"] =
       outcome.status === "denied"
         ? { status: "denied", reason: outcome.reason, provenance: "claimed" }
@@ -80,6 +83,7 @@ export function createSdkIssuer(cfg: SdkConfig): SdkIssuer {
   return {
     agentId: cfg.agentId,
     keyid: issuer.keyid,
+    log: issuer.log,
     decide,
     record,
     wrap(tool, fn, meta = {}) {
@@ -88,15 +92,15 @@ export function createSdkIssuer(cfg: SdkConfig): SdkIssuer {
         const policy = decide(ev);
         if (policy && policy.decision === "deny") {
           const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
-          const bundle = record(ev, { status: "denied", reason }, policy);
+          const bundle = await record(ev, { status: "denied", reason }, policy);
           throw new PolicyDeniedError(tool, reason, receiptIdOf(bundle));
         }
         try {
           const result = await fn(args);
-          record(ev, { status: "executed", result }, policy);
+          await record(ev, { status: "executed", result }, policy);
           return result;
         } catch (e) {
-          record(ev, { status: "error", error: e instanceof Error ? e.message : String(e) }, policy);
+          await record(ev, { status: "error", error: e instanceof Error ? e.message : String(e) }, policy);
           throw e;
         }
       };

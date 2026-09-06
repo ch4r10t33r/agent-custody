@@ -40,15 +40,15 @@ export function wrapTools<T extends { name: string; invoke: InvokeFn }>(issuer: 
       const policy = issuer.decide(ev);
       if (policy && policy.decision === "deny") {
         const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
-        const bundle = issuer.record(ev, { status: "denied", reason }, policy);
+        const bundle = await issuer.record(ev, { status: "denied", reason }, policy);
         return `Denied by policy: ${reason} (receipt ${receiptIdOf(bundle)})`;
       }
       try {
         const result = await t.invoke(ctx, input, details);
-        issuer.record(ev, { status: "executed", result: parseResult(result) }, policy);
+        await issuer.record(ev, { status: "executed", result: parseResult(result) }, policy);
         return result;
       } catch (e) {
-        issuer.record(ev, { status: "error", error: e instanceof Error ? e.message : String(e) }, policy);
+        await issuer.record(ev, { status: "error", error: e instanceof Error ? e.message : String(e) }, policy);
         throw e;
       }
     };
@@ -72,6 +72,7 @@ export function observeRunner(issuer: SdkIssuer, runner: Listenable): void {
     const callId = details?.toolCall?.callId ?? "";
     const ev = pending.get(callId) ?? { tool: tool.name, args: {}, session: { id: null, toolUseId: callId || null } };
     pending.delete(callId);
-    issuer.record(ev, { status: "executed", result: parseResult(result) }, null);
+    // The runner does not await listeners. A log that refuses the leaf is reported on stderr; nothing else can see it here.
+    issuer.record(ev, { status: "executed", result: parseResult(result) }, null).catch((e: unknown) => console.error(`agent-custody: receipt not issued: ${e instanceof Error ? e.message : e}`));
   });
 }

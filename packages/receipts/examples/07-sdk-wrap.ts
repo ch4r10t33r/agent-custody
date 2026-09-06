@@ -39,7 +39,7 @@ await flaky({ id: "c1" }).catch((e: Error) => console.log("   rethrown:", e.mess
 step(6, "the primitives underneath wrap(), for frameworks where you cannot wrap");
 const ev = { tool: "stripe.refund", args: { customer_id: "cust_123", amount: 1 } };
 const decision = issuer.decide(ev);
-const bundle = issuer.record(ev, { status: "executed", result: { ok: true } }, decision);
+const bundle = await issuer.record(ev, { status: "executed", result: { ok: true } }, decision);
 console.log("   decision:", decision?.decision, "receipt:", receiptIdOf(bundle));
 
 step(7, "an SDK receipt verifies like any other, and the report says what it is worth");

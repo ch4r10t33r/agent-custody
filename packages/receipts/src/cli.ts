@@ -5,6 +5,7 @@ import { loadConfig, loadSdkConfig } from "./config.ts";
 import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./crypto.ts";
 import { createDelegation } from "./delegation.ts";
 import { createGateway, serveStdio } from "./gateway.ts";
+import { serveLog } from "./log-sink.ts";
 import type { ReceiptBundle } from "./receipt.ts";
 import { createSdkIssuer } from "./sdk/index.ts";
 import { handleHookEvent, type HookInput } from "./sdk/claude.ts";
@@ -16,7 +17,8 @@ const USAGE = `agent-custody <command>
   grant   --key <principal.key> --principal <id> --agent <id> --scopes <a,b> [--ttl-hours 24] --out <file>
   gateway --config <gateway.json>
   hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_CUSTODY_CONFIG)
-  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log <log.jsonl>] [--json]
+  log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
+  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--log <log.jsonl>] [--json]
 `;
 
 async function main(argv: string[]): Promise<number> {
@@ -70,8 +72,23 @@ async function main(argv: string[]): Promise<number> {
       const configPath = values.config ?? process.env.AGENT_CUSTODY_CONFIG;
       if (!configPath) throw new Error("hook needs --config or AGENT_CUSTODY_CONFIG");
       const input = JSON.parse(readFileSync(0, "utf8")) as HookInput;
-      const out = handleHookEvent(createSdkIssuer(loadSdkConfig(configPath)), input);
+      const out = await handleHookEvent(createSdkIssuer(loadSdkConfig(configPath)), input);
       console.log(JSON.stringify(out));
+      return 0;
+    }
+    case "log": {
+      const { values } = parseArgs({
+        args: rest,
+        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" } },
+      });
+      if (!values.file || !values.key) throw new Error("log needs --file and --key");
+      const token = values["token-env"] ? process.env[values["token-env"]] : undefined;
+      if (values["token-env"] && !token) throw new Error(`log: environment variable ${values["token-env"]} is not set`);
+      const key = loadPrivateKey(values.key);
+      const running = await serveLog(values.file, key, { port: Number(values.port), host: values.host, ...(token ? { tokens: [token] } : {}) });
+      console.error(`agent-custody log: ${running.url} keyid=${key.keyid} file=${values.file} ${token ? "bearer token required" : "open, anyone may append"}`);
+      await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+      await running.close();
       return 0;
     }
     case "verify": {
@@ -82,6 +99,7 @@ async function main(argv: string[]): Promise<number> {
           "issuer-key": { type: "string", multiple: true },
           "gateway-key": { type: "string", multiple: true },
           "principal-key": { type: "string", multiple: true },
+          "log-key": { type: "string", multiple: true },
           log: { type: "string" },
           json: { type: "boolean", default: false },
         },
@@ -93,6 +111,7 @@ async function main(argv: string[]): Promise<number> {
       const result = verifyBundle(bundle, {
         issuerKeys: issuerKeyFiles.map(loadPublicKey),
         principalKeys: (values["principal-key"] ?? []).map(loadPublicKey),
+        ...(values["log-key"] ? { logKeys: values["log-key"].map(loadPublicKey) } : {}),
         ...(values.log ? { logFile: values.log } : {}),
       });
       console.log(values.json ? JSON.stringify(result, null, 2) : formatReport(result));

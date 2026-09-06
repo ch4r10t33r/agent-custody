@@ -54,18 +54,18 @@ export class ReceiptCallbackHandler extends BaseCallbackHandler {
     this.pending.set(runId, { tool: name, args: parseArgs(input), session: { id: null, toolUseId: toolCallId ?? null } });
   }
 
-  override handleToolEnd(output: unknown, runId: string): void {
+  override async handleToolEnd(output: unknown, runId: string): Promise<void> {
     const ev = this.pending.get(runId);
     if (!ev) return;
     this.pending.delete(runId);
-    this.issuer.record(ev, { status: "executed", result: unwrapOutput(output) }, null);
+    await this.issuer.record(ev, { status: "executed", result: unwrapOutput(output) }, null);
   }
 
-  override handleToolError(err: Error, runId: string): void {
+  override async handleToolError(err: Error, runId: string): Promise<void> {
     const ev = this.pending.get(runId);
     if (!ev) return;
     this.pending.delete(runId);
-    this.issuer.record(ev, { status: "error", error: err.message }, null);
+    await this.issuer.record(ev, { status: "error", error: err.message }, null);
   }
 }
 

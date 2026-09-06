@@ -19,7 +19,7 @@ console.log("2. The agent looks up a customer. The call is recorded as a signed 
 const crmLookup = async (args: { id: string }) => ({ id: args.id, plan: "pro" });
 const args = { id: "acct:42" };
 const result = await crmLookup(args);
-const bundle = issuer.record({ tool: "crm.lookup", args }, { status: "executed", result });
+const bundle = await issuer.record({ tool: "crm.lookup", args }, { status: "executed", result });
 console.log(`   receipt ${receiptIdOf(bundle)} at log index ${bundle.inclusion.leafIndex}`);
 
 console.log("3. Anyone with the public key can verify the receipt offline, including that it is in the log.");

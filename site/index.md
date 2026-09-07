@@ -38,6 +38,28 @@ features:
     link: /receipt/v0.2
 ---
 
+## Why this exists
+
+An agent acts on the world through tools, and it acts on beliefs it picked up along the way. Both leave the same kind of evidence today: the agent's own log, written by the thing you are trying to check, unsigned, editable, and gone when the process is. When a refund goes out that should not have, or a fleet of agents starts repeating a wrong customer fact, nobody can say what happened, who allowed it, where the belief came from, or how to undo it without wiping everything.
+
+agent-custody is the chain of custody for both. Receipts cover what an agent did. State covers what it believes. Each record says how far it can be trusted, and every one can be checked by someone who has no access to the agent, the operator, or the tools.
+
+### Receipts: what an agent did
+
+`@agent-custody/receipts` produces one signed record per tool call, allowed or denied. The record names the tool and its arguments, the outcome, the policy that decided, and the delegation a human signed, with every field labelled `attested`, `observed`, or `claimed`. Each record is a leaf in a Merkle log, so it cannot be dropped or replaced later, and a log run by someone else can sign the tree heads so the operator cannot rewrite history either.
+
+Two ways to produce them. The **SDK** runs inside the agent's process and records everything it can see; it is honest that this is self-reported. The **gateway** sits between the agent and its tools as an MCP server, fetches the facts a policy needs itself, and stops a denied call before it reaches the tool. A verifier needs public keys and nothing else. [Read more](/receipts/)
+
+### State: what an agent believes
+
+`@agent-custody/state` is a ledger of facts, not a vector store. Every belief carries who wrote it, when it was true, when the ledger learned it, and the receipt that produced it. Beliefs are superseded rather than overwritten and retracted rather than deleted, so "what did the agent believe on Tuesday" is a query, and undoing a wrong belief restores what it displaced.
+
+Run as the gateway's upstream, every write and read is policy-checked and receipted, and the fact's source and actor come from the gateway rather than from the agent's own claims. [Read more](/state/)
+
+### How they fit
+
+Receipts are the unit and state is the ledger built from them. A tool call produces a receipt; the belief the agent takes from it cites that receipt; a later action taken on that belief has its own receipt. When something goes wrong, the chain runs both ways: from a bad action back to the belief and the call that produced it, and from a bad belief forward to everything that relied on it.
+
 ## Install
 
 ::: code-group
@@ -52,5 +74,7 @@ pip install agent-custody
 ```
 
 :::
+
+Source, packages, and issues: [github.com/ch4r10t33r/agent-custody](https://github.com/ch4r10t33r/agent-custody) · [@agent-custody/receipts](https://www.npmjs.com/package/@agent-custody/receipts) and [@agent-custody/state](https://www.npmjs.com/package/@agent-custody/state) on npm · [agent-custody](https://pypi.org/project/agent-custody/) on PyPI. Apache-2.0.
 
 <!--@include: ../README.md#pieces-->

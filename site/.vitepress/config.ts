@@ -62,6 +62,7 @@ export default withMermaid(
         { text: "Python", link: "/python/" },
         { text: "Spec", link: "/receipt/v0.2" },
         { text: "Verify", link: "/verify" },
+        { text: "GitHub", link: "https://github.com/ch4r10t33r/agent-custody" },
       ],
       sidebar: [
         { text: "Start here", items: [
@@ -82,7 +83,7 @@ export default withMermaid(
         { text: "Tools", items: [{ text: "Verify a receipt in the browser", link: "/verify" }] },
       ],
       socialLinks: [{ icon: "github", link: "https://github.com/ch4r10t33r/agent-custody" }, { icon: "npm", link: "https://www.npmjs.com/org/agent-custody" }],
-      footer: { message: "Apache-2.0", copyright: "agent-custody" },
+      footer: { message: 'Apache-2.0 · <a href="https://github.com/ch4r10t33r/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a>', copyright: "agent-custody" },
       search: { provider: "local" },
     },
     markdown: {

@@ -64,7 +64,8 @@ async function main(argv: string[]): Promise<number> {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, "allow-direct": { type: "boolean", default: false }, http: { type: "boolean", default: false }, port: { type: "string", default: "8790" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, key: { type: "string" }, "forget-key-env": { type: "string" }, retention: { type: "string" } } });
       if (!values.ledger) throw new Error("serve needs --ledger");
       const ledger = new Ledger(values.ledger, forgetKeyFrom(values["forget-key-env"]));
-      if (!values["forget-key-env"]) console.error("agent-custody-memory: no --forget-key-env; forgotten values leave a plain sha256, which is guessable for short values. Set a forget key, or forget with keepDigest false.");
+      // Printed after the startup line, which supervisors and tests read first for the address.
+      const digestWarning = values["forget-key-env"] ? "" : "agent-custody-memory: no --forget-key-env; forgotten values leave a plain sha256, which is guessable for short values. Set a forget key, or forget with keepDigest false.";
       const identity = values.key ? loadPrivateKey(values.key) : undefined;
       const retention = values.retention ? parseRetention(values.retention) : undefined;
       const common = { requireGateway: !values["allow-direct"], ...(identity ? { identity } : {}), ...(retention ? { retention } : {}) };
@@ -73,11 +74,13 @@ async function main(argv: string[]): Promise<number> {
         if (values["token-env"] && !token) throw new Error(`serve: environment variable ${values["token-env"]} is not set`);
         const running = await serveMemoryHttp(ledger, { port: Number(values.port), host: values.host, ...common, ...(token ? { tokens: [token] } : {}) });
         console.error(`agent-custody-memory: ${running.url} ledger=${values.ledger} events=${ledger.size} ${token ? "bearer token required" : "open"} ${values["allow-direct"] ? "direct calls allowed" : "gateway calls only"}`);
+        if (digestWarning) console.error(digestWarning);
         await new Promise<void>((resolve) => process.once("SIGINT", resolve));
         await running.close();
         return 0;
       }
       console.error(`agent-custody-memory: ledger=${values.ledger} events=${ledger.size} ${values["allow-direct"] ? "direct calls allowed" : "gateway calls only"}`);
+      if (digestWarning) console.error(digestWarning);
       await serveStdio(createMemoryServer(ledger, common));
       return 0;
     }

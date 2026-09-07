@@ -58,9 +58,18 @@ def memory_server():
     d = Path(tempfile.mkdtemp(prefix="agent-custody-memory-"))
     env = dict(os.environ, MEMORY_TOKEN="py-secret")
     p = subprocess.Popen([node, str(STATE / "src/cli.ts"), "serve", "--ledger", str(d / "ledger.jsonl"), "--http", "--port", "0", "--allow-direct", "--token-env", "MEMORY_TOKEN"], stderr=subprocess.PIPE, text=True, env=env)
-    line = p.stderr.readline()
-    m = re.search(r"(http://[^ ]+)", line)
-    assert m, f"memory server did not start: {line}"
+    # the address is on the startup line; warnings may precede or follow it, so read until it appears
+    lines = []
+    m = None
+    for _ in range(10):
+        line = p.stderr.readline()
+        if not line:
+            break
+        lines.append(line)
+        m = re.search(r"(http://[^ ]+)", line)
+        if m:
+            break
+    assert m, f"memory server did not start: {''.join(lines)}"
     yield {"url": m.group(1), "token": "py-secret", "ledger": d / "ledger.jsonl"}
     p.terminate()
     p.wait(timeout=10)

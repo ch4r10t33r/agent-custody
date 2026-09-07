@@ -89,7 +89,8 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 **Next, in the order it pays off**
 
 1. A consumed-facts field on receipts: the gateway records which fact ids a read returned, so later receipts in the session show what the agent relied on.
-2. Blast radius: given a fact id, every downstream receipt and derived fact that cited it.
-3. Trust tiers as Cedar policies over spaces and receipt provenance: a self-reported write cannot overwrite an org-space fact that was attested through the gateway.
-4. Write-through adapters for existing memory stores, tested against the real packages.
-5. Signed forget statements: a retention or deletion request produces a verifiable record of which facts were removed.
+2. Blast radius: given a fact id, every downstream receipt and derived fact that cited it, and the retraction that undoes the belief.
+3. Write-through adapters for the memory stores teams already use, tested against the real packages, so the ledger sits under their retrieval and a retraction reaches the store. Certified forget depends on this: a deletion is only real once it has reached the stores that serve recall.
+4. Trust tiers: quarantine of self-reported writes until an attested source or a human confirms them, and Cedar policy over spaces and provenance so a claimed write cannot displace an attested org-space fact.
+5. Signed forget statements: a retention or deletion request produces a verifiable record of which facts were removed from the ledger and from every store behind it.
+6. A memory-mutation eval harness: stale-fact rate, contradiction handling, and blast radius of a bad write, scored the same way for this ledger and for any store put behind the same interface.

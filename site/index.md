@@ -75,6 +75,7 @@ Receipts are the unit and state is the ledger built from them. A tool call produ
 - **Proof of where a belief came from**, and which beliefs the fleet has not yet been allowed to trust.
 - **Undo with a blast radius**, so a bad belief is not only reverted but traced to the refunds, emails, and beliefs that depended on it.
 - **Certified forget**, a receipt that says the value is gone from the ledger and from every store, checked against each store's search rather than assumed, and a legal hold that stops it when it must not be.
+- **Your database**, not ours: the ledger is a JSONL file, SQLite, or a table in the Postgres you already run, and every query is an index lookup. Warehouses get the export.
 - **One artefact for counsel**, a signed pack with a fact's history, its receipts, its blast radius, and its forget certificate, verifiable by anyone with two public keys.
 - **Retention that runs**, as receipted sweeps, with a record of every sweep and of what a hold kept.
 - **A log the operator cannot rewrite**, when the log is run by someone else, and a proof that history was never rewritten between any two receipts.

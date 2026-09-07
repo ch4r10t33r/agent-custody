@@ -1,4 +1,4 @@
-// The fact ledger: an append-only JSONL log of events about what an agent believes.
+// The fact ledger: an append-only log of events about what an agent believes, in a JSONL file, SQLite, or Postgres.
 // Bitemporal. Valid time is when a fact was true in the world; transaction time is when the ledger learned of it.
 // Nothing is ever edited in place. Correcting a belief is a new event, so "what did the agent believe at T" is always answerable.
 import { randomUUID } from "node:crypto";
@@ -175,20 +175,20 @@ export interface AsOf {
 }
 
 export class Ledger {
-  private readonly events: LedgerEvent[];
   private readonly store: EventStore;
   private readonly now: () => Date;
   private readonly forgetKey: Buffer | null;
 
   /**
-   * `location` is a path: JSONL by default, SQLite when it ends in .sqlite or .db; or pass a store.
-   * forgetKey: a secret kept outside the store; with it, forgotten values leave an HMAC rather than a plain hash.
+   * `location` is a path (JSONL by default, SQLite when it ends in .sqlite or .db) or a postgres:// URL; or pass a
+   * store. The ledger holds no events itself: every question is a query to the store, so a shared store means a
+   * shared ledger. forgetKey: a secret kept outside the store; with it, forgotten values leave an HMAC rather than a
+   * plain hash.
    */
   constructor(location: string | EventStore, opts: { now?: () => Date; forgetKey?: string | Buffer } = {}) {
     this.store = typeof location === "string" ? openStore(location) : location;
     this.now = opts.now ?? (() => new Date());
     this.forgetKey = opts.forgetKey ? Buffer.from(opts.forgetKey) : null;
-    this.events = this.store.load();
   }
 
   /** Where the events live, for reports. */
@@ -197,32 +197,37 @@ export class Ledger {
   }
 
   /** Every event in order, for export. */
-  export(): LedgerEvent[] {
-    return [...this.events];
+  export(): Promise<LedgerEvent[]> {
+    return this.store.events();
   }
 
-  close(): void {
-    this.store.close();
+  close(): Promise<void> {
+    return this.store.close();
   }
 
-  get size(): number {
-    return this.events.length;
+  count(): Promise<number> {
+    return this.store.count();
+  }
+
+  /** Every space with at least one fact. */
+  spaces(): Promise<string[]> {
+    return this.store.spaces();
   }
 
   /** The checks assert makes, without appending. For callers that must do something irreversible before the append. */
-  validateAssert(input: AssertInput): void {
+  async validateAssert(input: AssertInput): Promise<void> {
     const validFrom = input.validFrom ?? this.now().toISOString();
     if (input.supersedes !== undefined) {
-      const prior = this.factById(input.supersedes);
+      const prior = await this.factById(input.supersedes);
       if (!prior) throw new Error(`cannot supersede unknown fact ${input.supersedes}`);
       if (prior.fact.validTo !== null) throw new Error(`fact ${input.supersedes} is already superseded`);
-      if (this.retractedAt(input.supersedes)) throw new Error(`fact ${input.supersedes} is retracted`);
+      if (await this.retractedAt(input.supersedes)) throw new Error(`fact ${input.supersedes} is retracted`);
       if (validFrom < prior.fact.validFrom) throw new Error(`replacement cannot start before the fact it supersedes`);
     }
   }
 
-  assert(input: AssertInput): AssertEvent {
-    this.validateAssert(input);
+  async assert(input: AssertInput): Promise<AssertEvent> {
+    await this.validateAssert(input);
     const txTime = this.now().toISOString();
     const validFrom = input.validFrom ?? txTime;
     const event: AssertEvent = {
@@ -245,13 +250,13 @@ export class Ledger {
       },
       supersedes: input.supersedes ?? null,
     };
-    this.append(event);
+    await this.store.append(event);
     return event;
   }
 
-  retract(input: RetractInput): RetractEvent {
-    if (!this.factById(input.factId)) throw new Error(`cannot retract unknown fact ${input.factId}`);
-    if (this.retractedAt(input.factId)) throw new Error(`fact ${input.factId} is already retracted`);
+  async retract(input: RetractInput): Promise<RetractEvent> {
+    if (!(await this.factById(input.factId))) throw new Error(`cannot retract unknown fact ${input.factId}`);
+    if (await this.retractedAt(input.factId)) throw new Error(`fact ${input.factId} is already retracted`);
     const event: RetractEvent = {
       eventId: randomUUID(),
       kind: "retract",
@@ -261,90 +266,101 @@ export class Ledger {
       reason: input.reason,
       source: input.source ?? { receiptId: null },
     };
-    this.append(event);
+    await this.store.append(event);
     return event;
   }
 
-  confirm(input: ConfirmInput): ConfirmEvent {
-    const prior = this.factById(input.factId);
+  async confirm(input: ConfirmInput): Promise<ConfirmEvent> {
+    const prior = await this.factById(input.factId);
     if (!prior) throw new Error(`cannot confirm unknown fact ${input.factId}`);
-    if (this.retractedAt(input.factId)) throw new Error(`fact ${input.factId} is retracted`);
-    if (prior.fact.provenance !== "claimed" || this.confirmedAt(input.factId)) throw new Error(`fact ${input.factId} is already attested`);
+    if (await this.retractedAt(input.factId)) throw new Error(`fact ${input.factId} is retracted`);
+    if (prior.fact.provenance !== "claimed" || (await this.confirmedAt(input.factId))) throw new Error(`fact ${input.factId} is already attested`);
     const event: ConfirmEvent = { eventId: randomUUID(), kind: "confirm", txTime: this.now().toISOString(), factId: input.factId, actor: input.actor, source: input.source ?? { receiptId: null } };
-    this.append(event);
+    await this.store.append(event);
     return event;
   }
 
-  /**
-   * Erases a fact's value from the ledger file, keeping its digest, and stops believing it. The file is rewritten in
-   * place, which is the one thing an append-only ledger must do for a deletion demand. Everything else about the fact
-   * stays: who wrote it, when, from which receipt, and now who erased it and why.
-   */
   /** Whether a legal hold currently stands on the fact. */
-  held(factId: string): boolean {
+  async held(factId: string): Promise<boolean> {
     let held = false;
-    for (const e of this.events) if ((e.kind === "hold" || e.kind === "release") && e.factId === factId) held = e.kind === "hold";
+    for (const e of await this.store.eventsFor(factId)) if ((e.kind === "hold" || e.kind === "release") && e.factId === factId) held = e.kind === "hold";
     return held;
   }
 
-  hold(input: HoldInput): HoldEvent {
-    const prior = this.factById(input.factId);
+  async hold(input: HoldInput): Promise<HoldEvent> {
+    const prior = await this.factById(input.factId);
     if (!prior) throw new Error(`cannot hold unknown fact ${input.factId}`);
     if (prior.fact.forgotten) throw new Error(`fact ${input.factId} is already forgotten`);
-    if (this.held(input.factId)) throw new Error(`fact ${input.factId} is already on hold`);
+    if (await this.held(input.factId)) throw new Error(`fact ${input.factId} is already on hold`);
     const event: HoldEvent = { eventId: randomUUID(), kind: "hold", txTime: this.now().toISOString(), factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null } };
-    this.append(event);
+    await this.store.append(event);
     return event;
   }
 
-  release(input: HoldInput): HoldEvent {
-    if (!this.held(input.factId)) throw new Error(`fact ${input.factId} is not on hold`);
+  async release(input: HoldInput): Promise<HoldEvent> {
+    if (!(await this.held(input.factId))) throw new Error(`fact ${input.factId} is not on hold`);
     const event: HoldEvent = { eventId: randomUUID(), kind: "release", txTime: this.now().toISOString(), factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null } };
-    this.append(event);
+    await this.store.append(event);
     return event;
+  }
+
+  /** The facts the ledger learned of before an instant, in one space or all, that have not been forgotten: what a retention sweep decides about. */
+  async learnedBefore(before: string, space?: string): Promise<Fact[]> {
+    const events = await this.store.eventsAbout({ txBefore: before, ...(space === undefined ? {} : { space }) });
+    return events.filter((e): e is AssertEvent => e.kind === "assert" && e.txTime < before && (space === undefined || e.fact.space === space) && !e.fact.forgotten).map((e) => ({ ...e.fact }));
   }
 
   /** Retention: forgets every fact the ledger learned of before the cutoff, in one space or all, skipping held and already-forgotten facts. Returns what it forgot and what it skipped. */
-  sweep(input: SweepInput): { forgotten: ForgetEvent[]; held: string[] } {
+  async sweep(input: SweepInput): Promise<{ forgotten: ForgetEvent[]; held: string[] }> {
     const forgotten: ForgetEvent[] = [];
     const held: string[] = [];
-    const targets = this.events.filter((e): e is AssertEvent => e.kind === "assert" && e.txTime < input.before && (input.space === undefined || e.fact.space === input.space) && !e.fact.forgotten);
-    for (const e of targets) {
-      if (this.held(e.fact.factId)) {
-        held.push(e.fact.factId);
+    for (const f of await this.learnedBefore(input.before, input.space)) {
+      if (await this.held(f.factId)) {
+        held.push(f.factId);
         continue;
       }
-      forgotten.push(this.forget({ factId: e.fact.factId, actor: input.actor, reason: input.reason, ...(input.source ? { source: input.source } : {}), ...(input.keepDigest === undefined ? {} : { keepDigest: input.keepDigest }) }));
+      forgotten.push(await this.forget({ factId: f.factId, actor: input.actor, reason: input.reason, ...(input.source ? { source: input.source } : {}), ...(input.keepDigest === undefined ? {} : { keepDigest: input.keepDigest }), compact: false }));
     }
+    if (forgotten.length > 0) await this.store.compact();
     return { forgotten, held };
   }
 
-  forget(input: ForgetInput): ForgetEvent {
-    const prior = this.factById(input.factId);
+  /**
+   * Erases a fact's value from the store itself, keeping its digest, and stops believing it. The store rewrites the
+   * event in place, which is the one thing an append-only ledger must do for a deletion demand. Everything else about
+   * the fact stays: who wrote it, when, from which receipt, and now who erased it and why. With compact false the
+   * store's reclaim step is left to the caller, for a batch of forgets followed by one compact().
+   */
+  async forget(input: ForgetInput & { compact?: boolean }): Promise<ForgetEvent> {
+    const prior = await this.factById(input.factId);
     if (!prior) throw new Error(`cannot forget unknown fact ${input.factId}`);
     if (prior.fact.forgotten) throw new Error(`fact ${input.factId} is already forgotten`);
-    if (this.held(input.factId)) throw new Error(`fact ${input.factId} is on legal hold; release it first`);
+    if (await this.held(input.factId)) throw new Error(`fact ${input.factId} is on legal hold; release it first`);
     const txTime = this.now().toISOString();
     const text = canonical(prior.fact.value);
     const digestKind: DigestKind = input.keepDigest === false ? "none" : this.forgetKey ? "hmac-sha256" : "sha256";
     const valueDigest = digestKind === "none" ? null : digestKind === "hmac-sha256" ? createHmac("sha256", this.forgetKey!).update(text).digest("hex") : createHash("sha256").update(text).digest("hex");
-    for (const e of this.events) {
+    for (const e of await this.store.eventsFor(input.factId)) {
       if (e.kind === "assert" && e.fact.factId === input.factId) {
-        e.fact.value = null;
-        e.fact.forgotten = { valueDigest, digestKind, at: txTime };
-        this.store.replaceAssert(e);
+        await this.store.replaceAssert({ ...e, fact: { ...e.fact, value: null, forgotten: { valueDigest, digestKind, at: txTime } } });
       }
     }
     const event: ForgetEvent = { eventId: randomUUID(), kind: "forget", txTime, factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null }, valueDigest, digestKind };
-    this.append(event);
+    await this.store.append(event);
+    if (input.compact !== false) await this.store.compact();
     return event;
   }
 
+  /** Reclaims whatever the store may still hold of erased values; forget and sweep do this themselves unless told not to. */
+  compact(): Promise<void> {
+    return this.store.compact();
+  }
+
   /** The facts believed at a moment. Valid time answers "was it true then"; transaction time answers "did the ledger know it then". */
-  asOf(q: AsOf = {}): Fact[] {
+  async asOf(q: AsOf = {}): Promise<Fact[]> {
     const validAt = q.validAt ?? this.now().toISOString();
     const txAt = q.txAt ?? this.now().toISOString();
-    const known = this.events.filter((e) => e.txTime <= txAt);
+    const known = await this.store.eventsAbout({ txAtMost: txAt, ...(q.space === undefined ? {} : { space: q.space }), ...(q.subject === undefined ? {} : { subject: q.subject }), ...(q.predicate === undefined ? {} : { predicate: q.predicate }) });
     const retracted = new Set(known.filter((e): e is RetractEvent | ForgetEvent => e.kind === "retract" || e.kind === "forget").map((e) => e.factId));
     const confirmed = new Set(known.filter((e): e is ConfirmEvent => e.kind === "confirm").map((e) => e.factId));
     const facts = new Map<string, Fact>();
@@ -367,42 +383,44 @@ export class Ledger {
     );
   }
 
+  /** One fact by id, whatever its state, with supersession applied; undefined when the ledger never held it. */
+  async get(factId: string): Promise<Fact | undefined> {
+    return (await this.factById(factId))?.fact;
+  }
+
   /** Every fact ever asserted, with supersession applied and retracted ones included, for audits that must see everything. */
-  facts(): Fact[] {
+  async facts(): Promise<Fact[]> {
+    const events = await this.store.events();
+    const retracted = new Set(events.filter((e): e is RetractEvent | ForgetEvent => e.kind === "retract" || e.kind === "forget").map((e) => e.factId));
     const out = new Map<string, Fact>();
-    for (const e of this.events) {
+    for (const e of events) {
       if (e.kind !== "assert") continue;
       out.set(e.fact.factId, { ...e.fact });
-      if (e.supersedes && out.has(e.supersedes) && !this.retractedAt(e.fact.factId)) out.get(e.supersedes)!.validTo = e.fact.validFrom;
+      if (e.supersedes && out.has(e.supersedes) && !retracted.has(e.fact.factId)) out.get(e.supersedes)!.validTo = e.fact.validFrom;
     }
     return [...out.values()];
   }
 
   /** Every event that touched a fact, oldest first: its assert, the assert that superseded it, its confirmation, its retraction. */
-  history(factId: string): LedgerEvent[] {
-    return this.events.filter((e) => (e.kind === "assert" ? e.fact.factId === factId || e.supersedes === factId : e.factId === factId));
+  history(factId: string): Promise<LedgerEvent[]> {
+    return this.store.eventsFor(factId);
   }
 
-  private confirmedAt(factId: string): boolean {
-    return this.events.some((e) => e.kind === "confirm" && e.factId === factId);
+  private async confirmedAt(factId: string): Promise<boolean> {
+    return (await this.store.eventsFor(factId)).some((e) => e.kind === "confirm" && e.factId === factId);
   }
 
-  private factById(factId: string): AssertEvent | undefined {
+  private async factById(factId: string): Promise<AssertEvent | undefined> {
     let found: AssertEvent | undefined;
-    for (const e of this.events) {
+    for (const e of await this.store.eventsFor(factId)) {
       if (e.kind === "assert" && e.fact.factId === factId) found = { ...e, fact: { ...e.fact } };
-      else if (e.kind === "assert" && e.supersedes === factId && found && !this.retractedAt(e.fact.factId)) found.fact.validTo = e.fact.validFrom;
+      else if (e.kind === "assert" && e.supersedes === factId && found && !(await this.retractedAt(e.fact.factId))) found.fact.validTo = e.fact.validFrom;
     }
     return found;
   }
 
-  private retractedAt(factId: string): boolean {
-    return this.events.some((e) => (e.kind === "retract" || e.kind === "forget") && e.factId === factId);
-  }
-
-  private append(event: LedgerEvent): void {
-    this.store.append(event);
-    this.events.push(event);
+  private async retractedAt(factId: string): Promise<boolean> {
+    return (await this.store.eventsFor(factId)).some((e) => (e.kind === "retract" || e.kind === "forget") && e.factId === factId);
   }
 }
 

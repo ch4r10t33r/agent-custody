@@ -15,11 +15,12 @@ Published on npm as [`@agent-custody/state`](https://www.npmjs.com/package/@agen
 ```ts
 import { Ledger } from "@agent-custody/state";
 
+// a JSONL file, a .sqlite path, or "postgres://…" with the pg package installed; the ledger is asynchronous
 const ledger = new Ledger("./state/ledger.jsonl");
-const a = ledger.assert({ subject: "acct:42", predicate: "plan", value: "pro", space: "org", actor: "agent:support", source: { receiptId } });
-ledger.assert({ subject: "acct:42", predicate: "plan", value: "enterprise", space: "org", actor: "agent:sales", supersedes: a.fact.factId });
-ledger.retract({ factId: a.fact.factId, actor: "user:admin", reason: "poisoned by a tool result" });
-ledger.asOf({ validAt: "2026-09-01T00:00:00Z", txAt: "2026-09-01T00:00:00Z" });
+const a = await ledger.assert({ subject: "acct:42", predicate: "plan", value: "pro", space: "org", actor: "agent:support", source: { receiptId } });
+await ledger.assert({ subject: "acct:42", predicate: "plan", value: "enterprise", space: "org", actor: "agent:sales", supersedes: a.fact.factId });
+await ledger.retract({ factId: a.fact.factId, actor: "user:admin", reason: "poisoned by a tool result" });
+await ledger.asOf({ validAt: "2026-09-01T00:00:00Z", txAt: "2026-09-01T00:00:00Z" });
 ```
 
 Six runnable examples, all executed by the test suite. [06-actions-on-beliefs.ts](examples/06-actions-on-beliefs.ts) puts memory and a payments API behind one gateway and finds the refund in a belief's blast radius. [05-blast-radius.ts](examples/05-blast-radius.ts) walks from a retracted belief to everything that relied on it. [04-evals.ts](examples/04-evals.ts) scores the ledger and a naive store on the same memory incidents. [03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the memory server as the gateway's upstream. [01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo. [02-receipt-to-belief.ts](examples/02-receipt-to-belief.ts) runs the whole loop with the receipts package: a tool call gets a signed receipt, the receipt is verified, the belief taken from it is recorded citing the receipt, and later retracted. Run them with `node examples/<file>` from this directory, after `bun run build` at the repository root.
@@ -157,9 +158,13 @@ A scenario file is `{ "version": "0.1", "scenarios": [{ "name", "ops": [...] }] 
 
 ## The ledger
 
-`src/ledger.ts` keeps an append-only log of events, in memory for its queries and in one of two stores for durability. **JSONL** is the default: one event per line, readable by anyone, the file you copy for an audit. **SQLite** is for durability and shared use, chosen by giving the ledger a path ending in `.sqlite` or `.db`: transactional writes with write-ahead logging, an in-place forget that overwrites the erased value (secure delete, then a truncating checkpoint so nothing lingers in the write-ahead log), indexes by fact and by time, and a file more than one process can open. Node ships the SQLite module, so there is no native dependency; on Node 22 it prints an experimental warning once. `agent-custody-memory export --ledger ledger.sqlite --out ledger.jsonl` writes the auditable JSONL from any store, so the copy-the-file audit path survives the choice. The whole ledger test suite runs against both stores.
+`src/ledger.ts` keeps an append-only log of events. It holds none of them itself: every question is a query to a store, so the store decides how large a ledger can be and who shares it. A store answers four questions, everything in order (export, audits), everything about the facts matching a filter (a bitemporal read), everything that touched one fact (its history and its checks), and which spaces exist (retention), and it does three things: append, replace one assert in place (forget), and compact after erasures. Three stores ship, and the whole ledger suite runs against each of them, so they answer identically.
 
-Choose JSONL for one server process and for anything an auditor should be able to read with `cat`. Choose SQLite when the ledger is shared over HTTP by several gateways, when a crash between two writes must not cost you an event, or when a deletion demand must leave no trace of the value in the file. Query pushdown to SQLite's indexes is not done yet: both stores load every event into memory, which is fine to tens of thousands of facts. [Issue #8](https://github.com/ch4r10t33r/agent-custody/issues/8) tracks indexed queries for larger ledgers.
+**JSONL** is the default: one event per line, readable by anyone, the file you copy for an audit. It answers from memory, which is fine to tens of thousands of events. **SQLite**, chosen by a path ending in `.sqlite` or `.db`, is for durability on one machine: transactional writes with write-ahead logging, an in-place forget that overwrites the erased value (secure delete, then a truncating checkpoint so nothing lingers in the write-ahead log), and every query answered by an index on fact, time, space, subject, predicate, and supersession. Node ships the SQLite module, so there is no native dependency; a ledger written by an earlier version gets the index columns filled from its JSON the first time it is opened. Measured on a million-event ledger: open in 0.2 s, a subject read in about 1 ms, a fact's history in well under a millisecond, the spaces for a sweep in 2 ms. **Postgres**, chosen by a `postgres://` URL, is for a shared ledger: several memory servers on one table, in the database your security team has already approved, the same queries pushed down as SQL. It needs the `pg` package installed beside this one; `?table=custody.events` names the table and `?vacuum=false` skips the vacuum described below. In code, pass a `PostgresStore` around your own `pg` Pool, with whatever TLS and credentials you already use. The adapter is tested against the real Postgres engine in-process through PGlite, including that a forgotten value is absent from the database files, and checked by hand against Postgres 16.
+
+Forget on Postgres is an `UPDATE`, and MVCC keeps the old row image in the table until vacuum. So after a forget or a sweep the store runs `VACUUM FULL` on the table, which rewrites it without the old image. That takes an exclusive lock for the rewrite; a very large ledger may set `vacuum: false` and run its own schedule, and the forget certificate then rests on that schedule. The write-ahead log, replicas, and backups keep their own copies for as long as their retention says; that is true of every database, and the honest reading of a forget certificate is that the live ledger no longer holds the value.
+
+Choose JSONL for one server process and for anything an auditor should read with `cat`. Choose SQLite when one machine serves the ledger over HTTP, when a crash between two writes must not cost you an event, or when a deletion demand must leave no trace of the value in the file. Choose Postgres when more than one server must share the ledger, or when the ledger belongs in the database you already operate. Warehouses are not stores: Snowflake and Databricks keep deleted rows for days by default and are built for scans, not one small write per agent call. Feed them with `agent-custody-memory export --ledger postgres://… --out ledger.jsonl`, which writes the auditable JSONL from any store, and query the ledger where your compliance team already works.
 
 The log holds these kinds of event.
 
@@ -181,7 +186,7 @@ The ledger refuses to supersede a fact that is unknown, already superseded, or r
 
 ```
 src/ledger.ts   the fact record, the event kinds, as-of queries, supersession, retraction, forget, holds, sweeps
-src/storage.ts  the event stores: JSONL (default, auditable) and SQLite (durable, shared), chosen by file extension
+src/storage.ts  the store interface and its three stores: JSONL (default, auditable), SQLite (indexed, one machine), Postgres (shared); chosen by path or URL
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
 src/pack.ts     the custody pack: build, sign, verify, format
@@ -201,7 +206,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Done**
 
-- Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL or SQLite behind one store interface, with export back to JSONL.
+- Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL, SQLite, or Postgres behind one store interface that answers every query from an index, with export back to JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
 - Forget digests are keyed under a server-held secret, or absent on request, so an erased value cannot be guessed back from the file.
 - Retention windows per space in the server, sweeps that default to them, and a `sweep --via` trigger that runs retention through a gateway as a named principal, on any timer.
@@ -221,7 +226,6 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. Indexed queries on the SQLite store, so a shared ledger with millions of events answers reads without loading them all. [Issue #8](https://github.com/ch4r10t33r/agent-custody/issues/8).
-2. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
-3. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane, with SSO, SCIM, residency, and SIEM export. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
+1. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
+2. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane, with SSO, SCIM, residency, and SIEM export. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 

@@ -88,17 +88,17 @@ npx agent-custody verify receipts/<id>.json --issuer-key keys/app.pub --log log.
 import { receiptIdOf } from "@agent-custody/receipts";
 import { Ledger } from "@agent-custody/state";
 
-const ledger = new Ledger("./ledger.jsonl");
-const belief = ledger.assert({ subject: "acct:42", predicate: "plan", value: customer.plan, space: "org", actor: "support-bot", source: { receiptId: receiptIdOf(bundle) } });
+const ledger = new Ledger("./ledger.jsonl"); // or "./ledger.sqlite", or "postgres://…"
+const belief = await ledger.assert({ subject: "acct:42", predicate: "plan", value: customer.plan, space: "org", actor: "support-bot", source: { receiptId: receiptIdOf(bundle) } });
 ```
 
 **5. When a belief is wrong, undo it without losing the record.** Retract removes it from the present, keeps it visible to questions about the past, and restores whatever it had superseded. The receipt id says exactly which call produced the bad belief.
 
 ```ts
-ledger.retract({ factId: belief.fact.factId, actor: "user:admin", reason: "CRM lookup returned a stale plan" });
-ledger.asOf({ subject: "acct:42" });                                                        // [] now
-ledger.asOf({ subject: "acct:42", validAt: earlier, txAt: earlier });                        // still shows what was believed then
-ledger.history(belief.fact.factId);                                                          // assert, retract, with actors and reasons
+await ledger.retract({ factId: belief.fact.factId, actor: "user:admin", reason: "CRM lookup returned a stale plan" });
+await ledger.asOf({ subject: "acct:42" });                                                  // [] now
+await ledger.asOf({ subject: "acct:42", validAt: earlier, txAt: earlier });                  // still shows what was believed then
+await ledger.history(belief.fact.factId);                                                    // assert, retract, with actors and reasons
 ```
 
 This whole loop is one runnable file, [packages/state/examples/02-receipt-to-belief.ts](packages/state/examples/02-receipt-to-belief.ts), executed by the test suite.
@@ -143,4 +143,4 @@ site/                 the website, generated from this repository's markdown by 
 
 ## Plan
 
-The receipts package's roadmap is in [its README](packages/receipts/README.md#plan). The state package has the ledger on JSONL or SQLite, the memory server behind the gateway and shared over HTTP, quarantine with three provenance levels and value-level evidence, policy over the fact being changed, consumed facts and blast radius, certified forget with keyed digests and verified removal from stores, retention sweeps and legal holds, the custody pack for counsel, write-through to Mem0 and Zep, and the eval CLI with signed reports; its remaining items are indexed queries at scale, more store adapters, and the hosted plane, each tracked as an issue in [its README](packages/state/README.md#plan).
+The receipts package's roadmap is in [its README](packages/receipts/README.md#plan). The state package has the ledger on JSONL, SQLite, or Postgres with every query answered from an index, the memory server behind the gateway and shared over HTTP, quarantine with three provenance levels and value-level evidence, policy over the fact being changed, consumed facts and blast radius, certified forget with keyed digests and verified removal from stores, retention sweeps and legal holds, the custody pack for counsel, a ledger that lives in a JSONL file, SQLite, or your Postgres, write-through to Mem0 and Zep, and the eval CLI with signed reports; its remaining items are indexed queries at scale, more store adapters, and the hosted plane, each tracked as an issue in [its README](packages/state/README.md#plan).

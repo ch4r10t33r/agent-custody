@@ -33,7 +33,7 @@ describe("custody pack", () => {
     const f = await gw.handleCall({ name: "memory.forget", arguments: { factId, reason: "deletion request 4471" } });
     await gw.close();
 
-    const pack = buildPack(new Ledger(ledgerFile), join(dir, "receipts"), factId);
+    const pack = await buildPack(new Ledger(ledgerFile), join(dir, "receipts"), factId);
     expect(pack.history.map((e) => e.kind)).toEqual(["assert", "hold", "release", "forget"]);
     expect(pack.missingReceipts).toEqual([]);
     expect(pack.forget?.receiptId).toBe(String(f._meta?.[RECEIPT_META_KEY]));

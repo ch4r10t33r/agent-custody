@@ -1,7 +1,7 @@
 {
   "name": "@agent-custody/state",
-  "version": "0.1.9",
-  "description": "Governed memory for AI agents: a fact ledger with provenance, valid time, rollback, and lineage, built on @agent-custody/receipts",
+  "version": "0.2.0",
+  "description": "Governed memory for AI agents: a fact ledger with provenance, valid time, rollback, lineage, certified forget, and a store that is a JSONL file, SQLite, or Postgres, built on @agent-custody/receipts",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -38,10 +38,19 @@
     "zod": "^4.5.4"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@getzep/zep-cloud": "^3.28.0",
     "@types/node": "^26.4.1",
-    "typescript": "^7.0.2",
-    "vitest": "^5.0.0",
     "mem0ai": "^3.1.8",
-    "@getzep/zep-cloud": "^3.28.0"
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "peerDependencies": {
+    "pg": ">=8"
+  },
+  "peerDependenciesMeta": {
+    "pg": {
+      "optional": true
+    }
   }
 }

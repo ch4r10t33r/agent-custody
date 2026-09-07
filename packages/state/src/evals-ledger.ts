@@ -4,10 +4,10 @@ import type { MemoryUnderTest } from "./evals.ts";
 
 export function ledgerUnderTest(ledger: Ledger): MemoryUnderTest {
   return {
-    write: (i) => ({ id: ledger.assert({ ...i, provenance: "attested" }).fact.factId }),
-    read: (q) => ledger.asOf({ ...q, include: "attested" }).map(({ subject, predicate, value }) => ({ subject, predicate, value })),
-    retract: (i) => {
-      ledger.retract({ factId: i.id, actor: i.actor, reason: i.reason });
+    write: async (i) => ({ id: (await ledger.assert({ ...i, provenance: "attested" })).fact.factId }),
+    read: async (q) => (await ledger.asOf({ ...q, include: "attested" })).map(({ subject, predicate, value }) => ({ subject, predicate, value })),
+    retract: async (i) => {
+      await ledger.retract({ factId: i.id, actor: i.actor, reason: i.reason });
     },
   };
 }

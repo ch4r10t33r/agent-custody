@@ -41,7 +41,7 @@ console.log("   refund:", value(refund).status, "receipt", String(refund._meta?.
 step(3, "the CRM was wrong; the belief is retracted, and blast radius names the refund");
 await gw.handleCall({ name: "memory.retract", arguments: { factId: plan.factId, reason: "CRM sync bug" } });
 await gw.close();
-const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
+const b = await blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
 console.log(formatBlastRadius(b, plan.factId).split("\n").map((l) => "   " + l).join("\n"));
 
 if (!b.receipts.some((r) => r.tool === "stripe.refund") || !b.retraction) throw new Error("unexpected");

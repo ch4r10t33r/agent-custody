@@ -37,13 +37,15 @@ function parseRetention(spec: string): Record<string, string> {
 
 const USAGE = `agent-custody-memory <command>
 
-  serve --ledger <ledger.jsonl|ledger.sqlite> [--allow-direct] [--key <memory.key>] [--forget-key-env NAME] [--retention 'org=P365D,team:*=P90D']
+  serve --ledger <ledger.jsonl|ledger.sqlite|postgres://…> [--allow-direct] [--key <memory.key>] [--forget-key-env NAME] [--retention 'org=P365D,team:*=P90D']
                                                    --forget-key-env names a secret kept outside the ledger; forgotten values then leave an HMAC, not a guessable hash.
                                                    the memory server over stdio; run it as the receipts gateway's upstream.
                                                    --key signs every result for its receipt, so executions verify as attested by this server.
                                                    By default it refuses calls that did not come through the gateway.
   serve --ledger <ledger.jsonl> --http [--port 8790] [--host 127.0.0.1] [--token-env NAME] [--allow-direct]
-                                                   the same server shared over HTTP: several gateways, one ledger
+                                                   the same server shared over HTTP: several gateways, one ledger.
+                                                   A postgres:// ledger (needs the pg package; ?table=custody.events names the table)
+                                                   is shared by every server pointed at it.
   sweep --via <gateway.json> --reason <text> [--before <ISO instant>] [--space <space>] [--no-digest]
                                                    retention as a receipted call: runs memory.sweep through that gateway, as the principal in its grant.
                                                    Without --before, the memory server's --retention windows decide. Put this on a timer.
@@ -58,7 +60,7 @@ const USAGE = `agent-custody-memory <command>
                                                    holds, the forget certificate and what the stores answered. For counsel and auditors.
   pack --verify <pack.json> --key <pub> [--issuer-key <pub>] [--principal-key <pub>]
                                                    checks the pack's signature and every receipt inside it
-  export --ledger <ledger.sqlite> --out <ledger.jsonl>  the auditable JSONL of any ledger, one event per line
+  export --ledger <ledger.sqlite|postgres://…> --out <ledger.jsonl>  the auditable JSONL of any ledger, one event per line; also the feed for a warehouse
   blast --ledger <ledger.jsonl> --receipts <dir> --fact <factId> [--json]
                                                    everything that relied on a fact: later calls, derived beliefs, and whether it was retracted
 `;
@@ -79,13 +81,13 @@ async function main(argv: string[]): Promise<number> {
         const token = values["token-env"] ? process.env[values["token-env"]] : undefined;
         if (values["token-env"] && !token) throw new Error(`serve: environment variable ${values["token-env"]} is not set`);
         const running = await serveMemoryHttp(ledger, { port: Number(values.port), host: values.host, ...common, ...(token ? { tokens: [token] } : {}) });
-        console.error(`agent-custody-memory: ${running.url} ledger=${values.ledger} events=${ledger.size} ${token ? "bearer token required" : "open"} ${values["allow-direct"] ? "direct calls allowed" : "gateway calls only"}`);
+        console.error(`agent-custody-memory: ${running.url} ledger=${values.ledger} events=${await ledger.count()} ${token ? "bearer token required" : "open"} ${values["allow-direct"] ? "direct calls allowed" : "gateway calls only"}`);
         if (digestWarning) console.error(digestWarning);
         await new Promise<void>((resolve) => process.once("SIGINT", resolve));
         await running.close();
         return 0;
       }
-      console.error(`agent-custody-memory: ledger=${values.ledger} events=${ledger.size} ${values["allow-direct"] ? "direct calls allowed" : "gateway calls only"}`);
+      console.error(`agent-custody-memory: ledger=${values.ledger} events=${await ledger.count()} ${values["allow-direct"] ? "direct calls allowed" : "gateway calls only"}`);
       if (digestWarning) console.error(digestWarning);
       await serveStdio(createMemoryServer(ledger, common));
       return 0;
@@ -109,9 +111,11 @@ async function main(argv: string[]): Promise<number> {
         }
       }
       if (!values.ledger || !values.before || !values.reason) throw new Error("sweep needs --ledger, --before, and --reason, or --via <gateway.json> --reason");
-      const r = new Ledger(values.ledger, forgetKeyFrom(values["forget-key-env"])).sweep({ before: new Date(values.before).toISOString(), ...(values.space ? { space: values.space } : {}), actor: values.actor, reason: values.reason, ...(values["no-digest"] ? { keepDigest: false } : {}) });
+      const sweeper = new Ledger(values.ledger, forgetKeyFrom(values["forget-key-env"]));
+      const r = await sweeper.sweep({ before: new Date(values.before).toISOString(), ...(values.space ? { space: values.space } : {}), actor: values.actor, reason: values.reason, ...(values["no-digest"] ? { keepDigest: false } : {}) });
       console.log(`forgot ${r.forgotten.length} fact(s); ${r.held.length} on hold, kept`);
       for (const f of r.forgotten) console.log(`  ${f.factId}  ${f.digestKind}${f.valueDigest ? ` ${f.valueDigest.slice(0, 12)}` : ""}`);
+      await sweeper.close();
       return 0;
     }
     case "eval": {
@@ -162,7 +166,9 @@ async function main(argv: string[]): Promise<number> {
         return r.ok ? 0 : 1;
       }
       if (!values.ledger || !values.receipts || !values.fact || !values.out || !values.sign) throw new Error("pack needs --ledger, --receipts, --fact, --out, and --sign");
-      const pack = buildPack(new Ledger(values.ledger), values.receipts, values.fact);
+      const packLedger = new Ledger(values.ledger);
+      const pack = await buildPack(packLedger, values.receipts, values.fact);
+      await packLedger.close();
       writeFileSync(values.out, JSON.stringify(signPack(pack, loadPrivateKey(values.sign)), null, 2));
       console.log(formatPack(pack));
       console.error(`signed pack written to ${values.out}`);
@@ -172,15 +178,18 @@ async function main(argv: string[]): Promise<number> {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, out: { type: "string" } } });
       if (!values.ledger || !values.out) throw new Error("export needs --ledger and --out");
       const l = new Ledger(values.ledger);
-      writeFileSync(values.out, l.export().map((e) => JSON.stringify(e)).join("\n") + "\n");
-      console.log(`exported ${l.size} event(s) from ${l.location} to ${values.out}`);
-      l.close();
+      const events = await l.export();
+      writeFileSync(values.out, events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+      console.log(`exported ${events.length} event(s) from ${l.location} to ${values.out}`);
+      await l.close();
       return 0;
     }
     case "blast": {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, receipts: { type: "string" }, fact: { type: "string" }, json: { type: "boolean", default: false } } });
       if (!values.ledger || !values.receipts || !values.fact) throw new Error("blast needs --ledger, --receipts, and --fact");
-      const b = blastRadius(new Ledger(values.ledger), loadReceipts(values.receipts), values.fact);
+      const blastLedger = new Ledger(values.ledger);
+      const b = await blastRadius(blastLedger, loadReceipts(values.receipts), values.fact);
+      await blastLedger.close();
       console.log(values.json ? JSON.stringify(b, null, 2) : formatBlastRadius(b, values.fact));
       return b.fact ? 0 : 1;
     }

@@ -1,18 +1,20 @@
-// The ledger must behave identically on JSONL and SQLite. The whole ledger suite runs against both through the
-// factory below; this file adds what differs: durability, in-place forget with no value left in the file, a second
+// The ledger must behave identically on JSONL, SQLite and Postgres. The whole ledger suite runs against all three;
+// this file adds what differs: durability, in-place forget with no value left in the file, a second
 // process seeing appends, and export back to the auditable JSONL.
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Ledger } from "../src/ledger.ts";
-import { JsonlStore, SqliteStore, openStore } from "../src/storage.ts";
+import { PGlite } from "@electric-sql/pglite";
+import { JsonlStore, PostgresStore, SqliteStore, openStore } from "../src/storage.ts";
 
 const dir = () => mkdtempSync(join(tmpdir(), "storage-"));
 
 describe("storage backends", () => {
-  it("openStore picks SQLite by extension and JSONL otherwise", () => {
+  it("openStore picks SQLite by extension and JSONL otherwise", async () => {
     const d = dir();
     expect(openStore(join(d, "a.jsonl")).kind).toBe("jsonl");
     expect(openStore(join(d, "b.sqlite")).kind).toBe("sqlite");
@@ -21,55 +23,55 @@ describe("storage backends", () => {
 
   for (const [name, ext] of [["jsonl", "ledger.jsonl"], ["sqlite", "ledger.sqlite"]] as const) {
     describe(name, () => {
-      it("survives reopening with the same beliefs and the same history", () => {
+      it("survives reopening with the same beliefs and the same history", async () => {
         const f = join(dir(), ext);
         const l = new Ledger(f);
-        const a = l.assert({ subject: "s", predicate: "p", value: 1, space: "org", actor: "x" });
-        l.assert({ subject: "s", predicate: "p", value: 2, space: "org", actor: "y", supersedes: a.fact.factId });
-        l.hold({ factId: a.fact.factId, actor: "legal", reason: "r" });
-        l.close();
+        const a = await l.assert({ subject: "s", predicate: "p", value: 1, space: "org", actor: "x" });
+        await l.assert({ subject: "s", predicate: "p", value: 2, space: "org", actor: "y", supersedes: a.fact.factId });
+        await l.hold({ factId: a.fact.factId, actor: "legal", reason: "r" });
+        await l.close();
         const again = new Ledger(f);
-        expect(again.size).toBe(3);
-        expect(again.asOf().map((x) => x.value)).toEqual([2]);
-        expect(again.history(a.fact.factId).map((e) => e.kind)).toEqual(["assert", "assert", "hold"]);
-        expect(again.held(a.fact.factId)).toBe(true);
-        again.close();
+        expect(await again.count()).toBe(3);
+        expect((await again.asOf()).map((x) => x.value)).toEqual([2]);
+        expect((await again.history(a.fact.factId)).map((e) => e.kind)).toEqual(["assert", "assert", "hold"]);
+        expect(await again.held(a.fact.factId)).toBe(true);
+        await again.close();
       });
 
-      it("forget leaves no copy of the value in the file, and the export carries the tombstone", () => {
+      it("forget leaves no copy of the value in the file, and the export carries the tombstone", async () => {
         const f = join(dir(), ext);
         const l = new Ledger(f);
-        const secret = l.assert({ subject: "p:1", predicate: "ssn", value: "SSN-987-65-4321", space: "org", actor: "x" });
-        l.assert({ subject: "p:1", predicate: "plan", value: "pro", space: "org", actor: "x" });
-        l.forget({ factId: secret.fact.factId, actor: "dpo", reason: "request" });
-        l.close();
+        const secret = await l.assert({ subject: "p:1", predicate: "ssn", value: "SSN-987-65-4321", space: "org", actor: "x" });
+        await l.assert({ subject: "p:1", predicate: "plan", value: "pro", space: "org", actor: "x" });
+        await l.forget({ factId: secret.fact.factId, actor: "dpo", reason: "request" });
+        await l.close();
         const bytes = readFileSync(f, "latin1");
         expect(bytes).not.toContain("SSN-987-65-4321");
         expect(bytes).toContain("pro");
         const again = new Ledger(f);
-        expect(again.facts().find((x) => x.factId === secret.fact.factId)?.forgotten?.digestKind).toBe("sha256");
-        expect(again.export().map((e) => e.kind)).toEqual(["assert", "assert", "forget"]);
-        again.close();
+        expect((await again.facts()).find((x) => x.factId === secret.fact.factId)?.forgotten?.digestKind).toBe("sha256");
+        expect((await again.export()).map((e) => e.kind)).toEqual(["assert", "assert", "forget"]);
+        await again.close();
       });
     });
   }
 
-  it("sqlite: a second process appending is seen on reopen, and the write-ahead log holds no forgotten value", () => {
+  it("sqlite: a second process appending is seen on reopen, and the write-ahead log holds no forgotten value", async () => {
     const f = join(dir(), "shared.sqlite");
     const l = new Ledger(f);
-    const a = l.assert({ subject: "s", predicate: "p", value: "visible", space: "org", actor: "x" });
+    const a = await l.assert({ subject: "s", predicate: "p", value: "visible", space: "org", actor: "x" });
     const other = spawnSync(process.execPath, ["-e", `
-      import("${join(import.meta.dirname, "..", "src", "index.ts")}").then(({ Ledger }) => {
+      import("${join(import.meta.dirname, "..", "src", "index.ts")}").then(async ({ Ledger }) => {
         const l = new Ledger(${JSON.stringify(f)});
-        l.assert({ subject: "t", predicate: "q", value: "from-another-process", space: "org", actor: "y" });
-        l.close();
+        await l.assert({ subject: "t", predicate: "q", value: "from-another-process", space: "org", actor: "y" });
+        await l.close();
       });`], { encoding: "utf8", timeout: 30_000 });
     expect(other.status, other.stderr).toBe(0);
-    l.close();
+    await l.close();
     const again = new Ledger(f);
-    expect(again.size).toBe(2);
-    again.forget({ factId: a.fact.factId, actor: "dpo", reason: "r" });
-    again.close();
+    expect(await again.count()).toBe(2);
+    await again.forget({ factId: a.fact.factId, actor: "dpo", reason: "r" });
+    await again.close();
     for (const suffix of ["", "-wal"]) {
       try {
         expect(readFileSync(f + suffix, "latin1")).not.toContain("visible");
@@ -79,20 +81,102 @@ describe("storage backends", () => {
     }
   });
 
-  it("export writes the auditable JSONL from a SQLite ledger, and a JSONL ledger reads it back identically", () => {
+  it("export writes the auditable JSONL from a SQLite ledger, and a JSONL ledger reads it back identically", async () => {
     const d = dir();
     const l = new Ledger(join(d, "ledger.sqlite"));
-    l.assert({ subject: "s", predicate: "p", value: { nested: [1, 2] }, space: "org", actor: "x" });
-    l.close();
+    await l.assert({ subject: "s", predicate: "p", value: { nested: [1, 2] }, space: "org", actor: "x" });
+    await l.close();
     const r = spawnSync(process.execPath, [join(import.meta.dirname, "..", "src", "cli.ts"), "export", "--ledger", join(d, "ledger.sqlite"), "--out", join(d, "out.jsonl")], { encoding: "utf8", timeout: 30_000 });
     expect(r.status, r.stderr).toBe(0);
     const back = new Ledger(join(d, "out.jsonl"));
-    expect(back.export()).toEqual(new Ledger(join(d, "ledger.sqlite")).export());
+    expect(await back.export()).toEqual(await new Ledger(join(d, "ledger.sqlite")).export());
   });
 
-  it("the stores can be passed directly", () => {
+  it("the stores can be passed directly", async () => {
     const d = dir();
     expect(new Ledger(new JsonlStore(join(d, "x.log"))).location).toMatch(/x\.log$/);
     expect(new Ledger(new SqliteStore(join(d, "y.sqlite"))).location).toMatch(/y\.sqlite$/);
   });
 });
+
+describe("sqlite: a ledger written before the query columns existed", () => {
+  it("gets the columns filled from its JSON on open, and answers the indexed queries", async () => {
+    const f = join(dir(), "old.sqlite");
+    const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as { DatabaseSync: new (p: string) => { exec(sql: string): void; prepare(sql: string): { run(...a: unknown[]): unknown; all(): unknown[] }; close(): void } };
+    const db = new DatabaseSync(f);
+    db.exec("CREATE TABLE events (seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, tx_time TEXT NOT NULL, fact_id TEXT NOT NULL, json TEXT NOT NULL)");
+    const assert = { eventId: "e1", kind: "assert", txTime: "2026-09-01T00:00:00.000Z", fact: { factId: "f1", subject: "acct:1", predicate: "plan", value: "pro", space: "org", actor: "x", source: { receiptId: null }, provenance: "attested", validFrom: "2026-09-01T00:00:00.000Z", validTo: null, confidence: null }, supersedes: null };
+    const replacement = { ...assert, eventId: "e2", txTime: "2026-09-02T00:00:00.000Z", fact: { ...assert.fact, factId: "f2", value: "enterprise", validFrom: "2026-09-02T00:00:00.000Z" }, supersedes: "f1" };
+    for (const e of [assert, replacement]) db.prepare("INSERT INTO events (event_id, kind, tx_time, fact_id, json) VALUES (?, ?, ?, ?, ?)").run(e.eventId, e.kind, e.txTime, e.fact.factId, JSON.stringify(e));
+    db.close();
+    const l = new Ledger(f);
+    expect((await l.asOf({ subject: "acct:1", predicate: "plan" })).map((x) => x.value)).toEqual(["enterprise"]);
+    expect((await l.asOf({ validAt: "2026-09-01T12:00:00.000Z" })).map((x) => x.value)).toEqual(["pro"]);
+    expect((await l.history("f1")).map((e) => e.eventId)).toEqual(["e1", "e2"]);
+    expect(await l.spaces()).toEqual(["org"]);
+    await l.close();
+    const check = new DatabaseSync(f);
+    expect(check.prepare("SELECT space, subject, predicate, supersedes FROM events ORDER BY seq").all()).toEqual([{ space: "org", subject: "acct:1", predicate: "plan", supersedes: null }, { space: "org", subject: "acct:1", predicate: "plan", supersedes: "f1" }]);
+    check.close();
+  });
+});
+
+describe("postgres", () => {
+  it("one table is one ledger for every server that opens it: a write through one store is read through another", async () => {
+    const db = new PGlite();
+    const writer = new Ledger(new PostgresStore(db, { table: "shared" }));
+    const reader = new Ledger(new PostgresStore(db, { table: "shared" }));
+    const a = await writer.assert({ subject: "s", predicate: "p", value: "from-writer", space: "org", actor: "x" });
+    expect((await reader.asOf()).map((f) => f.value)).toEqual(["from-writer"]);
+    await reader.hold({ factId: a.fact.factId, actor: "legal", reason: "matter" });
+    await expect(writer.forget({ factId: a.fact.factId, actor: "dpo", reason: "r" })).rejects.toThrow(/legal hold/);
+    expect(await writer.count()).toBe(2);
+    await db.close();
+  });
+
+  it("forget leaves no copy of the value in the database files once the table is vacuumed", async () => {
+    const dataDir = join(dir(), "pgdata");
+    const db = new PGlite(dataDir);
+    const l = new Ledger(new PostgresStore(db, { table: "custody" }));
+    const secret = await l.assert({ subject: "p:1", predicate: "ssn", value: "SSN-987-65-4321", space: "org", actor: "x" });
+    await l.assert({ subject: "p:1", predicate: "plan", value: "pro", space: "org", actor: "x" });
+    await l.forget({ factId: secret.fact.factId, actor: "dpo", reason: "request" });
+    expect((await l.facts()).find((x) => x.factId === secret.fact.factId)?.forgotten?.digestKind).toBe("sha256");
+    expect((await l.export()).map((e) => e.kind)).toEqual(["assert", "assert", "forget"]);
+    await db.query("CHECKPOINT");
+    await db.close();
+    const hits = (await findInFiles(dataDir, "SSN-987-65-4321")).filter((p) => !p.includes("pg_wal"));
+    expect(hits).toEqual([]);
+    expect((await findInFiles(dataDir, "pro")).some((p) => p.includes("base"))).toBe(true);
+  });
+
+  it("without vacuum the old row image stays in the table file, which is what the option documents", async () => {
+    const dataDir = join(dir(), "pgdata-novacuum");
+    const db = new PGlite(dataDir);
+    const l = new Ledger(new PostgresStore(db, { table: "custody", vacuum: false }));
+    const secret = await l.assert({ subject: "p:1", predicate: "ssn", value: "SSN-111-22-3333", space: "org", actor: "x" });
+    await l.forget({ factId: secret.fact.factId, actor: "dpo", reason: "request" });
+    await db.query("CHECKPOINT");
+    await db.close();
+    expect((await findInFiles(dataDir, "SSN-111-22-3333")).some((p) => p.includes("base"))).toBe(true);
+  });
+
+  it("refuses a table name that is not a plain identifier, and a postgres:// URL without the pg package says what to install", () => {
+    expect(() => new PostgresStore(new PGlite(), { table: "events; DROP TABLE events" })).toThrow(/plain identifier/);
+    expect(() => openStore("postgres://user@db.example.com/custody")).toThrow(/npm install pg/);
+  });
+});
+
+/** Files under a directory whose bytes contain the needle. */
+async function findInFiles(root: string, needle: string): Promise<string[]> {
+  const out: string[] = [];
+  const walk = (d: string) => {
+    for (const entry of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, entry.name);
+      if (entry.isDirectory()) walk(p);
+      else if (entry.isFile() && readFileSync(p, "latin1").includes(needle)) out.push(p);
+    }
+  };
+  walk(root);
+  return out;
+}

@@ -36,7 +36,7 @@ console.log(`   the receipt id the agent got back: ${String(w._meta?.[RECEIPT_ME
 
 step(3, "a write to the org space is outside policy: denied, never reaches the ledger, still receipted");
 const d = await gw.handleCall({ name: "memory.write", arguments: { subject: "policy:refunds", predicate: "limit", value: 10 ** 9, space: "org" } });
-console.log(`   ${(d.content[0] as any).text.slice(0, 60)}...  ledger events: ${new Ledger(ledgerFile).size}`);
+console.log(`   ${(d.content[0] as any).text.slice(0, 60)}...  ledger events: ${await new Ledger(ledgerFile).count()}`);
 
 step(4, "a read is receipted; the receipt's observed result lists exactly the fact ids the agent saw");
 const r = await gw.handleCall({ name: "memory.read", arguments: { subject: "acct:42" } });
@@ -47,7 +47,7 @@ console.log(`   verified=${v.ok}  facts seen by the agent: ${seen.map((s: string
 
 step(5, "the belief turns out wrong; the retraction cites its own receipt and the attested actor");
 const x = await gw.handleCall({ name: "memory.retract", arguments: { factId: fact.factId, reason: "stale CRM value" } });
-console.log(`   retracted by ${value(x).actor}, receipt ${value(x).source.receiptId.slice(0, 8)}; believed now: ${new Ledger(ledgerFile).asOf().length === 0 ? "nothing" : "?"}`);
+console.log(`   retracted by ${value(x).actor}, receipt ${value(x).source.receiptId.slice(0, 8)}; believed now: ${(await new Ledger(ledgerFile).asOf()).length === 0 ? "nothing" : "?"}`);
 
 await gw.close();
 if (!v.ok || fact.actor !== "support-agent" || fact.source.receiptId !== w._meta?.[RECEIPT_META_KEY] || !d.isError) throw new Error("unexpected");

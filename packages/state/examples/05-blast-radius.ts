@@ -35,7 +35,7 @@ await gw.handleCall({ name: "memory.retract", arguments: { factId: plan.factId, 
 await gw.close();
 
 step(4, "blast radius: from the receipts' consumed facts and the ledger's source receipts, forward");
-const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
+const b = await blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
 console.log(formatBlastRadius(b, plan.factId).split("\n").map((l) => "   " + l).join("\n"));
 console.log("\n   the same from the shell: agent-custody-memory blast --ledger ledger.jsonl --receipts receipts --fact", plan.factId.slice(0, 8) + "…");
 

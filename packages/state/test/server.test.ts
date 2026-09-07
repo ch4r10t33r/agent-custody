@@ -26,7 +26,7 @@ describe("memory server, driven directly", () => {
     client = new Client({ name: "test", version: "0" });
     await client.connect(b);
   });
-  afterAll(() => client.close());
+  afterAll(async () => client.close());
 
   it("lists the four tools", async () => {
     expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.confirm", "memory.retract", "memory.forget", "memory.hold", "memory.release", "memory.sweep", "memory.get", "memory.history"]);
@@ -100,7 +100,7 @@ permit(principal, action in [Action::"memory.hold", Action::"memory.release"], r
     ledgerFile = join(dir, "ledger.jsonl");
     memoryPub = writeKeyPair(generateKeyPair(), join(dir, "keys"), "memory").pubFile;
     // A ledger that already holds a self-reported fact before it is put under the gateway: the quarantine case.
-    seeded = new Ledger(ledgerFile).assert({ subject: "acct:99", predicate: "owner", value: "dana", space: "team:support", actor: "sdk-bot" }).fact.factId;
+    seeded = (await new Ledger(ledgerFile).assert({ subject: "acct:99", predicate: "owner", value: "dana", space: "team:support", actor: "sdk-bot" })).fact.factId;
     writeFileSync(join(dir, "gateway.json"), JSON.stringify({
       identity: { keyFile: "keys/gateway.key" },
       upstream: { command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile, "--key", join(dir, "keys", "memory.key")] },
@@ -112,7 +112,7 @@ permit(principal, action in [Action::"memory.hold", Action::"memory.release"], r
     }));
     gw = await createGateway(loadConfig(join(dir, "gateway.json")));
   });
-  afterAll(() => gw.close());
+  afterAll(async () => gw.close());
 
   const receiptOf = (r: CallToolResult) => JSON.parse(readFileSync(join(dir, "receipts", `${String(r._meta?.[RECEIPT_META_KEY])}.json`), "utf8"));
 
@@ -129,15 +129,15 @@ permit(principal, action in [Action::"memory.hold", Action::"memory.release"], r
     // the memory server signed its result for this receipt: the execution is attested by the memory server's key
     expect(v.checks.find((c) => c.name === "upstream signature (upstream key)")?.ok).toBe(true);
     expect(formatReport(v)).toMatch(/execution\s+attested/);
-    expect(new Ledger(ledgerFile).asOf({ subject: "acct:42" })[0]?.source.receiptId).toBe(fact.source.receiptId);
+    expect((await new Ledger(ledgerFile).asOf({ subject: "acct:42" }))[0]?.source.receiptId).toBe(fact.source.receiptId);
   });
 
   it("a write the policy forbids never reaches the ledger and still gets a denial receipt", async () => {
-    const before = new Ledger(ledgerFile).size;
+    const before = await new Ledger(ledgerFile).count();
     const r = await gw.handleCall({ name: "memory.write", arguments: { subject: "policy:refunds", predicate: "limit", value: 10 ** 9, space: "org" } });
     expect(r.isError).toBe(true);
     expect((r.content[0] as any).text).toMatch(/Denied by policy/);
-    expect(new Ledger(ledgerFile).size).toBe(before);
+    expect(await new Ledger(ledgerFile).count()).toBe(before);
     expect(verifyBundle(receiptOf(r), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)] }).statement?.predicate.execution.status).toBe("denied");
   });
 
@@ -163,7 +163,7 @@ permit(principal, action in [Action::"memory.hold", Action::"memory.release"], r
   });
 
   it("receipts carry the facts the agent had been shown, and blast radius walks from a fact to every call and belief that relied on it", async () => {
-    const plan = new Ledger(ledgerFile).asOf({ subject: "acct:42" })[0]!;
+    const plan = (await new Ledger(ledgerFile).asOf({ subject: "acct:42" }))[0]!;
     const readBefore = await gw.handleCall({ name: "memory.read", arguments: { subject: "acct:42" } });
     const st = (id: string) => verifyBundle(receiptOf({ _meta: { [RECEIPT_META_KEY]: id } } as any), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)] }).statement!.predicate as any;
     // the read itself was made before the agent had been shown anything in this test's session except earlier reads
@@ -171,7 +171,7 @@ permit(principal, action in [Action::"memory.hold", Action::"memory.release"], r
     const derived = await gw.handleCall({ name: "memory.write", arguments: { subject: "acct:42", predicate: "discount", value: "20%", space: "team:support" } });
     expect(st(String(derived._meta?.[RECEIPT_META_KEY])).consumed.factIds).toContain(plan.factId);
     const unrelated = await gw.handleCall({ name: "memory.write", arguments: { subject: "acct:77", predicate: "plan", value: "free", space: "team:support" } });
-    const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
+    const b = await blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
     expect(b.fact?.factId).toBe(plan.factId);
     expect(b.receipts.map((r) => r.receiptId)).toContain(String(derived._meta?.[RECEIPT_META_KEY]));
     // acct:77 was written after the agent saw the plan fact too, so by the rule it is in the radius: an upper bound, not a proof of dependence
@@ -210,17 +210,17 @@ permit(principal, action in [Action::"memory.hold", Action::"memory.release"], r
     const exec = v.statement!.predicate.execution as any;
     expect(exec.provenance).toBe("observed");
     expect(JSON.parse(exec.result.content[0].text)).toMatchObject({ factId, erasedFromLedger: true, valueDigest: value(r).valueDigest });
-    expect(new Ledger(ledgerFile).asOf({ subject: "person:3" })).toEqual([]);
+    expect(await new Ledger(ledgerFile).asOf({ subject: "person:3" })).toEqual([]);
   });
 
   it("a retraction through the gateway cites its own receipt", async () => {
-    const factId = new Ledger(ledgerFile).asOf({ subject: "acct:42", predicate: "plan" })[0]!.factId;
+    const factId = (await new Ledger(ledgerFile).asOf({ subject: "acct:42", predicate: "plan" }))[0]!.factId;
     const r = await gw.handleCall({ name: "memory.retract", arguments: { factId, reason: "stale CRM value" } });
     expect(r.isError).toBeFalsy();
     expect(value(r).source.receiptId).toBe(String(r._meta?.[RECEIPT_META_KEY]));
     expect(value(r).actor).toBe("support-agent");
-    expect(new Ledger(ledgerFile).asOf({ subject: "acct:42", predicate: "plan" })).toEqual([]);
-    const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), factId);
+    expect(await new Ledger(ledgerFile).asOf({ subject: "acct:42", predicate: "plan" })).toEqual([]);
+    const b = await blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), factId);
     expect(b.retraction?.reason).toBe("stale CRM value");
     expect(b.stillBelieved.length).toBeGreaterThan(0);
   });
@@ -250,8 +250,8 @@ when { context.facts has target && context.facts.target.space == "org" && contex
     writeFileSync(join(dir, "policy.cedar"), POLICY);
     ledgerFile = join(dir, "ledger.jsonl");
     const seed = new Ledger(ledgerFile);
-    attestedOrg = seed.assert({ subject: "policy:refunds", predicate: "limit", value: 100000, space: "org", actor: "finance-agent", provenance: "attested", source: { receiptId: "earlier" } }).fact.factId;
-    claimedOrg = seed.assert({ subject: "policy:refunds", predicate: "note", value: "draft", space: "org", actor: "sdk-bot" }).fact.factId;
+    attestedOrg = (await seed.assert({ subject: "policy:refunds", predicate: "limit", value: 100000, space: "org", actor: "finance-agent", provenance: "attested", source: { receiptId: "earlier" } })).fact.factId;
+    claimedOrg = (await seed.assert({ subject: "policy:refunds", predicate: "note", value: "draft", space: "org", actor: "sdk-bot" })).fact.factId;
     writeFileSync(join(dir, "gateway.json"), JSON.stringify({
       identity: { keyFile: "keys/gateway.key" },
       upstream: { command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile] },
@@ -267,7 +267,7 @@ when { context.facts has target && context.facts.target.space == "org" && contex
     }));
     gw = await createGateway(loadConfig(join(dir, "gateway.json")));
   });
-  afterAll(() => gw.close());
+  afterAll(async () => gw.close());
 
   it("a write that supersedes nothing needs no lookup and is allowed", async () => {
     const r = await gw.handleCall({ name: "memory.write", arguments: { subject: "acct:1", predicate: "plan", value: "pro", space: "team:support" } });
@@ -282,7 +282,7 @@ when { context.facts has target && context.facts.target.space == "org" && contex
     const p = verifyBundle(bundle, { issuerKeys: [loadPublicKey(join(dir, "keys", "gateway.pub"))], principalKeys: [loadPublicKey(join(dir, "keys", "principal.pub"))] }).statement!.predicate as any;
     expect(p.facts.target.provenance).toBe("observed");
     expect(p.facts.target.value).toMatchObject({ factId: attestedOrg, space: "org", provenance: "attested", retracted: false });
-    expect(new Ledger(ledgerFile).asOf({ subject: "policy:refunds", predicate: "limit" })[0]?.value).toBe(100000);
+    expect((await new Ledger(ledgerFile).asOf({ subject: "policy:refunds", predicate: "limit" }))[0]?.value).toBe(100000);
   });
 
   it("superseding a claimed org fact, and retracting it, are allowed; retracting the attested one is not", async () => {
@@ -296,7 +296,7 @@ when { context.facts has target && context.facts.target.space == "org" && contex
     expect(gone.isError).toBeFalsy();
     const kept = await gw.handleCall({ name: "memory.retract", arguments: { factId: attestedOrg, reason: "trying" } });
     expect(kept.isError).toBe(true);
-    expect(new Ledger(ledgerFile).asOf({ subject: "policy:refunds", predicate: "limit" })).toHaveLength(1);
+    expect(await new Ledger(ledgerFile).asOf({ subject: "policy:refunds", predicate: "limit" })).toHaveLength(1);
   });
 });
 
@@ -324,7 +324,7 @@ describe("several upstreams under one grant", () => {
       const before = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 1 } });
       await g.handleCall({ name: "memory.read", arguments: { subject: "cust_123" } });
       const after = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 } });
-      const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
+      const b = await blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
       const ids = b.receipts.map((r) => r.receiptId);
       expect(ids).toContain(String(after._meta?.[RECEIPT_META_KEY]));
       expect(ids).not.toContain(String(before._meta?.[RECEIPT_META_KEY]));
@@ -366,7 +366,7 @@ permit(principal, action == Action::"memory.write", resource) when { context.arg
     }));
     g = await createGateway(loadConfig(join(dir, "gateway.json")));
   });
-  afterAll(() => g.close());
+  afterAll(async () => g.close());
 
   it("a value equal to what the gateway fetched from the CRM is written as verified", async () => {
     const r = await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "email", value: "alex@example.com", space: "org", customer_id: "cust_123", evidence: { fact: "customer", path: "email" } } });
@@ -382,7 +382,7 @@ permit(principal, action == Action::"memory.write", resource) when { context.arg
     const none = await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "email", value: "alex@example.com", space: "org", evidence: { fact: "customer", path: "email" } } });
     expect(none.isError).toBe(true);
     expect((none.content[0] as any).text).toMatch(/no fact named "customer" was fetched/);
-    expect(new Ledger(ledgerFile).asOf({ subject: "cust_123" })).toHaveLength(1);
+    expect(await new Ledger(ledgerFile).asOf({ subject: "cust_123" })).toHaveLength(1);
   });
 
   it("without evidence an org write is denied by policy, while a team write goes through as attested", async () => {
@@ -401,10 +401,10 @@ describe("retention windows and the receipted sweep trigger", () => {
     const dir = mkdtempSync(join(tmpdir(), "memory-retention-"));
     const file = join(dir, "ledger.jsonl");
     const old = new Ledger(file, { now: () => new Date(Date.now() - 40 * 86_400_000) });
-    const oldOrg = old.assert({ subject: "p:1", predicate: "email", value: "a@x", space: "org", actor: "x" }).fact.factId;
-    const oldTeam = old.assert({ subject: "p:2", predicate: "email", value: "b@x", space: "team:support", actor: "x" }).fact.factId;
-    const oldOther = old.assert({ subject: "p:3", predicate: "email", value: "c@x", space: "user:dana", actor: "x" }).fact.factId;
-    const recent = new Ledger(file).assert({ subject: "p:4", predicate: "email", value: "d@x", space: "org", actor: "x" }).fact.factId;
+    const oldOrg = (await old.assert({ subject: "p:1", predicate: "email", value: "a@x", space: "org", actor: "x" })).fact.factId;
+    const oldTeam = (await old.assert({ subject: "p:2", predicate: "email", value: "b@x", space: "team:support", actor: "x" })).fact.factId;
+    const oldOther = (await old.assert({ subject: "p:3", predicate: "email", value: "c@x", space: "user:dana", actor: "x" })).fact.factId;
+    const recent = (await new Ledger(file).assert({ subject: "p:4", predicate: "email", value: "d@x", space: "org", actor: "x" })).fact.factId;
     const [a, b] = InMemoryTransport.createLinkedPair();
     await createMemoryServer(new Ledger(file), { retention: { org: "P30D", "team:*": "P1D" } }).connect(a);
     const c = new Client({ name: "t", version: "0" });
@@ -413,7 +413,7 @@ describe("retention windows and the receipted sweep trigger", () => {
     expect(r.before).toBeNull();
     expect(r.retention).toEqual({ org: "P30D", "team:*": "P1D" });
     expect(r.forgotten.map((f: any) => f.factId).sort()).toEqual([oldOrg, oldTeam].sort());
-    const after = new Ledger(file).facts();
+    const after = await new Ledger(file).facts();
     expect(after.find((f) => f.factId === oldOther)?.forgotten).toBeUndefined();
     expect(after.find((f) => f.factId === recent)?.forgotten).toBeUndefined();
     const none = (await c.callTool({ name: "memory.sweep", arguments: { reason: "x" } })) as CallToolResult;
@@ -425,9 +425,9 @@ describe("retention windows and the receipted sweep trigger", () => {
     const dir = mkdtempSync(join(tmpdir(), "memory-via-"));
     const ledgerFile = join(dir, "ledger.jsonl");
     const old = new Ledger(ledgerFile, { now: () => new Date(Date.now() - 100 * 86_400_000) });
-    const stale = old.assert({ subject: "p:1", predicate: "phone", value: "+1 555 0100", space: "org", actor: "x" }).fact.factId;
-    const held = old.assert({ subject: "p:2", predicate: "phone", value: "+1 555 0200", space: "org", actor: "x" }).fact.factId;
-    new Ledger(ledgerFile).hold({ factId: held, actor: "legal", reason: "matter 9" });
+    const stale = (await old.assert({ subject: "p:1", predicate: "phone", value: "+1 555 0100", space: "org", actor: "x" })).fact.factId;
+    const held = (await old.assert({ subject: "p:2", predicate: "phone", value: "+1 555 0200", space: "org", actor: "x" })).fact.factId;
+    await new Ledger(ledgerFile).hold({ factId: held, actor: "legal", reason: "matter 9" });
     writeKeyPair(generateKeyPair(), join(dir, "keys"), "gateway");
     const principalKp = generateKeyPair();
     writeKeyPair(principalKp, join(dir, "keys"), "principal");

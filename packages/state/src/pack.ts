@@ -58,10 +58,10 @@ function receiptResult(bundle: ReceiptBundle): unknown {
   }
 }
 
-export function buildPack(ledger: Ledger, receiptsDir: string, factId: string): CustodyPack {
+export async function buildPack(ledger: Ledger, receiptsDir: string, factId: string): Promise<CustodyPack> {
   const bundles = loadBundles(receiptsDir);
-  const history = ledger.history(factId);
-  const blast = blastRadius(ledger, loadReceipts(receiptsDir), factId);
+  const history = await ledger.history(factId);
+  const blast = await blastRadius(ledger, loadReceipts(receiptsDir), factId);
   const wanted = new Set<string>();
   for (const e of history) {
     const src = e.kind === "assert" ? e.fact.source.receiptId : e.source.receiptId;

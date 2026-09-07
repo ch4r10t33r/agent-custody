@@ -123,26 +123,26 @@ describe("write-through stores", () => {
     expect(graph.body.type).toBe("json");
     expect(JSON.parse(graph.body.data)).toMatchObject({ subject: "acct:42", predicate: "plan", value: "pro", space: "team:support" });
     expect(graph.body.source_description).toBe("agent-custody");
-    expect(new Ledger(ledger.location).asOf()[0]?.external).toEqual(r.fact.external);
+    expect((await new Ledger(ledger.location).asOf())[0]?.external).toEqual(r.fact.external);
   });
 
   it("a retraction reaches both stores by the recorded ids", async () => {
-    const fact = ledger.asOf()[0]!;
+    const fact = (await ledger.asOf())[0]!;
     const r = value((await client.callTool({ name: "memory.retract", arguments: { factId: fact.factId, reason: "wrong" } })) as CallToolResult);
     expect(r.removedFrom.sort()).toEqual(["mem0", "zep"]);
     expect(r.verification).toEqual({ mem0: "verified", zep: "verified" });
     expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === `/v1/memories/${fact.external!.mem0}/`)).toBe(true);
     expect(zep.seen.some((s) => s.method === "DELETE" && s.path === `/graph/episodes/${fact.external!.zep}`)).toBe(true);
-    expect(ledger.asOf()).toEqual([]);
+    expect(await ledger.asOf()).toEqual([]);
   });
 
   it("a store that refuses the write fails the write and nothing is recorded anywhere", async () => {
-    const before = ledger.size;
+    const before = await ledger.count();
     zep.fail.on = true;
     const r = (await client.callTool({ name: "memory.write", arguments: { subject: "acct:43", predicate: "plan", value: "free", space: "team:support" } })) as CallToolResult;
     zep.fail.on = false;
     expect(r.isError).toBe(true);
-    expect(ledger.size).toBe(before);
+    expect(await ledger.count()).toBe(before);
   });
 
   it("a write the ledger would refuse never reaches a store", async () => {
@@ -159,7 +159,7 @@ describe("write-through stores", () => {
     mem0.fail.on = false;
     expect(r.isError).toBe(true);
     expect((r.content[0] as any).text).toMatch(/retracted in the ledger, but still held by mem0/);
-    expect(ledger.asOf({ subject: "acct:44" })).toEqual([]);
+    expect(await ledger.asOf({ subject: "acct:44" })).toEqual([]);
     expect(JSON.parse((r.content[1] as any).text).removedFrom).toEqual(["zep"]);
   });
 

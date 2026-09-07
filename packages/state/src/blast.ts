@@ -42,10 +42,10 @@ export interface BlastRadius {
   stillBelieved: Fact[];
 }
 
-export function blastRadius(ledger: Ledger, receipts: ReceiptSummary[], factId: string): BlastRadius {
-  const all = ledger.facts();
+export async function blastRadius(ledger: Ledger, receipts: ReceiptSummary[], factId: string): Promise<BlastRadius> {
+  const all = await ledger.facts();
   const byId = new Map(all.map((f) => [f.factId, f]));
-  const believed = new Set(ledger.asOf().map((f) => f.factId));
+  const believed = new Set((await ledger.asOf()).map((f) => f.factId));
   const seen = new Set<string>([factId]);
   const hit = new Map<string, ReceiptSummary>();
   const derived = new Map<string, Fact>();
@@ -64,7 +64,7 @@ export function blastRadius(ledger: Ledger, receipts: ReceiptSummary[], factId: 
       grew = true;
     }
   }
-  const retraction = (ledger.history(factId).find((e) => e.kind === "retract") as RetractEvent | undefined) ?? null;
+  const retraction = ((await ledger.history(factId)).find((e) => e.kind === "retract") as RetractEvent | undefined) ?? null;
   const derivedFacts = [...derived.values()];
   return { fact: byId.get(factId) ?? null, receipts: [...hit.values()].sort((a, b) => a.timestamp.localeCompare(b.timestamp)), derivedFacts, retraction, stillBelieved: derivedFacts.filter((f) => believed.has(f.factId)) };
 }

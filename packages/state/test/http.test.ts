@@ -50,11 +50,11 @@ describe("memory server over HTTP", () => {
     expect(viaDirect.fact).toMatchObject({ actor: "sdk-agent", provenance: "claimed", source: { receiptId: null } });
     const seenByAgent = value(await gw.handleCall({ name: "memory.read", arguments: { subject: "acct:42" } })).facts;
     expect(seenByAgent.map((f: any) => f.predicate)).toEqual(["plan"]);
-    expect(new Ledger(ledgerFile).size).toBe(2);
+    expect(await new Ledger(ledgerFile).count()).toBe(2);
   });
 
   it("the gateway can confirm the direct writer's fact, and then the agent sees it", async () => {
-    const claimed = new Ledger(ledgerFile).asOf({ predicate: "owner" })[0]!;
+    const claimed = (await new Ledger(ledgerFile).asOf({ predicate: "owner" }))[0]!;
     const r = await gw.handleCall({ name: "memory.confirm", arguments: { factId: claimed.factId } });
     expect(r.isError).toBeFalsy();
     expect(value(await gw.handleCall({ name: "memory.read", arguments: { subject: "acct:42" } })).facts.map((f: any) => f.predicate).sort()).toEqual(["owner", "plan"]);

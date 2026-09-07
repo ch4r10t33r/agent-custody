@@ -28,12 +28,12 @@ console.log(`   verified: ${v.ok}, issuer kind: sdk, so every field is self-repo
 
 console.log("4. What the agent now believes goes in the ledger, citing the receipt it came from.");
 const ledger = new Ledger(join(dir, "ledger.jsonl"));
-const belief = ledger.assert({ subject: "acct:42", predicate: "plan", value: result.plan, space: "org", actor: "support-bot", source: { receiptId: receiptIdOf(bundle) } });
-console.log(`   believes plan=${ledger.asOf({ subject: "acct:42" })[0]!.value}, from receipt ${belief.fact.source.receiptId!.slice(0, 8)}`);
+const belief = await ledger.assert({ subject: "acct:42", predicate: "plan", value: result.plan, space: "org", actor: "support-bot", source: { receiptId: receiptIdOf(bundle) } });
+console.log(`   believes plan=${(await ledger.asOf({ subject: "acct:42" }))[0]!.value}, from receipt ${belief.fact.source.receiptId!.slice(0, 8)}`);
 
 console.log("5. Later the belief turns out wrong. Retract it; the receipt still says exactly which call produced it.");
-ledger.retract({ factId: belief.fact.factId, actor: "user:admin", reason: "CRM lookup returned a stale plan" });
-console.log(`   believes now: ${ledger.asOf({ subject: "acct:42" }).length === 0 ? "nothing about acct:42" : "?"}; history keeps the receipt id ${belief.fact.source.receiptId!.slice(0, 8)}`);
+await ledger.retract({ factId: belief.fact.factId, actor: "user:admin", reason: "CRM lookup returned a stale plan" });
+console.log(`   believes now: ${(await ledger.asOf({ subject: "acct:42" })).length === 0 ? "nothing about acct:42" : "?"}; history keeps the receipt id ${belief.fact.source.receiptId!.slice(0, 8)}`);
 
-if (!v.ok || ledger.asOf().length !== 0 || ledger.history(belief.fact.factId).length !== 2) throw new Error("unexpected state");
+if (!v.ok || (await ledger.asOf()).length !== 0 || (await ledger.history(belief.fact.factId)).length !== 2) throw new Error("unexpected state");
 console.log("OK");

@@ -181,9 +181,9 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
     return { removedFrom, stillHeld, verification };
   }
 
-  async function forgetOne(factId: string, reason: string, keepDigest?: boolean) {
-    const fact = ledger.facts().find((f) => f.factId === factId);
-    const ev = ledger.forget({ factId, actor: currentActor, reason, source: { receiptId: currentReceipt }, ...(keepDigest === undefined ? {} : { keepDigest }) });
+  async function forgetOne(factId: string, reason: string, keepDigest?: boolean, compact = true) {
+    const fact = await ledger.get(factId);
+    const ev = await ledger.forget({ factId, actor: currentActor, reason, source: { receiptId: currentReceipt }, ...(keepDigest === undefined ? {} : { keepDigest }), compact });
     const { removedFrom, stillHeld, verification } = await removeFromStores(fact);
     return { factId: ev.factId, valueDigest: ev.valueDigest, digestKind: ev.digestKind, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, erasedFromLedger: true, removedFrom, stillHeld, verification };
   }
@@ -215,22 +215,22 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
           const input = { subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance: writeProvenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) } as const;
           // The stores are written first, so their ids can be recorded on the fact; the ledger's checks run beforehand
           // so a write the ledger would refuse never reaches a store.
-          ledger.validateAssert(input);
+          await ledger.validateAssert(input);
           const external: Record<string, string> = {};
           const preview: Fact = { ...input, factId: "pending", validFrom: input.validFrom ?? new Date().toISOString(), validTo: null, confidence: input.confidence ?? null };
           for (const store of opts.stores ?? []) external[store.name] = await store.put(preview);
-          const ev = ledger.assert({ ...input, external });
+          const ev = await ledger.assert({ ...input, external });
           return json({ fact: ev.fact, eventId: ev.eventId, txTime: ev.txTime, supersedes: ev.supersedes });
         }
         case "memory.read": {
           const { includeClaimed, requireVerified, ...q } = Read.parse(args);
-          const facts = ledger.asOf({ ...q, include: requireVerified ? "verified" : includeClaimed ? "all" : "attested" });
+          const facts = await ledger.asOf({ ...q, include: requireVerified ? "verified" : includeClaimed ? "all" : "attested" });
           return { ...json({ facts }), _meta: { [FACTS_META_KEY]: facts.map((f) => f.factId) } };
         }
         case "memory.retract": {
           const a = Retract.parse(args);
-          const fact = ledger.history(a.factId).find((e): e is Extract<typeof e, { kind: "assert" }> => e.kind === "assert" && e.fact.factId === a.factId)?.fact;
-          const ev = ledger.retract({ factId: a.factId, actor: actorFor(a.actor), reason: a.reason, source: { receiptId } });
+          const fact = await ledger.get(a.factId);
+          const ev = await ledger.retract({ factId: a.factId, actor: actorFor(a.actor), reason: a.reason, source: { receiptId } });
           // The ledger is retracted first: custody must not depend on a store being up. A store that fails to remove
           // is reported, so the caller knows recall may still serve the value.
           const { removedFrom, stillHeld, verification } = await removeFromStores(fact);
@@ -241,7 +241,7 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         case "memory.confirm": {
           if (provenance !== "attested") return fail("confirmation must come through the receipts gateway; a self-reported caller cannot lift a fact out of quarantine");
           const a = Confirm.parse(args);
-          const ev = ledger.confirm({ factId: a.factId, actor: actorFor(undefined), source: { receiptId } });
+          const ev = await ledger.confirm({ factId: a.factId, actor: actorFor(undefined), source: { receiptId } });
           return json({ eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, source: ev.source });
         }
         case "memory.forget": {
@@ -252,32 +252,33 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         }
         case "memory.hold": {
           const a = Hold.parse(args);
-          return json(ledger.hold({ factId: a.factId, actor: actorFor(undefined), reason: a.reason, source: { receiptId } }));
+          return json(await ledger.hold({ factId: a.factId, actor: actorFor(undefined), reason: a.reason, source: { receiptId } }));
         }
         case "memory.release": {
           const a = Hold.parse(args);
-          return json(ledger.release({ factId: a.factId, actor: actorFor(undefined), reason: a.reason, source: { receiptId } }));
+          return json(await ledger.release({ factId: a.factId, actor: actorFor(undefined), reason: a.reason, source: { receiptId } }));
         }
         case "memory.sweep": {
           const a = Sweep.parse(args);
           if (!a.before && !opts.retention) return fail("sweep needs `before`, or a server started with retention windows");
+          // One query per space, each answered by the store's index: the facts learned before that space's cutoff.
           const now = new Date();
-          const cutoffFor = (space: string): string | null => a.before ?? retentionCutoff(opts.retention ?? {}, space, now);
-          const targets = ledger.facts().filter((f) => !f.forgotten && (a.space === undefined || f.space === a.space));
-          const learnedBefore = new Set(ledger.facts().filter((f) => {
-            const cutoff = cutoffFor(f.space);
-            return cutoff !== null && ledger.history(f.factId).find((e) => e.kind === "assert" && e.fact.factId === f.factId)!.txTime < cutoff;
-          }).map((f) => f.factId));
+          const spaces = a.space !== undefined ? [a.space] : a.before ? [undefined] : await ledger.spaces();
+          const targets: Fact[] = [];
+          for (const space of spaces) {
+            const cutoff = a.before ?? (space === undefined ? null : retentionCutoff(opts.retention ?? {}, space, now));
+            if (cutoff !== null) targets.push(...(await ledger.learnedBefore(cutoff, space)));
+          }
           const forgotten: Awaited<ReturnType<typeof forgetOne>>[] = [];
           const held: string[] = [];
           for (const f of targets) {
-            if (!learnedBefore.has(f.factId)) continue;
-            if (ledger.held(f.factId)) {
+            if (await ledger.held(f.factId)) {
               held.push(f.factId);
               continue;
             }
-            forgotten.push(await forgetOne(f.factId, a.reason, a.keepDigest));
+            forgotten.push(await forgetOne(f.factId, a.reason, a.keepDigest, false));
           }
+          if (forgotten.length > 0) await ledger.compact();
           const stillHeld = forgotten.flatMap((o) => o.stillHeld);
           const out = { before: a.before ?? null, retention: a.before ? null : (opts.retention ?? null), space: a.space ?? null, forgotten: forgotten.map((o) => ({ factId: o.factId, valueDigest: o.valueDigest, digestKind: o.digestKind, removedFrom: o.removedFrom, verification: o.verification })), held, stillHeld };
           if (stillHeld.length > 0) return { isError: true, content: [{ type: "text", text: `swept the ledger, but some values are still held by stores: ${stillHeld.join("; ")}` }, { type: "text", text: JSON.stringify(out) }] };
@@ -285,15 +286,15 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         }
         case "memory.get": {
           const a = Get.parse(args);
-          const f = ledger.facts().find((x) => x.factId === a.factId);
+          const f = await ledger.get(a.factId);
           if (!f) return fail(`unknown fact ${a.factId}`);
-          const retracted = ledger.history(a.factId).some((e) => e.kind === "retract");
+          const retracted = (await ledger.history(a.factId)).some((e) => e.kind === "retract");
           // Cedar has no null: absent fields stay absent, so a policy tests them with `has`.
           const clean = Object.fromEntries(Object.entries({ ...f, source: f.source.receiptId ?? undefined, retracted }).filter(([, v]) => v !== null && v !== undefined));
           return json(clean);
         }
         case "memory.history":
-          return json({ events: ledger.history(History.parse(args).factId) });
+          return json({ events: await ledger.history(History.parse(args).factId) });
         default:
           return fail(`unknown tool ${name}`);
       }

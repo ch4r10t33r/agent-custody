@@ -2,6 +2,14 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.2.0 — 2026-09-07
+
+- **State, breaking:** the ledger is asynchronous. Every method returns a promise, `size` is `count()`, `close()` and `export()` return promises, and `blastRadius` and `buildPack` are awaited. Code written against 0.1.x must add `await`; nothing else changes.
+- **State:** the ledger holds no events. Every question is a query to the store: everything about the facts matching a filter, everything that touched one fact, the spaces that exist. SQLite answers each from an index on fact, time, space, subject, predicate, and supersession, and fills those columns on a ledger written by an earlier version the first time it opens it. Closes #8.
+- **State:** Postgres as a store, for a ledger shared by several servers in the database you already run. `--ledger postgres://…` with the `pg` package installed, or `new PostgresStore(pool)` in code. Forget is an update followed by `VACUUM FULL`, so the old row image does not stay in the table; `vacuum: false` leaves that to your schedule. Tested against the real engine in-process through PGlite, including that a forgotten value is absent from the database files.
+- **State:** `Ledger.get`, `learnedBefore`, `spaces`, and `compact`; sweeps compact once at the end rather than per fact.
+- **Site:** the landing page says where the ledger lives.
+
 ## 0.1.9 — 2026-09-07
 
 - **State:** the custody pack, `agent-custody-memory pack`: one fact's history with the receipt behind each event, its holds, its blast radius with every downstream receipt, and its forget certificate with what the stores answered, as one signed artefact; `pack --verify` checks the signature, the digest, every receipt inside against the gateway's keys, and that the forget receipt names the fact.

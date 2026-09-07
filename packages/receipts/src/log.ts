@@ -29,32 +29,48 @@ function split(n: number): number {
   return k;
 }
 
-function mth(leaves: Buffer[], lo: number, hi: number): Buffer {
-  const n = hi - lo;
-  if (n === 0) return createHash("sha256").digest();
-  if (n === 1) return leaves[lo]!;
-  const k = split(n);
-  return nodeHash(mth(leaves, lo, lo + k), mth(leaves, lo + k, hi));
+/**
+ * Subtree hashes over a growing list of leaves. A subtree over an aligned, complete, power-of-two range never changes
+ * once its leaves exist, so those are cached; everything else is recomputed from at most log(n) cached parts. That
+ * makes appends, roots, and proofs O(log n) instead of O(n), which is what keeps a long session's receipts cheap.
+ */
+class SubtreeCache {
+  private readonly perfect = new Map<string, Buffer>();
+  constructor(private readonly leaves: Buffer[]) {}
+  mth(lo: number, hi: number): Buffer {
+    const n = hi - lo;
+    if (n === 0) return createHash("sha256").digest();
+    if (n === 1) return this.leaves[lo]!;
+    const aligned = (n & (n - 1)) === 0 && lo % n === 0;
+    const key = aligned ? `${lo}:${hi}` : "";
+    if (aligned) {
+      const hit = this.perfect.get(key);
+      if (hit) return hit;
+    }
+    const k = split(n);
+    const h = nodeHash(this.mth(lo, lo + k), this.mth(lo + k, hi));
+    if (aligned) this.perfect.set(key, h);
+    return h;
+  }
+  path(m: number, lo: number, hi: number): Buffer[] {
+    const n = hi - lo;
+    if (n <= 1) return [];
+    const k = split(n);
+    return m < k ? [...this.path(m, lo, lo + k), this.mth(lo + k, hi)] : [...this.path(m - k, lo + k, hi), this.mth(lo, lo + k)];
+  }
+  subproof(m: number, lo: number, hi: number, b: boolean): Buffer[] {
+    const n = hi - lo;
+    if (m === n) return b ? [] : [this.mth(lo, hi)];
+    const k = split(n);
+    return m <= k ? [...this.subproof(m, lo, lo + k, b), this.mth(lo + k, hi)] : [...this.subproof(m - k, lo + k, hi, false), this.mth(lo, lo + k)];
+  }
 }
 
-function path(m: number, leaves: Buffer[], lo: number, hi: number): Buffer[] {
-  const n = hi - lo;
-  if (n <= 1) return [];
-  const k = split(n);
-  return m < k
-    ? [...path(m, leaves, lo, lo + k), mth(leaves, lo + k, hi)]
-    : [...path(m - k, leaves, lo + k, hi), mth(leaves, lo, lo + k)];
-}
+const mth = (leaves: Buffer[], lo: number, hi: number): Buffer => new SubtreeCache(leaves).mth(lo, hi);
+const path = (m: number, leaves: Buffer[], lo: number, hi: number): Buffer[] => new SubtreeCache(leaves).path(m, lo, hi);
 
 /** RFC 9162 section 2.1.4.1: SUBPROOF(m, D[n], b). */
-function subproof(m: number, leaves: Buffer[], lo: number, hi: number, b: boolean): Buffer[] {
-  const n = hi - lo;
-  if (m === n) return b ? [] : [mth(leaves, lo, hi)];
-  const k = split(n);
-  return m <= k
-    ? [...subproof(m, leaves, lo, lo + k, b), mth(leaves, lo + k, hi)]
-    : [...subproof(m - k, leaves, lo + k, hi, false), mth(leaves, lo, lo + k)];
-}
+const subproof = (m: number, leaves: Buffer[], lo: number, hi: number, b: boolean): Buffer[] => new SubtreeCache(leaves).subproof(m, lo, hi, b);
 
 /** Proof that the tree of size newSize extends the tree of size oldSize. Empty when oldSize is 0 or equal to newSize. */
 export function consistencyProof(leafHashes: Buffer[], oldSize: number, newSize = leafHashes.length): string[] {
@@ -134,10 +150,12 @@ export function verifyInclusion(leaf: Buffer, proof: InclusionProof, rootHex: st
 
 export class MerkleLog {
   private hashes: Buffer[] = [];
+  private readonly tree: SubtreeCache;
   private readonly file: string;
 
   constructor(file: string) {
     this.file = file;
+    this.tree = new SubtreeCache(this.hashes);
     if (existsSync(file)) {
       for (const line of readFileSync(file, "utf8").split("\n")) {
         if (!line.trim()) continue;
@@ -159,16 +177,19 @@ export class MerkleLog {
     appendFileSync(this.file, JSON.stringify(leaf) + "\n");
     this.hashes.push(leafHash(leaf));
     const treeSize = this.hashes.length;
-    return { ...inclusionProof(this.hashes, treeSize - 1, treeSize), rootHash: rootOf(this.hashes, treeSize) };
+    return { leafIndex: treeSize - 1, treeSize, hashes: this.tree.path(treeSize - 1, 0, treeSize).map((b) => b.toString("hex")), rootHash: this.tree.mth(0, treeSize).toString("hex") };
   }
 
   root(size = this.size): string {
-    return rootOf(this.hashes, size);
+    if (size < 0 || size > this.size) throw new Error("size out of range");
+    return this.tree.mth(0, size).toString("hex");
   }
 
   /** Proof that this log at newSize extends its own earlier state at oldSize. */
   consistencyProof(oldSize: number, newSize = this.size): string[] {
-    return consistencyProof(this.hashes, oldSize, newSize);
+    if (oldSize < 0 || oldSize > newSize || newSize > this.size) throw new Error("sizes out of range");
+    if (oldSize === 0 || oldSize === newSize) return [];
+    return this.tree.subproof(oldSize, 0, newSize, true).map((b) => b.toString("hex"));
   }
 
   /** Reads a log file and returns the root at the given size, for auditors holding a copy of the log. */

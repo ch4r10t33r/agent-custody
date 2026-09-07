@@ -270,7 +270,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 **Next, in the order it pays off**
 
 1. OpenTelemetry export: emit each receipt as a span with the receipt id and issuer kind as attributes, so existing collectors and dashboards carry them without a new pipeline.
-2. Provider-native upstream signatures (Stripe webhook signatures, GitHub delivery signatures) as adapters onto the upstream attestation field.
+2. Provider-native upstream signatures (Stripe webhook signatures, GitHub delivery signatures) as adapters onto the upstream attestation field. [Issue #7](https://github.com/ch4r10t33r/agent-custody/issues/7).
 3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
 4. Delegation chains for sub-agents.
 5. Receiver-attested receipts for agent-to-agent calls.

@@ -192,6 +192,10 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. A retention schedule: run sweeps on a timer from the CLI or a hosted plane, with the receipts of each sweep kept as the record.
-2. A storage interface for the ledger with SQLite as the first alternative to JSONL, for durability, concurrent readers, and indexed queries at scale; JSONL stays the default and the auditable export. [Issue #1](https://github.com/ch4r10t33r/agent-custody/issues/1).
+1. A keyed, or absent, digest on forget, so an erased value cannot be guessed back from the file. [Issue #2](https://github.com/ch4r10t33r/agent-custody/issues/2).
+2. Retention as a receipted call on a schedule: per-space windows in the server config, a `sweep --via gateway.json` trigger any timer can run, and retention for the receipt log itself. [Issue #3](https://github.com/ch4r10t33r/agent-custody/issues/3).
+3. A storage interface for the ledger with SQLite as the first alternative to JSONL, for durability, concurrent readers, and indexed queries at scale; JSONL stays the default and the auditable export. [Issue #1](https://github.com/ch4r10t33r/agent-custody/issues/1).
+4. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
+5. The eval harness as a CLI with customer scenario files and a signed report. [Issue #5](https://github.com/ch4r10t33r/agent-custody/issues/5).
+6. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 

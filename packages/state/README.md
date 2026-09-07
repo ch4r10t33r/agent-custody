@@ -22,7 +22,7 @@ ledger.retract({ factId: a.fact.factId, actor: "user:admin", reason: "poisoned b
 ledger.asOf({ validAt: "2026-09-01T00:00:00Z", txAt: "2026-09-01T00:00:00Z" });
 ```
 
-Three runnable examples, all executed by the test suite. [03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the memory server as the gateway's upstream. [01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo. [02-receipt-to-belief.ts](examples/02-receipt-to-belief.ts) runs the whole loop with the receipts package: a tool call gets a signed receipt, the receipt is verified, the belief taken from it is recorded citing the receipt, and later retracted. Run them with `node examples/<file>` from this directory, after `bun run build` at the repository root.
+Four runnable examples, all executed by the test suite. [04-evals.ts](examples/04-evals.ts) scores the ledger and a naive store on the same memory incidents. [03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the memory server as the gateway's upstream. [01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo. [02-receipt-to-belief.ts](examples/02-receipt-to-belief.ts) runs the whole loop with the receipts package: a tool call gets a signed receipt, the receipt is verified, the belief taken from it is recorded citing the receipt, and later retracted. Run them with `node examples/<file>` from this directory, after `bun run build` at the repository root.
 
 ## The memory server
 
@@ -52,6 +52,33 @@ Trust tiers are Cedar policies over the space and, through `includeClaimed`, ove
 
 `--allow-direct` lets the server take calls without a gateway; then `source.receiptId` is null and `actor` is whatever the caller said, recorded as such. [examples/03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the whole loop, including a denied write and a retraction that cites its own receipt.
 
+## Write-through to the stores you already use
+
+The ledger is not a retrieval store, and it does not try to be. `src/stores.ts` puts it under the ones teams already run: a fact written through the memory server also lands in every configured store, with its custody metadata (fact id, space, actor, provenance, receipt id), the store's own id is recorded on the fact, and a retraction reaches the store by that id. Certified forget will be built on this: a deletion is only real once it has reached the stores that serve recall.
+
+```ts
+import { MemoryClient } from "mem0ai";
+import { ZepClient } from "@getzep/zep-cloud";
+import { Ledger, createMemoryServer, mem0Store, zepStore } from "@agent-custody/state";
+
+const stores = [
+  mem0Store(new MemoryClient({ apiKey: process.env.MEM0_API_KEY! }), { userId: "user_42" }),   // infer is off: the memory is the fact, verbatim
+  zepStore(new ZepClient({ apiKey: process.env.ZEP_API_KEY! }), { userId: "user_42" }),         // or { graphId } for a shared graph
+];
+createMemoryServer(new Ledger("./ledger.jsonl"), { stores });
+```
+
+Order matters and is fixed: the ledger's checks run first, so a write it would refuse never reaches a store; the stores are written next, so their ids can be recorded; the ledger appends last. A store that refuses the write fails the write and nothing is recorded anywhere. On retraction the ledger goes first, since custody must not depend on a store being up, and a store that fails to remove is named in the error so the caller knows recall may still serve the value. The adapters are typed structurally and carry no runtime dependency on either vendor; the tests drive the real `mem0ai` and `@getzep/zep-cloud` clients against fake endpoints, offline.
+
+## Scoring memory mutations
+
+`src/evals.ts` is a harness that scores a memory system on what goes wrong after writes, not on recall. A scenario is a script of writes, reads, supersessions, and retractions with the value a correct system returns at each read. The score counts stale reads (a value served after a correction was known), contradictions (two values for one subject and predicate at once), blast radius (reads that served a write the scenario marks as bad), and correct reads. Any system behind the small `MemoryUnderTest` interface can be scored; this ledger and a naive overwrite store ship as the two reference points, and [examples/04-evals.ts](examples/04-evals.ts) prints both reports side by side.
+
+```ts
+import { Ledger, ledgerUnderTest, runAll, SCENARIOS, formatReport } from "@agent-custody/state";
+console.log(formatReport(await runAll(ledgerUnderTest(new Ledger("./ledger.jsonl")), SCENARIOS)));
+```
+
 ## The ledger
 
 `src/ledger.ts` is an append-only JSONL log of two kinds of event.
@@ -76,6 +103,9 @@ The ledger refuses to supersede a fact that is unknown, already superseded, or r
 src/ledger.ts   the fact record, the two event kinds, as-of queries, supersession, retraction, JSONL persistence
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/cli.ts      agent-custody-memory serve
+src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
+src/evals.ts    the memory-mutation harness: scenarios, scoring, report
+src/evals-ledger.ts  the ledger and a naive overwrite store behind the harness interface
 src/index.ts    public surface
 examples/       runnable walkthroughs, each ends with OK and is run by the test suite
 test/           one test per question a platform owner asks after a memory incident
@@ -88,13 +118,13 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 - Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
+- Write-through adapters for Mem0 and Zep: every write lands in the store with custody metadata, the store id is recorded on the fact, retractions reach the store, and failures are ordered so nothing is half-recorded.
+- The memory-mutation eval harness: stale reads, contradictions, blast radius, and correct reads over scripted incidents, scored the same way for the ledger and for anything behind the same interface.
 - Quarantine: facts carry `attested` or `claimed` provenance; claimed facts are hidden from reads by default and a gateway-only `memory.confirm` lifts them, as a recorded event.
 
 **Next, in the order it pays off**
 
 1. A consumed-facts field on receipts: the gateway records which fact ids a read returned, so later receipts in the session show what the agent relied on.
 2. Blast radius: given a fact id, every downstream receipt and derived fact that cited it, and the retraction that undoes the belief.
-3. Write-through adapters for the memory stores teams already use, tested against the real packages, so the ledger sits under their retrieval and a retraction reaches the store. Certified forget depends on this: a deletion is only real once it has reached the stores that serve recall.
-4. Trust tiers, the rest: Cedar policy over provenance so a claimed write cannot supersede an attested org-space fact, and quarantine of values that came from untrusted tool output even when the actor is attested.
-5. Signed forget statements: a retention or deletion request produces a verifiable record of which facts were removed from the ledger and from every store behind it.
-6. A memory-mutation eval harness: stale-fact rate, contradiction handling, and blast radius of a bad write, scored the same way for this ledger and for any store put behind the same interface.
+3. Trust tiers, the rest: Cedar policy over provenance so a claimed write cannot supersede an attested org-space fact, and quarantine of values that came from untrusted tool output even when the actor is attested.
+4. Signed forget statements: a retention or deletion request produces a verifiable record of which facts were removed from the ledger and from every store behind it.

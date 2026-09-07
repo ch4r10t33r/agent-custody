@@ -7,7 +7,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import type { Ledger } from "./ledger.ts";
+import type { Fact, Ledger } from "./ledger.ts";
+import type { Store } from "./stores.ts";
 
 export const SERVER_VERSION = "0.1.0";
 /** The same keys the receipts gateway sets on the upstream call. Duplicated here so this package needs no runtime import from receipts. */
@@ -63,6 +64,8 @@ export const TOOLS: Tool[] = [
 export interface MemoryServerOptions {
   /** Refuse calls that did not come through the gateway, i.e. carry no receipt id. On by default when served from the CLI. */
   requireGateway?: boolean;
+  /** Retrieval stores every write goes through to and every retraction reaches. A store that refuses a write fails the write; nothing is recorded. */
+  stores?: Store[];
 }
 
 const json = (v: unknown): CallToolResult => ({ content: [{ type: "text", text: JSON.stringify(v) }] });
@@ -84,7 +87,14 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
       switch (req.params.name) {
         case "memory.write": {
           const a = Write.parse(args);
-          const ev = ledger.assert({ subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) });
+          const input = { subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) } as const;
+          // The stores are written first, so their ids can be recorded on the fact; the ledger's checks run beforehand
+          // so a write the ledger would refuse never reaches a store.
+          ledger.validateAssert(input);
+          const external: Record<string, string> = {};
+          const preview: Fact = { ...input, factId: "pending", validFrom: input.validFrom ?? new Date().toISOString(), validTo: null, confidence: input.confidence ?? null };
+          for (const store of opts.stores ?? []) external[store.name] = await store.put(preview);
+          const ev = ledger.assert({ ...input, external });
           return json({ fact: ev.fact, eventId: ev.eventId, txTime: ev.txTime, supersedes: ev.supersedes });
         }
         case "memory.read": {
@@ -93,8 +103,23 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         }
         case "memory.retract": {
           const a = Retract.parse(args);
+          const fact = ledger.history(a.factId).find((e): e is Extract<typeof e, { kind: "assert" }> => e.kind === "assert" && e.fact.factId === a.factId)?.fact;
           const ev = ledger.retract({ factId: a.factId, actor: actorFor(a.actor), reason: a.reason, source: { receiptId } });
-          return json({ eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source });
+          // The ledger is retracted first: custody must not depend on a store being up. A store that fails to remove
+          // is reported, so the caller knows recall may still serve the value.
+          const stillHeld: string[] = [];
+          for (const store of opts.stores ?? []) {
+            const id = fact?.external?.[store.name];
+            if (!id) continue;
+            try {
+              await store.remove(id, fact!);
+            } catch (e) {
+              stillHeld.push(`${store.name}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+          const out = { eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, removedFrom: (opts.stores ?? []).map((s) => s.name).filter((n) => fact?.external?.[n] && !stillHeld.some((h) => h.startsWith(n))) };
+          if (stillHeld.length > 0) return { isError: true, content: [{ type: "text", text: `retracted in the ledger, but still held by ${stillHeld.join("; ")}` }, { type: "text", text: JSON.stringify(out) }] };
+          return json(out);
         }
         case "memory.confirm": {
           if (provenance !== "attested") return fail("confirmation must come through the receipts gateway; a self-reported caller cannot lift a fact out of quarantine");

@@ -28,6 +28,8 @@ export interface Fact {
   actor: string;
   source: Source;
   provenance: FactProvenance;
+  /** ids of this fact in the retrieval stores it was written through to, by store name; absent when there are none */
+  external?: Record<string, string>;
   /** ISO timestamps. validTo is null while the fact is believed to still hold. */
   validFrom: string;
   validTo: string | null;
@@ -75,6 +77,7 @@ export interface AssertInput {
   source?: Source;
   /** default claimed; the memory server sets attested for writes that came through the gateway */
   provenance?: FactProvenance;
+  external?: Record<string, string>;
   validFrom?: string;
   confidence?: number;
   supersedes?: string;
@@ -126,9 +129,9 @@ export class Ledger {
     return this.events.length;
   }
 
-  assert(input: AssertInput): AssertEvent {
-    const txTime = this.now().toISOString();
-    const validFrom = input.validFrom ?? txTime;
+  /** The checks assert makes, without appending. For callers that must do something irreversible before the append. */
+  validateAssert(input: AssertInput): void {
+    const validFrom = input.validFrom ?? this.now().toISOString();
     if (input.supersedes !== undefined) {
       const prior = this.factById(input.supersedes);
       if (!prior) throw new Error(`cannot supersede unknown fact ${input.supersedes}`);
@@ -136,6 +139,12 @@ export class Ledger {
       if (this.retractedAt(input.supersedes)) throw new Error(`fact ${input.supersedes} is retracted`);
       if (validFrom < prior.fact.validFrom) throw new Error(`replacement cannot start before the fact it supersedes`);
     }
+  }
+
+  assert(input: AssertInput): AssertEvent {
+    this.validateAssert(input);
+    const txTime = this.now().toISOString();
+    const validFrom = input.validFrom ?? txTime;
     const event: AssertEvent = {
       eventId: randomUUID(),
       kind: "assert",
@@ -149,6 +158,7 @@ export class Ledger {
         actor: input.actor,
         source: input.source ?? { receiptId: null },
         provenance: input.provenance ?? "claimed",
+        ...(input.external && Object.keys(input.external).length > 0 ? { external: input.external } : {}),
         validFrom,
         validTo: null,
         confidence: input.confidence ?? null,

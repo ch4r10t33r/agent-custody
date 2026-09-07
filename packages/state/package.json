@@ -12,6 +12,9 @@
     "access": "public"
   },
   "type": "module",
+  "bin": {
+    "agent-custody-memory": "./dist/cli.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -30,7 +33,9 @@
     "node": ">=22"
   },
   "dependencies": {
-    "@agent-custody/receipts": "workspace:*"
+    "@agent-custody/receipts": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@types/node": "^26.4.1",

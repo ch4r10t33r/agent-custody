@@ -190,6 +190,10 @@ Any other MCP client works the same way: Python's `mcp` package, LangGraph's MCP
 
 The receipt id is the file name under `receiptsDir`.
 
+## What the upstream gets
+
+The call the gateway forwards carries three `_meta` keys the agent cannot set: `agent-custody/receipt`, the id of the receipt being issued for this call; `agent-custody/agent` and `agent-custody/principal`, from the signed delegation grant. An upstream that keeps state can cite the receipt as the source of what it stores and record the attested caller rather than a claimed one. The memory server in `@agent-custody/state` does exactly that. Fact lookups do not carry them; only the forwarded call does.
+
 ## Operational notes
 
 - **Money is integer minor units.** Cedar has no floating point. A float in `args` that a policy touches is an evaluation error, which is a deny.

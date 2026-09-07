@@ -18,6 +18,9 @@ import type { FactRecord, ReceiptPredicate } from "./receipt.ts";
 export const GATEWAY_VERSION = "0.1.0";
 export const RECEIPT_META_KEY = "agent-custody/receipt";
 export const MODEL_META_KEY = "agent-custody/model";
+/** Set by the gateway on the call it forwards upstream: the receipt id, and the agent and principal from the attested grant. */
+export const AGENT_META_KEY = "agent-custody/agent";
+export const PRINCIPAL_META_KEY = "agent-custody/principal";
 
 export interface CallParams {
   name: string;
@@ -77,8 +80,8 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
     new StdioClientTransport({ command: cfg.upstream.command, args: cfg.upstream.args, env: cfg.upstream.env, stderr: "inherit" }),
   );
 
-  const callUpstream = async (name: string, args: Record<string, unknown>): Promise<CallToolResult> =>
-    (await upstream.callTool({ name, arguments: args })) as CallToolResult;
+  const callUpstream = async (name: string, args: Record<string, unknown>, meta?: Record<string, string>): Promise<CallToolResult> =>
+    (await upstream.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) })) as CallToolResult;
 
   async function gatherFacts(tool: string, args: Record<string, unknown>): Promise<Record<string, FactRecord>> {
     const facts: Record<string, FactRecord> = {};
@@ -120,7 +123,9 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
 
     if (policy.decision === "allow") {
       try {
-        const result = await callUpstream(tool, args);
+        // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
+        // state, such as the memory server, cites the receipt as the source of what it stores.
+        const result = await callUpstream(tool, args, { [RECEIPT_META_KEY]: receiptId, [AGENT_META_KEY]: delegation.agent, [PRINCIPAL_META_KEY]: delegation.principal });
         execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed" };
       } catch (e) {
         execution = { status: "error", error: String(e instanceof Error ? e.message : e), provenance: "observed" };

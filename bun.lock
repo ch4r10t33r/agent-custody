@@ -39,8 +39,13 @@
     "packages/state": {
       "name": "@agent-custody/state",
       "version": "0.1.2",
+      "bin": {
+        "agent-custody-memory": "./dist/cli.js",
+      },
       "dependencies": {
         "@agent-custody/receipts": "workspace:*",
+        "@modelcontextprotocol/sdk": "^1.30.0",
+        "zod": "^4.5.4",
       },
       "devDependencies": {
         "@types/node": "^26.4.1",

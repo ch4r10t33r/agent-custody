@@ -1,0 +1,143 @@
+// The memory server exists so beliefs get the same custody as actions. Two settings: driven directly over an
+// in-memory transport, and behind the real receipts gateway, where the receipt id and the attested agent reach it in
+// _meta and a caller's own claims about them are ignored.
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { createDelegation, createGateway, generateKeyPair, loadConfig, loadPublicKey, RECEIPT_META_KEY, verifyBundle, writeKeyPair, type Gateway } from "@agent-custody/receipts";
+import { Ledger } from "../src/ledger.ts";
+import { createMemoryServer } from "../src/server.ts";
+
+const value = (r: CallToolResult) => JSON.parse((r.content[0] as { text: string }).text);
+
+describe("memory server, driven directly", () => {
+  let client: Client;
+  let dir: string;
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "memory-direct-"));
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await createMemoryServer(new Ledger(join(dir, "ledger.jsonl"))).connect(a);
+    client = new Client({ name: "test", version: "0" });
+    await client.connect(b);
+  });
+  afterAll(() => client.close());
+
+  it("lists the four tools", async () => {
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.retract", "memory.history"]);
+  });
+
+  it("write, read, supersede, retract, history; the source is null and the actor is whatever the caller claims", async () => {
+    const w = value((await client.callTool({ name: "memory.write", arguments: { subject: "acct:42", predicate: "plan", value: "pro", space: "org", actor: "agent:support" } })) as CallToolResult);
+    expect(w.fact.source).toEqual({ receiptId: null });
+    expect(w.fact.actor).toBe("agent:support");
+    const w2 = value((await client.callTool({ name: "memory.write", arguments: { subject: "acct:42", predicate: "plan", value: "enterprise", space: "org", supersedes: w.fact.factId } })) as CallToolResult);
+    expect(w2.fact.actor).toBe("anonymous");
+    expect(value((await client.callTool({ name: "memory.read", arguments: { subject: "acct:42" } })) as CallToolResult).facts.map((f: any) => f.value)).toEqual(["enterprise"]);
+    value((await client.callTool({ name: "memory.retract", arguments: { factId: w2.fact.factId, reason: "wrong" } })) as CallToolResult);
+    expect(value((await client.callTool({ name: "memory.read", arguments: { subject: "acct:42" } })) as CallToolResult).facts.map((f: any) => f.value)).toEqual(["pro"]);
+    expect(value((await client.callTool({ name: "memory.history", arguments: { factId: w2.fact.factId } })) as CallToolResult).events.map((e: any) => e.kind)).toEqual(["assert", "retract"]);
+  });
+
+  it("rejects bad arguments and unknown facts as tool errors, writing nothing", async () => {
+    const before = readFileSync(join(dir, "ledger.jsonl"), "utf8");
+    const bad = (await client.callTool({ name: "memory.write", arguments: { subject: "", predicate: "p", value: 1, space: "org" } })) as CallToolResult;
+    expect(bad.isError).toBe(true);
+    expect((bad.content[0] as any).text).toMatch(/invalid arguments: subject/);
+    const gone = (await client.callTool({ name: "memory.retract", arguments: { factId: "nope", reason: "x" } })) as CallToolResult;
+    expect(gone.isError).toBe(true);
+    expect(readFileSync(join(dir, "ledger.jsonl"), "utf8")).toBe(before);
+  });
+
+  it("with requireGateway, a call carrying no receipt id is refused", async () => {
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await createMemoryServer(new Ledger(join(dir, "strict.jsonl")), { requireGateway: true }).connect(a);
+    const strict = new Client({ name: "test", version: "0" });
+    await strict.connect(b);
+    const r = (await strict.callTool({ name: "memory.write", arguments: { subject: "s", predicate: "p", value: 1, space: "org" } })) as CallToolResult;
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as any).text).toMatch(/only through the receipts gateway/);
+    await strict.close();
+  });
+});
+
+describe("memory server behind the receipts gateway", () => {
+  let dir: string;
+  let gw: Gateway;
+  let ledgerFile: string;
+  let gatewayPub: string;
+  let principalPub: string;
+  const POLICY = `permit(principal, action == Action::"memory.read", resource);
+permit(principal, action == Action::"memory.history", resource);
+permit(principal, action == Action::"memory.write", resource) when { context.args.space == "team:support" };
+permit(principal, action == Action::"memory.retract", resource);
+`;
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "memory-gateway-"));
+    const gateway = writeKeyPair(generateKeyPair(), join(dir, "keys"), "gateway");
+    const principalKp = generateKeyPair();
+    const principal = writeKeyPair(principalKp, join(dir, "keys"), "principal");
+    gatewayPub = gateway.pubFile;
+    principalPub = principal.pubFile;
+    const now = Date.now();
+    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "memory.retract", "memory.history"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
+    writeFileSync(join(dir, "policy.cedar"), POLICY);
+    ledgerFile = join(dir, "ledger.jsonl");
+    writeFileSync(join(dir, "gateway.json"), JSON.stringify({
+      identity: { keyFile: "keys/gateway.key" },
+      upstream: { command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile] },
+      grantFile: "grant.json",
+      trustedPrincipalKeys: ["keys/principal.pub"],
+      policyFile: "policy.cedar",
+      receiptsDir: "receipts",
+      logFile: "log.jsonl",
+    }));
+    gw = await createGateway(loadConfig(join(dir, "gateway.json")));
+  });
+  afterAll(() => gw.close());
+
+  const receiptOf = (r: CallToolResult) => JSON.parse(readFileSync(join(dir, "receipts", `${String(r._meta?.[RECEIPT_META_KEY])}.json`), "utf8"));
+
+  it("a write's source is the gateway's receipt id and its actor is the grant's agent, whatever the caller claimed", async () => {
+    const r = await gw.handleCall({ name: "memory.write", arguments: { subject: "acct:42", predicate: "plan", value: "pro", space: "team:support", actor: "someone-else" } });
+    expect(r.isError).toBeFalsy();
+    const fact = value(r).fact;
+    expect(fact.source.receiptId).toBe(String(r._meta?.[RECEIPT_META_KEY]));
+    expect(fact.actor).toBe("support-agent");
+    const v = verifyBundle(receiptOf(r), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)], logFile: join(dir, "log.jsonl") });
+    expect(v.ok).toBe(true);
+    expect(v.statement?.predicate.tool).toEqual({ name: "memory.write", provenance: "observed" });
+    expect(new Ledger(ledgerFile).asOf()[0]?.source.receiptId).toBe(fact.source.receiptId);
+  });
+
+  it("a write the policy forbids never reaches the ledger and still gets a denial receipt", async () => {
+    const before = new Ledger(ledgerFile).size;
+    const r = await gw.handleCall({ name: "memory.write", arguments: { subject: "policy:refunds", predicate: "limit", value: 10 ** 9, space: "org" } });
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as any).text).toMatch(/Denied by policy/);
+    expect(new Ledger(ledgerFile).size).toBe(before);
+    expect(verifyBundle(receiptOf(r), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)] }).statement?.predicate.execution.status).toBe("denied");
+  });
+
+  it("reads are receipted too, and the receipt's observed result carries the fact ids the agent saw", async () => {
+    const r = await gw.handleCall({ name: "memory.read", arguments: { subject: "acct:42" } });
+    const facts = value(r).facts;
+    expect(facts).toHaveLength(1);
+    const st = verifyBundle(receiptOf(r), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)] }).statement!;
+    const seen = JSON.parse((st.predicate.execution as any).result.content[0].text).facts.map((f: any) => f.factId);
+    expect(seen).toEqual([facts[0].factId]);
+    expect(st.predicate.execution.provenance).toBe("observed");
+  });
+
+  it("a retraction through the gateway cites its own receipt", async () => {
+    const factId = new Ledger(ledgerFile).asOf()[0]!.factId;
+    const r = await gw.handleCall({ name: "memory.retract", arguments: { factId, reason: "stale CRM value" } });
+    expect(r.isError).toBeFalsy();
+    expect(value(r).source.receiptId).toBe(String(r._meta?.[RECEIPT_META_KEY]));
+    expect(value(r).actor).toBe("support-agent");
+    expect(new Ledger(ledgerFile).asOf()).toEqual([]);
+  });
+});

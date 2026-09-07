@@ -37,15 +37,24 @@ export default withMermaid(
       "packages/python/README.md": "python/index.md",
     },
     cleanUrls: true,
+    head: [
+      ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+      ["link", { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32.png" }],
+      ["link", { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" }],
+      ["meta", { name: "theme-color", content: "#b45309" }],
+      ["meta", { property: "og:title", content: "agent-custody" }],
+      ["meta", { property: "og:description", content: "Chain of custody for AI agents: what an agent did and what it believes, signed, independently verifiable, and revertible." }],
+    ],
     // The conformance vectors are published as files next to the spec, straight from the receipts package.
     buildEnd(siteConfig) {
       const src = resolve(__dirname, "..", "..", "packages", "receipts", "vectors");
       cpSync(src, resolve(siteConfig.outDir, "vectors"), { recursive: true });
     },
-    // Pages live at the repository root, but the site's dependencies live under site/ (Bun installs are isolated).
-    vite: { resolve: { alias: [{ find: /^vue$/, replacement: resolve(__dirname, "..", "node_modules", "vue") }, { find: /^vue\/(.*)$/, replacement: resolve(__dirname, "..", "node_modules", "vue") + "/$1" }] } },
+    // Pages live at the repository root, so the public dir must be named explicitly; and the site's dependencies live under site/ (Bun installs are isolated).
+    vite: { publicDir: resolve(__dirname, "..", "public"), resolve: { alias: [{ find: /^vue$/, replacement: resolve(__dirname, "..", "node_modules", "vue") }, { find: /^vue\/(.*)$/, replacement: resolve(__dirname, "..", "node_modules", "vue") + "/$1" }] } },
     lastUpdated: false,
     themeConfig: {
+      logo: "/logo.svg",
       nav: [
         { text: "Guide", link: "/guide/getting-started" },
         { text: "Receipts", link: "/receipts/" },

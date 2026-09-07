@@ -5,14 +5,17 @@
   "license": "Apache-2.0",
   "private": true,
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "site"
   ],
   "scripts": {
     "build": "bun run --filter '*' build",
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
     "demo": "bun run --cwd packages/receipts demo",
-    "test:python": "cd packages/python && uv run --extra test pytest -q"
+    "test:python": "cd packages/python && uv run --extra test pytest -q",
+    "site:dev": "bun run --cwd site dev",
+    "site:build": "bun run --cwd site build"
   },
   "engines": {
     "node": ">=22"

@@ -1,0 +1,101 @@
+import { defineConfig } from "vitepress";
+import { withMermaid } from "vitepress-plugin-mermaid";
+import { existsSync } from "node:fs";
+import { dirname, posix, relative, resolve } from "node:path";
+
+// The site is generated from the repository's own markdown. Nothing here is a second copy of the docs.
+const REPO = "https://github.com/ch4r10t33r/agent-custody/blob/main/";
+
+/** Repository-relative markdown path to site path, mirroring `rewrites` below; null when the file is not a page. */
+function sitePath(repoPath: string): string | null {
+  const m = (re: RegExp) => repoPath.match(re);
+  let x: RegExpMatchArray | null;
+  if (repoPath === "README.md") return "/repo";
+  if (repoPath === "packages/receipts/README.md") return "/receipts/";
+  if ((x = m(/^packages\/receipts\/docs\/([^/]+)\.md$/))) return `/receipts/${x[1]}`;
+  if (repoPath === "packages/state/README.md") return "/state/";
+  if (repoPath === "packages/python/README.md") return "/python/";
+  if ((x = m(/^site\/(.+)\.md$/))) return `/${x[1] === "index" ? "" : x[1]}`;
+  return null;
+}
+
+export default withMermaid(
+  defineConfig({
+    title: "agent-custody",
+    description: "Chain of custody for AI agents: what an agent did and what it believes, signed, independently verifiable, and revertible.",
+    srcDir: "..",
+    srcExclude: ["**/node_modules/**", "**/dist/**", "**/examples-out/**", "**/demo-out/**", "**/.venv/**", "**/target/**", "CLAUDE.md", "packages/receipts/examples/**", "packages/state/examples/**", "packages/python/tests/**", "site/README.md"],
+    rewrites: {
+      "site/index.md": "index.md",
+      "site/guide/:page": "guide/:page",
+      "site/receipt/:page": "receipt/:page",
+      "README.md": "repo.md",
+      "packages/receipts/README.md": "receipts/index.md",
+      "packages/receipts/docs/:page": "receipts/:page",
+      "packages/state/README.md": "state/index.md",
+      "packages/python/README.md": "python/index.md",
+    },
+    cleanUrls: true,
+    // Pages live at the repository root, but the site's dependencies live under site/ (Bun installs are isolated).
+    vite: { resolve: { alias: [{ find: /^vue$/, replacement: resolve(__dirname, "..", "node_modules", "vue") }, { find: /^vue\/(.*)$/, replacement: resolve(__dirname, "..", "node_modules", "vue") + "/$1" }] } },
+    lastUpdated: false,
+    themeConfig: {
+      nav: [
+        { text: "Guide", link: "/guide/getting-started" },
+        { text: "Receipts", link: "/receipts/" },
+        { text: "State", link: "/state/" },
+        { text: "Python", link: "/python/" },
+        { text: "Spec", link: "/receipt/v0.2" },
+      ],
+      sidebar: [
+        { text: "Start here", items: [
+          { text: "What each piece is for", link: "/guide/pieces" },
+          { text: "Getting started", link: "/guide/getting-started" },
+        ] },
+        { text: "Receipts", items: [
+          { text: "Overview", link: "/receipts/" },
+          { text: "Tutorials", link: "/receipts/tutorials" },
+          { text: "The gateway", link: "/receipts/usage" },
+          { text: "The interceptor SDK and other languages", link: "/receipts/sdk" },
+          { text: "Writing policies", link: "/receipts/policies" },
+          { text: "Verifying a receipt", link: "/receipts/verification" },
+        ] },
+        { text: "State", items: [{ text: "The fact ledger", link: "/state/" }] },
+        { text: "Python", items: [{ text: "The Python client", link: "/python/" }] },
+        { text: "Specification", items: [{ text: "Receipt v0.2", link: "/receipt/v0.2" }] },
+      ],
+      socialLinks: [{ icon: "github", link: "https://github.com/ch4r10t33r/agent-custody" }, { icon: "npm", link: "https://www.npmjs.com/org/agent-custody" }],
+      footer: { message: "Apache-2.0", copyright: "agent-custody" },
+      search: { provider: "local" },
+    },
+    markdown: {
+      config(md) {
+        // Links are written for the repository. Here they become site links where the target is a page of the site,
+        // and repository links otherwise. Relative markdown links must be mapped through the rewrites by hand,
+        // because VitePress resolves them against the source path, not the rewritten one.
+        const root = resolve(__dirname, "..", "..");
+        const open = md.renderer.rules.link_open ?? ((tokens, idx, options, _env, self) => self.renderToken(tokens, idx, options));
+        md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+          const href = tokens[idx]!.attrGet("href");
+          const file: string | undefined = env?.realPath ?? env?.path; // realPath is the source file when the page was rewritten
+          if (href && file && !/^(https?:|mailto:|#|\/)/.test(href)) {
+            const [path, hash = ""] = href.split("#");
+            // Included fragments keep their source file's links, which are relative to the including file's original
+            // location; when the link resolves to nothing next to the including file, try it from the repository root.
+            const beside = resolve(dirname(file), path!);
+            const abs = existsSync(beside) ? beside : existsSync(resolve(root, path!)) ? resolve(root, path!) : beside;
+            const target = posix.normalize(relative(root, abs).split("\\").join("/"));
+            const page = sitePath(target);
+            if (page) {
+              tokens[idx]!.attrSet("href", page + (hash ? `#${hash}` : ""));
+            } else {
+              tokens[idx]!.attrSet("href", REPO + target + (hash ? `#${hash}` : ""));
+              tokens[idx]!.attrSet("target", "_blank");
+            }
+          }
+          return open(tokens, idx, options, env, self);
+        };
+      },
+    },
+  }),
+);

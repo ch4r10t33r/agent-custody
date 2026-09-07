@@ -16,6 +16,7 @@ Receipts are the unit. State is the ledger of what the agent came to believe fro
 
 ## What each piece is for, and when you need it
 
+<!-- #region pieces -->
 Each part exists because a specific thing goes wrong without it. Use the table to decide what to turn on.
 
 | piece | the failure it prevents | you need it when |
@@ -29,8 +30,11 @@ Each part exists because a specific thing goes wrong without it. Use the table t
 | **State ledger** (`@agent-custody/state`) | Agents act on beliefs. A wrong belief spreads to other agents, cannot be traced to its source, and is overwritten rather than corrected, so "what did it believe on Tuesday" has no answer. | The agent remembers across sessions, shares memory with other agents, or takes actions whose justification you may later have to explain or undo. Every belief cites the receipt that produced it. |
 
 The rule of thumb: record everything with the SDK, enforce the consequential calls with the gateway, log remotely once a receipt has an audience outside the team, and put beliefs in the ledger the moment memory outlives a session.
+<!-- #endregion pieces -->
 
 ## Getting started
+
+<!-- #region getting-started -->
 
 Node 22 or later. Both packages ship compiled JavaScript with type declarations.
 
@@ -93,6 +97,7 @@ ledger.history(belief.fact.factId);                                             
 ```
 
 This whole loop is one runnable file, [packages/state/examples/02-receipt-to-belief.ts](packages/state/examples/02-receipt-to-belief.ts), executed by the test suite.
+<!-- #endregion getting-started -->
 
 **Where to go next**
 
@@ -124,6 +129,7 @@ tsconfig.base.json    compiler options shared by every package
 packages/receipts/    the receipts package: src, test, examples, scripts, docs
 packages/python/      the Python client package: agent_custody, tests run with uv against a real sidecar
 packages/state/       the state package: src, test, examples
+site/                 the website, generated from this repository's markdown by VitePress
 ```
 
 ## Plan

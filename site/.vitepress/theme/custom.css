@@ -1,0 +1,7 @@
+:root {
+  --vp-c-brand-1: #b45309;
+  --vp-c-brand-2: #d97706;
+  --vp-c-brand-3: #f59e0b;
+  --vp-home-hero-name-color: var(--vp-c-brand-1);
+}
+.vp-doc table { display: table; width: 100%; }

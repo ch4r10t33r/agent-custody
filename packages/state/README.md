@@ -150,7 +150,11 @@ A scenario file is `{ "version": "0.1", "scenarios": [{ "name", "ops": [...] }] 
 
 ## The ledger
 
-`src/ledger.ts` is an append-only JSONL log of two kinds of event.
+`src/ledger.ts` keeps an append-only log of events, in memory for its queries and in one of two stores for durability. **JSONL** is the default: one event per line, readable by anyone, the file you copy for an audit. **SQLite** is for durability and shared use, chosen by giving the ledger a path ending in `.sqlite` or `.db`: transactional writes with write-ahead logging, an in-place forget that overwrites the erased value (secure delete, then a truncating checkpoint so nothing lingers in the write-ahead log), indexes by fact and by time, and a file more than one process can open. Node ships the SQLite module, so there is no native dependency; on Node 22 it prints an experimental warning once. `agent-custody-memory export --ledger ledger.sqlite --out ledger.jsonl` writes the auditable JSONL from any store, so the copy-the-file audit path survives the choice. The whole ledger test suite runs against both stores.
+
+Choose JSONL for one server process and for anything an auditor should be able to read with `cat`. Choose SQLite when the ledger is shared over HTTP by several gateways, when a crash between two writes must not cost you an event, or when a deletion demand must leave no trace of the value in the file. Query pushdown to SQLite's indexes is not done yet: both stores load every event into memory, which is fine to tens of thousands of facts. [Issue #8](https://github.com/ch4r10t33r/agent-custody/issues/8) tracks indexed queries for larger ledgers.
+
+The log holds these kinds of event.
 
 - **assert** creates a fact: subject, predicate, value, the space it lives in (a person, a team, an org), the actor that wrote it, the source receipt id if the write went through a receipts producer, and the valid-time interval. An assert may **supersede** an earlier fact, which ends that fact's validity where the new one begins.
 - **retract** says a fact should never have been believed. This is the undo. The record stays, so queries about earlier moments still see the fact, and anything the retracted fact had superseded is believed again.
@@ -169,10 +173,11 @@ The ledger refuses to supersede a fact that is unknown, already superseded, or r
 ## Layout
 
 ```
-src/ledger.ts   the fact record, the two event kinds, as-of queries, supersession, retraction, JSONL persistence
+src/ledger.ts   the fact record, the event kinds, as-of queries, supersession, retraction, forget, holds, sweeps
+src/storage.ts  the event stores: JSONL (default, auditable) and SQLite (durable, shared), chosen by file extension
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
-src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, blast
+src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, export, blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
 src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
@@ -188,7 +193,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Done**
 
-- Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
+- Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL or SQLite behind one store interface, with export back to JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
 - Forget digests are keyed under a server-held secret, or absent on request, so an erased value cannot be guessed back from the file.
 - Retention windows per space in the server, sweeps that default to them, and a `sweep --via` trigger that runs retention through a gateway as a named principal, on any timer.
@@ -206,7 +211,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. A storage interface for the ledger with SQLite as the first alternative to JSONL, for durability, concurrent readers, and indexed queries at scale; JSONL stays the default and the auditable export. [Issue #1](https://github.com/ch4r10t33r/agent-custody/issues/1).
+1. Indexed queries on the SQLite store, so a shared ledger with millions of events answers reads without loading them all. [Issue #8](https://github.com/ch4r10t33r/agent-custody/issues/8).
 2. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
 3. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 

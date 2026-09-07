@@ -36,7 +36,7 @@ function parseRetention(spec: string): Record<string, string> {
 
 const USAGE = `agent-custody-memory <command>
 
-  serve --ledger <ledger.jsonl> [--allow-direct] [--key <memory.key>] [--forget-key-env NAME] [--retention 'org=P365D,team:*=P90D']
+  serve --ledger <ledger.jsonl|ledger.sqlite> [--allow-direct] [--key <memory.key>] [--forget-key-env NAME] [--retention 'org=P365D,team:*=P90D']
                                                    --forget-key-env names a secret kept outside the ledger; forgotten values then leave an HMAC, not a guessable hash.
                                                    the memory server over stdio; run it as the receipts gateway's upstream.
                                                    --key signs every result for its receipt, so executions verify as attested by this server.
@@ -52,6 +52,7 @@ const USAGE = `agent-custody-memory <command>
                                                    runs the memory-mutation scenarios on a fresh ledger; --baseline also scores a naive
                                                    overwrite store; --sign writes a signed report. Exits 1 if the ledger regresses.
   eval --verify <report.json> --key <pub>          checks a signed report and prints its scores
+  export --ledger <ledger.sqlite> --out <ledger.jsonl>  the auditable JSONL of any ledger, one event per line
   blast --ledger <ledger.jsonl> --receipts <dir> --fact <factId> [--json]
                                                    everything that relied on a fact: later calls, derived beliefs, and whether it was retracted
 `;
@@ -136,6 +137,15 @@ async function main(argv: string[]): Promise<number> {
         console.error(`signed report written to ${values.out}`);
       }
       return regressed ? 1 : 0;
+    }
+    case "export": {
+      const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, out: { type: "string" } } });
+      if (!values.ledger || !values.out) throw new Error("export needs --ledger and --out");
+      const l = new Ledger(values.ledger);
+      writeFileSync(values.out, l.export().map((e) => JSON.stringify(e)).join("\n") + "\n");
+      console.log(`exported ${l.size} event(s) from ${l.location} to ${values.out}`);
+      l.close();
+      return 0;
     }
     case "blast": {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, receipts: { type: "string" }, fact: { type: "string" }, json: { type: "boolean", default: false } } });

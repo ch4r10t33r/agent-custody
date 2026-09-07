@@ -79,7 +79,7 @@ describe("write-through stores", () => {
     expect(graph.body.type).toBe("json");
     expect(JSON.parse(graph.body.data)).toMatchObject({ subject: "acct:42", predicate: "plan", value: "pro", space: "team:support" });
     expect(graph.body.source_description).toBe("agent-custody");
-    expect(new Ledger(ledger["file" as keyof Ledger] as unknown as string).asOf()[0]?.external).toEqual({ mem0: "mem_1", zep: "ep_1" });
+    expect(new Ledger(ledger.location).asOf()[0]?.external).toEqual({ mem0: "mem_1", zep: "ep_1" });
   });
 
   it("a retraction reaches both stores by the recorded ids", async () => {
@@ -124,7 +124,7 @@ describe("write-through stores", () => {
     expect(r).toMatchObject({ factId: w.fact.factId, erasedFromLedger: true, stillHeld: [] });
     expect(r.removedFrom.sort()).toEqual(["mem0", "zep"]);
     expect(r.valueDigest).toMatch(/^[0-9a-f]{64}$/);
-    expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).not.toContain("dana@example.com");
+    expect(readFileSync(ledger.location, "utf8")).not.toContain("dana@example.com");
     expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === `/v1/memories/${w.fact.external.mem0}/`)).toBe(true);
     expect(zep.seen.some((s) => s.method === "DELETE" && s.path === `/graph/episodes/${w.fact.external.zep}`)).toBe(true);
   });
@@ -140,8 +140,8 @@ describe("write-through stores", () => {
     expect(r.stillHeld).toEqual([]);
     expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === `/v1/memories/${a.fact.external.mem0}/`)).toBe(true);
     expect(zep.seen.some((s) => s.method === "DELETE" && s.path === `/graph/episodes/${a.fact.external.zep}`)).toBe(true);
-    expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).not.toContain("old1@x");
-    expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).toContain("old2@x");
+    expect(readFileSync(ledger.location, "utf8")).not.toContain("old1@x");
+    expect(readFileSync(ledger.location, "utf8")).toContain("old2@x");
   });
 
   it("the forget result names the digest kind, and keepDigest false leaves none", async () => {

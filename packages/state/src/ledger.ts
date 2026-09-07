@@ -3,8 +3,7 @@
 // Nothing is ever edited in place. Correcting a belief is a new event, so "what did the agent believe at T" is always answerable.
 import { randomUUID } from "node:crypto";
 import { createHash, createHmac } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { openStore, type EventStore } from "./storage.ts";
 
 /** Where a write came from. A receipt id means the write went through a receipts producer and can be verified there. */
 export interface Source {
@@ -176,23 +175,34 @@ export interface AsOf {
 }
 
 export class Ledger {
-  private readonly events: LedgerEvent[] = [];
-  private readonly file: string;
+  private readonly events: LedgerEvent[];
+  private readonly store: EventStore;
   private readonly now: () => Date;
   private readonly forgetKey: Buffer | null;
 
-  /** forgetKey: a secret kept outside the file; with it, forgotten values leave an HMAC rather than a plain hash. */
-  constructor(file: string, opts: { now?: () => Date; forgetKey?: string | Buffer } = {}) {
-    this.file = file;
+  /**
+   * `location` is a path: JSONL by default, SQLite when it ends in .sqlite or .db; or pass a store.
+   * forgetKey: a secret kept outside the store; with it, forgotten values leave an HMAC rather than a plain hash.
+   */
+  constructor(location: string | EventStore, opts: { now?: () => Date; forgetKey?: string | Buffer } = {}) {
+    this.store = typeof location === "string" ? openStore(location) : location;
     this.now = opts.now ?? (() => new Date());
     this.forgetKey = opts.forgetKey ? Buffer.from(opts.forgetKey) : null;
-    if (existsSync(file)) {
-      for (const line of readFileSync(file, "utf8").split("\n")) {
-        if (line.trim()) this.events.push(JSON.parse(line));
-      }
-    } else {
-      mkdirSync(dirname(file), { recursive: true });
-    }
+    this.events = this.store.load();
+  }
+
+  /** Where the events live, for reports. */
+  get location(): string {
+    return this.store.location;
+  }
+
+  /** Every event in order, for export. */
+  export(): LedgerEvent[] {
+    return [...this.events];
+  }
+
+  close(): void {
+    this.store.close();
   }
 
   get size(): number {
@@ -322,13 +332,11 @@ export class Ledger {
       if (e.kind === "assert" && e.fact.factId === input.factId) {
         e.fact.value = null;
         e.fact.forgotten = { valueDigest, digestKind, at: txTime };
+        this.store.replaceAssert(e);
       }
     }
     const event: ForgetEvent = { eventId: randomUUID(), kind: "forget", txTime, factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null }, valueDigest, digestKind };
-    this.events.push(event);
-    const tmp = `${this.file}.tmp`;
-    writeFileSync(tmp, this.events.map((e) => JSON.stringify(e)).join("\n") + "\n");
-    renameSync(tmp, this.file);
+    this.append(event);
     return event;
   }
 
@@ -393,7 +401,7 @@ export class Ledger {
   }
 
   private append(event: LedgerEvent): void {
-    appendFileSync(this.file, JSON.stringify(event) + "\n");
+    this.store.append(event);
     this.events.push(event);
   }
 }

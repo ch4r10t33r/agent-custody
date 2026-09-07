@@ -12,9 +12,10 @@ function clock(start = "2026-09-01T00:00:00.000Z") {
   return { now: () => t, set: (iso: string) => (t = new Date(iso)) };
 }
 
-const file = () => join(mkdtempSync(join(tmpdir(), "state-ledger-")), "ledger.jsonl");
+const backends = [["jsonl", "ledger.jsonl"], ["sqlite", "ledger.sqlite"]] as const;
 
-describe("fact ledger", () => {
+describe.each(backends)("fact ledger on %s", (_name, filename) => {
+  const file = () => join(mkdtempSync(join(tmpdir(), "state-ledger-")), filename);
   it("answers what is believed now, filtered by space, subject and predicate", () => {
     const l = new Ledger(file(), clock());
     l.assert({ subject: "acct:42", predicate: "plan", value: "pro", space: "org", actor: "agent:support" });
@@ -94,9 +95,11 @@ describe("fact ledger", () => {
     const a = l.assert({ subject: "s", predicate: "p", value: 1, space: "org", actor: "x", source: { receiptId: "r-9" } });
     c.set("2026-09-02T00:00:00.000Z");
     l.assert({ subject: "s", predicate: "p", value: 2, space: "org", actor: "y", supersedes: a.fact.factId });
-    const lines = readFileSync(f, "utf8").trim().split("\n");
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0]!).fact.source).toEqual({ receiptId: "r-9" });
+    if (filename.endsWith(".jsonl")) {
+      const lines = readFileSync(f, "utf8").trim().split("\n");
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]!).fact.source).toEqual({ receiptId: "r-9" });
+    }
     const reopened = new Ledger(f, c);
     expect(reopened.size).toBe(2);
     expect(reopened.asOf()).toEqual(l.asOf());
@@ -122,7 +125,7 @@ describe("fact ledger", () => {
     expect(() => l.confirm({ factId: "nope", actor: "x" })).toThrow(/unknown fact/);
     l.retract({ factId: claimed.fact.factId, actor: "x", reason: "wrong" });
     expect(() => l.confirm({ factId: claimed.fact.factId, actor: "x" })).toThrow(/is retracted/);
-    const reopened = new Ledger(l["file" as keyof Ledger] as unknown as string, c);
+    const reopened = new Ledger(l.location, c);
     expect(reopened.size).toBe(4);
   });
 
@@ -136,7 +139,7 @@ describe("fact ledger", () => {
     const ev = l.forget({ factId: secret.fact.factId, actor: "user:dpo", reason: "deletion request 4471", source: { receiptId: "r-9" } });
     expect(ev.kind).toBe("forget");
     expect(ev.valueDigest).toMatch(/^[0-9a-f]{64}$/);
-    const raw = readFileSync(f, "utf8");
+    const raw = readFileSync(f, "latin1");
     expect(raw).not.toContain("123-45-6789");
     expect(raw).toContain(ev.valueDigest);
     expect(l.asOf({ subject: "person:1" }).map((x) => x.predicate)).toEqual(["plan"]);

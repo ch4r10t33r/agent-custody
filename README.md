@@ -10,7 +10,7 @@ The agent is not trusted. The layer around it is, and every record says exactly 
 | --- | --- | --- |
 | [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, fourteen runnable tutorials |
 | [`agent-custody` on PyPI](packages/python/README.md) | The Python client of the sidecar: `decide`, `record`, `wrap`, and adapters for LangChain, the OpenAI Agents SDK, and the Claude Agent SDK, tested against the real packages | working; Go, Java, and Rust clients live in [examples/languages](packages/receipts/examples/languages) |
-| [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | ledger, memory server behind the gateway, quarantine, blast radius, write-through to Mem0 and Zep, eval harness |
+| [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | ledger on JSONL or SQLite, memory server behind the gateway or shared over HTTP, quarantine and verified provenance, blast radius, certified forget, retention and legal holds, write-through to Mem0 and Zep, eval CLI with signed reports |
 
 Receipts are the unit. State is the ledger of what the agent came to believe from them. Both append to the same kind of signed log and are checked by the same kind of verifier.
 
@@ -143,4 +143,4 @@ site/                 the website, generated from this repository's markdown by 
 
 ## Plan
 
-The receipts package's roadmap is in [its README](packages/receipts/README.md#plan). The state package has the ledger, the memory server behind the gateway, quarantine, consumed facts and blast radius, write-through to Mem0 and Zep, and the eval harness; next, in order: Cedar policy over provenance so a claimed write cannot displace an attested fact, then signed forget statements that reach every store, then a shared memory server over HTTP.
+The receipts package's roadmap is in [its README](packages/receipts/README.md#plan). The state package has the ledger on JSONL or SQLite, the memory server behind the gateway and shared over HTTP, quarantine with three provenance levels and value-level evidence, policy over the fact being changed, consumed facts and blast radius, certified forget with keyed digests, retention sweeps and legal holds, write-through to Mem0 and Zep, and the eval CLI with signed reports; its remaining items are indexed queries at scale, more store adapters, and the hosted plane, each tracked as an issue in [its README](packages/state/README.md#plan).

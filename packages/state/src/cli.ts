@@ -64,6 +64,7 @@ async function main(argv: string[]): Promise<number> {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, "allow-direct": { type: "boolean", default: false }, http: { type: "boolean", default: false }, port: { type: "string", default: "8790" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, key: { type: "string" }, "forget-key-env": { type: "string" }, retention: { type: "string" } } });
       if (!values.ledger) throw new Error("serve needs --ledger");
       const ledger = new Ledger(values.ledger, forgetKeyFrom(values["forget-key-env"]));
+      if (!values["forget-key-env"]) console.error("agent-custody-memory: no --forget-key-env; forgotten values leave a plain sha256, which is guessable for short values. Set a forget key, or forget with keepDigest false.");
       const identity = values.key ? loadPrivateKey(values.key) : undefined;
       const retention = values.retention ? parseRetention(values.retention) : undefined;
       const common = { requireGateway: !values["allow-direct"], ...(identity ? { identity } : {}), ...(retention ? { retention } : {}) };

@@ -161,9 +161,23 @@ describe("postgres", () => {
     expect((await findInFiles(dataDir, "SSN-111-22-3333")).some((p) => p.includes("base"))).toBe(true);
   });
 
-  it("refuses a table name that is not a plain identifier, and a postgres:// URL without the pg package says what to install", () => {
+  it("refuses a table name that is not a plain identifier", () => {
     expect(() => new PostgresStore(new PGlite(), { table: "events; DROP TABLE events" })).toThrow(/plain identifier/);
-    expect(() => openStore("postgres://user@db.example.com/custody")).toThrow(/npm install pg/);
+  });
+
+  it("a postgres:// URL opens a store whose location names the host and table but never the password, or says to install pg", async () => {
+    // Bun installs the optional pg peer here; a consumer without it gets the message instead of a resolution error.
+    let store: ReturnType<typeof openStore>;
+    try {
+      store = openStore("postgres://user:hunter2@db.example.com:5432/custody?table=custody.events&vacuum=false&sslmode=require");
+    } catch (e) {
+      expect(String(e)).toMatch(/npm install pg/);
+      return;
+    }
+    expect(store.kind).toBe("postgres");
+    expect(store.location).toBe("postgres://user@db.example.com:5432/custody table custody.events");
+    expect(store.location).not.toContain("hunter2");
+    await store.close(); // the pool was never connected; ending it must not try to
   });
 });
 

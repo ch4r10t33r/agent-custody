@@ -16,7 +16,7 @@
     "test:python": "bun run build && cd packages/python && uv run --extra test pytest -q",
     "site:dev": "bun run --cwd site dev",
     "site:build": "bun run --cwd site build",
-    "ci": "bun run typecheck && bun run test && bun run site:build && bun run test:python"
+    "ci": "bun install --frozen-lockfile && bun run typecheck && bun run test && bun run site:build && bun run test:python"
   },
   "engines": {
     "node": ">=22"

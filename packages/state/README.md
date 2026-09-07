@@ -192,5 +192,5 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. The memory tools from Python, through the sidecar, so SDK-only Python agents can write claimed facts to a shared ledger.
+1. A retention schedule: run sweeps on a timer from the CLI or a hosted plane, with the receipts of each sweep kept as the record.
 

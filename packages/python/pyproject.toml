@@ -4,13 +4,14 @@ version = "0.1.5"
 description = "Signed, verifiable receipts for AI agent tool calls, from Python, through the agent-custody sidecar"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
 langchain = ["langchain-core>=0.3"]
 openai-agents = ["openai-agents>=0.1"]
-test = ["pytest>=8", "langchain-core>=0.3", "openai-agents>=0.1"]
+memory = ["mcp>=1.0"]
+test = ["pytest>=8", "langchain-core>=0.3", "openai-agents>=0.1", "mcp>=1.0"]
 
 [build-system]
 requires = ["hatchling"]

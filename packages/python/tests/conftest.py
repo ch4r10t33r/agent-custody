@@ -46,3 +46,21 @@ def verify(sidecar, receipt_id: str) -> dict:
     """The TypeScript verifier is the reference; a receipt from Python must pass it."""
     out = subprocess.run([sidecar["node"], str(RECEIPTS / "src/cli.ts"), "verify", str(sidecar["receipts"] / f"{receipt_id}.json"), "--issuer-key", str(sidecar["app_pub"]), "--log", str(sidecar["log"]), "--json"], capture_output=True, text=True)
     return json.loads(out.stdout)
+
+
+STATE = Path(__file__).resolve().parents[2] / "state"
+
+
+@pytest.fixture(scope="session")
+def memory_server():
+    """The shared memory server over HTTP, accepting direct writers, as an SDK-only Python agent would reach it."""
+    node = shutil.which("node")
+    d = Path(tempfile.mkdtemp(prefix="agent-custody-memory-"))
+    env = dict(os.environ, MEMORY_TOKEN="py-secret")
+    p = subprocess.Popen([node, str(STATE / "src/cli.ts"), "serve", "--ledger", str(d / "ledger.jsonl"), "--http", "--port", "0", "--allow-direct", "--token-env", "MEMORY_TOKEN"], stderr=subprocess.PIPE, text=True, env=env)
+    line = p.stderr.readline()
+    m = re.search(r"(http://[^ ]+)", line)
+    assert m, f"memory server did not start: {line}"
+    yield {"url": m.group(1), "token": "py-secret", "ledger": d / "ledger.jsonl"}
+    p.terminate()
+    p.wait(timeout=10)

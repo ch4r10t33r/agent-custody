@@ -13,7 +13,7 @@
     "typecheck": "bun run --filter '*' typecheck",
     "test": "bun run --filter '*' test",
     "demo": "bun run --cwd packages/receipts demo",
-    "test:python": "cd packages/python && uv run --extra test pytest -q",
+    "test:python": "bun run build && cd packages/python && uv run --extra test pytest -q",
     "site:dev": "bun run --cwd site dev",
     "site:build": "bun run --cwd site build"
   },

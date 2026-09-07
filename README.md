@@ -123,6 +123,7 @@ bun install                         # one install for the whole workspace
 bun run test                        # every package
 bun run build                       # dist/ for every package, what consumers install
 bun run test:python                 # the Python package, with uv; needs node for the sidecar
+bun run ci                          # everything the GitHub workflow runs; the pre-push hook runs it before any push to main
 bun run demo                        # the receipts demo: keys, grant, policy, tool calls, verification, a tampering attempt
 ```
 

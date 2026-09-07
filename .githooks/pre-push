@@ -1,0 +1,12 @@
+#!/bin/sh
+# Refuses a push to main unless the same checks CI runs pass here first: typecheck, every test suite, the site
+# build, and the Python suite. Skip only with --no-verify, and then say so in the commit or the conversation.
+set -e
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/heads/main)
+      echo "pre-push: running the CI checks locally before pushing to main"
+      bun run ci
+      ;;
+  esac
+done

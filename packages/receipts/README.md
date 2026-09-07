@@ -237,7 +237,7 @@ src/verify.ts      offline verification, the human-readable report, and the audi
 src/cli.ts         keygen, grant, gateway, hook, serve, log, verify, audit
 src/index.ts       the package's public surface; adapters are exported on ./sdk/<framework> subpaths
 tsconfig.build.json  emits dist/ (JavaScript plus declarations) for consumers; the repo itself runs the .ts directly
-scripts/           fake Stripe upstream, fixture builders for gateway and SDK, demo
+scripts/           fake Stripe upstream (signs its results with --key), a second fake upstream, fixture builders for gateway and SDK, demo
 examples/          fifteen runnable tutorials, plus examples/languages/: Python, Go, Java, and Rust clients of the sidecar, run by the test suite, one per aspect; each is run by the test suite
 test/              unit tests per module, end-to-end gateway test, SDK and hook tests,
                    adapter tests against the real packages, and a test that runs every policy in docs/policies.md
@@ -255,6 +255,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - SDK core: policy decision, record, and a generic `wrap(tool, fn)` for any framework whose tools are functions.
 - Claude Code command hook for PreToolUse, PostToolUse, and PostToolUseFailure, with blocking on deny.
 - Claude Agent SDK in-process hooks over the same handler.
+- Several upstreams under one gateway and one grant, each tool owned by exactly one, with the receipt naming which served the call; consumed facts flow across them.
 - Attested execution: an upstream that holds a key signs its result for the receipt, the gateway embeds it, and a verifier given the upstream key reports the execution as attested rather than observed. The memory server and the demo upstream sign.
 - HTTP upstreams: the gateway reaches an already-running MCP server over Streamable HTTP with a bearer token from the environment, as well as spawning one over stdio.
 - Optional fact lookups: a lookup that references a call argument the call does not carry is skipped rather than denying, so policy can see the fact a write is about to supersede without refusing writes that supersede nothing.

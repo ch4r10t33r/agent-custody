@@ -7,6 +7,12 @@ const LogSchema = z.object({ url: z.string().url(), tokenEnv: z.string().min(1).
 const oneLog = { message: "exactly one of logFile or log is required" };
 const hasOneLog = (c: { logFile?: string | undefined; log?: unknown }) => (c.logFile ? 1 : 0) + (c.log ? 1 : 0) === 1;
 
+const UpstreamSchema = z.union([
+  z.object({ command: z.string(), args: z.array(z.string()).default([]), env: z.record(z.string(), z.string()).optional() }),
+  z.object({ url: z.string().url(), tokenEnv: z.string().min(1).optional() }),
+]);
+export type UpstreamConfig = z.infer<typeof UpstreamSchema>;
+
 const FactSchema = z.object({
   /** key under context.facts */
   name: z.string().min(1),
@@ -23,10 +29,9 @@ const FactSchema = z.object({
 export const GatewayConfigSchema = z.object({
   identity: z.object({ keyFile: z.string() }),
   /** the upstream MCP server: a process to spawn over stdio, or a URL to reach over Streamable HTTP with an optional bearer token from the environment */
-  upstream: z.union([
-    z.object({ command: z.string(), args: z.array(z.string()).default([]), env: z.record(z.string(), z.string()).optional() }),
-    z.object({ url: z.string().url(), tokenEnv: z.string().min(1).optional() }),
-  ]),
+  upstream: UpstreamSchema.optional(),
+  /** several upstreams behind one gateway and one grant; each tool name must belong to exactly one of them */
+  upstreams: z.array(UpstreamSchema.and(z.object({ name: z.string().min(1) }))).min(1).optional(),
   grantFile: z.string(),
   trustedPrincipalKeys: z.array(z.string()).min(1),
   policyFile: z.string(),
@@ -34,7 +39,7 @@ export const GatewayConfigSchema = z.object({
   receiptsDir: z.string(),
   logFile: z.string().optional(),
   log: LogSchema.optional(),
-}).refine(hasOneLog, oneLog);
+}).refine(hasOneLog, oneLog).refine((c) => (c.upstream ? 1 : 0) + (c.upstreams ? 1 : 0) === 1, { message: "exactly one of upstream or upstreams is required" });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 export type FactConfig = z.infer<typeof FactSchema>;
 

@@ -77,7 +77,7 @@ when {
 }
 ```
 
-`upstream` is spawned by the gateway exactly as an MCP host would spawn it. `env` is passed through, which is where upstream credentials go. The agent never sees them. An upstream that is already running is reached instead with `"upstream": { "url": "https://memory.internal/mcp", "tokenEnv": "MEMORY_TOKEN" }`, over Streamable HTTP with a bearer token from the environment; the shared memory server in `@agent-custody/state` is the usual case.
+`upstream` is spawned by the gateway exactly as an MCP host would spawn it. `env` is passed through, which is where upstream credentials go. The agent never sees them. Several upstreams sit behind one gateway and one grant with `"upstreams": [{ "name": "memory", "command": ..., "args": [...] }, { "name": "payments", "url": ... }]` in place of `upstream`. Each tool name must be offered by exactly one of them, checked at startup; the receipt's `tool.upstream` says which served the call, and consumed facts flow across them, so a refund made after a memory read carries the facts the agent had been shown. An upstream that is already running is reached instead with `"upstream": { "url": "https://memory.internal/mcp", "tokenEnv": "MEMORY_TOKEN" }`, over Streamable HTTP with a bearer token from the environment; the shared memory server in `@agent-custody/state` is the usual case.
 
 `logFile` is the local Merkle log, with tree heads signed by the gateway's own key. To log to a server the operator does not control, replace it with `log`:
 

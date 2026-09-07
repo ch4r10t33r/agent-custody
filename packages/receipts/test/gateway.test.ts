@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.ts";
 import { loadPublicKey } from "../src/crypto.ts";
@@ -42,6 +42,28 @@ describe("gateway", () => {
       const denied = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 1 } });
       expect(denied.isError).toBe(true);
       expect((denied.content[0] as any).text).toMatch(/needs call argument "other"/);
+    } finally {
+      await g.close();
+    }
+  });
+
+  it("several upstreams behind one grant: tools are routed by owner, and two upstreams offering the same tool is refused at startup", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-custody-multi-"));
+    const f = buildFixture(dir);
+    const cfg = JSON.parse(readFileSync(f.configFile, "utf8"));
+    const stripe = cfg.upstream;
+    delete cfg.upstream;
+    cfg.upstreams = [{ name: "stripe", ...stripe }, { name: "stripe-again", ...stripe }];
+    writeFileSync(f.configFile, JSON.stringify(cfg));
+    await expect(createGateway(loadConfig(f.configFile))).rejects.toThrow(/offered by both upstream "stripe" and upstream "stripe-again"/);
+    cfg.upstreams = [{ name: "stripe", ...stripe }, { name: "echo", command: process.execPath, args: ["--import", "tsx", resolve(import.meta.dirname, "..", "scripts", "fake-echo.ts")] }];
+    writeFileSync(f.configFile, JSON.stringify(cfg));
+    const g = await createGateway(loadConfig(f.configFile));
+    try {
+      expect((await g.listTools()).map((t) => t.name).sort()).toEqual(["customer.lookup", "stripe.refund"]);
+      const r = await g.handleCall({ name: "customer.lookup", arguments: { customer_id: "cust_123" } });
+      expect(r.isError).toBeFalsy();
+      expect(decode(JSON.parse(readFileSync(join(f.receiptsDir, `${String(r._meta?.[RECEIPT_META_KEY])}.json`), "utf8"))).predicate.tool).toEqual({ name: "customer.lookup", provenance: "observed", upstream: "stripe" });
     } finally {
       await g.close();
     }

@@ -22,7 +22,7 @@ ledger.retract({ factId: a.fact.factId, actor: "user:admin", reason: "poisoned b
 ledger.asOf({ validAt: "2026-09-01T00:00:00Z", txAt: "2026-09-01T00:00:00Z" });
 ```
 
-Five runnable examples, all executed by the test suite. [05-blast-radius.ts](examples/05-blast-radius.ts) walks from a retracted belief to everything that relied on it. [04-evals.ts](examples/04-evals.ts) scores the ledger and a naive store on the same memory incidents. [03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the memory server as the gateway's upstream. [01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo. [02-receipt-to-belief.ts](examples/02-receipt-to-belief.ts) runs the whole loop with the receipts package: a tool call gets a signed receipt, the receipt is verified, the belief taken from it is recorded citing the receipt, and later retracted. Run them with `node examples/<file>` from this directory, after `bun run build` at the repository root.
+Six runnable examples, all executed by the test suite. [06-actions-on-beliefs.ts](examples/06-actions-on-beliefs.ts) puts memory and a payments API behind one gateway and finds the refund in a belief's blast radius. [05-blast-radius.ts](examples/05-blast-radius.ts) walks from a retracted belief to everything that relied on it. [04-evals.ts](examples/04-evals.ts) scores the ledger and a naive store on the same memory incidents. [03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the memory server as the gateway's upstream. [01-ledger.ts](examples/01-ledger.ts) walks through a wrong write and its undo. [02-receipt-to-belief.ts](examples/02-receipt-to-belief.ts) runs the whole loop with the receipts package: a tool call gets a signed receipt, the receipt is verified, the belief taken from it is recorded citing the receipt, and later retracted. Run them with `node examples/<file>` from this directory, after `bun run build` at the repository root.
 
 ## The memory server
 
@@ -100,6 +100,8 @@ retracted at 2026-09-07T10:12:04.118Z by support-agent: CRM sync bug: account is
   acct:42 discount = "20%"  fact 9b04…  STILL BELIEVED
   acct:42 support_tier = "priority"  fact e77d…  STILL BELIEVED
 ```
+
+With the gateway fronting several upstreams, memory and the tools the agent acts with, the radius reaches the actions too: a refund issued after the agent read a belief carries that belief's id and is listed. [examples/06-actions-on-beliefs.ts](examples/06-actions-on-beliefs.ts) shows it.
 
 It is an upper bound by design: a call made after the agent had seen the fact is in the radius whether or not the agent used it, because no receipt can prove what a model attended to. What it never misses is the thing that matters, a downstream action or belief that did depend on the fact. [examples/05-blast-radius.ts](examples/05-blast-radius.ts) runs the whole loop.
 
@@ -184,6 +186,5 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 1. Value-level quarantine: a value that came from untrusted tool output stays quarantined even when the actor is attested, until a second source or a human agrees.
 2. Retention windows and legal hold on the ledger: forget on a schedule, and a hold that refuses forget for named facts until lifted.
-3. A gateway with several upstreams under one grant, so memory and the tools an agent acts with share a session and blast radius reaches the emails sent, not only the beliefs written.
 4. The memory tools from Python, through the sidecar, so SDK-only Python agents can write claimed facts to a shared ledger.
 

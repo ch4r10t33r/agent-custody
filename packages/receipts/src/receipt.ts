@@ -41,7 +41,8 @@ export interface ReceiptPredicate {
   /** Correlation ids from the host, when it supplied any. Never checked, always claimed. */
   session: { id: string | null; toolUseId: string | null; provenance: "claimed" };
   model: { id: string | null; provenance: "claimed" };
-  tool: { name: string; provenance: Provenance };
+  /** upstream names which of several upstreams served the tool; absent when the gateway has one */
+  tool: { name: string; provenance: Provenance; upstream?: string };
   request: { args: Record<string, unknown>; argsDigest: string; provenance: "claimed" };
   facts: Record<string, FactRecord>;
   /**

@@ -280,3 +280,41 @@ when { context.facts has target && context.facts.target.space == "org" && contex
     expect(new Ledger(ledgerFile).asOf({ subject: "policy:refunds", predicate: "limit" })).toHaveLength(1);
   });
 });
+
+describe("several upstreams under one grant", () => {
+  it("a refund made after the agent read a belief is in that belief's blast radius", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "memory-multi-"));
+    writeKeyPair(generateKeyPair(), join(dir, "keys"), "gateway");
+    const principalKp = generateKeyPair();
+    writeKeyPair(principalKp, join(dir, "keys"), "principal");
+    const now = Date.now();
+    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "stripe.refund"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
+    writeFileSync(join(dir, "policy.cedar"), `permit(principal, action, resource);\n`);
+    const ledgerFile = join(dir, "ledger.jsonl");
+    writeFileSync(join(dir, "gateway.json"), JSON.stringify({
+      identity: { keyFile: "keys/gateway.key" },
+      upstreams: [
+        { name: "memory", command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile] },
+        { name: "payments", command: process.execPath, args: [join(import.meta.dirname, "..", "..", "receipts", "scripts", "fake-stripe.ts")] },
+      ],
+      grantFile: "grant.json", trustedPrincipalKeys: ["keys/principal.pub"], policyFile: "policy.cedar", receiptsDir: "receipts", logFile: "log.jsonl",
+    }));
+    const g = await createGateway(loadConfig(join(dir, "gateway.json")));
+    try {
+      const plan = value(await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "plan", value: "enterprise", space: "team:support" } })).fact;
+      const before = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 1 } });
+      await g.handleCall({ name: "memory.read", arguments: { subject: "cust_123" } });
+      const after = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 } });
+      const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
+      const ids = b.receipts.map((r) => r.receiptId);
+      expect(ids).toContain(String(after._meta?.[RECEIPT_META_KEY]));
+      expect(ids).not.toContain(String(before._meta?.[RECEIPT_META_KEY]));
+      expect(b.receipts.find((r) => r.receiptId === String(after._meta?.[RECEIPT_META_KEY]))?.tool).toBe("stripe.refund");
+      const st = verifyBundle(JSON.parse(readFileSync(join(dir, "receipts", `${String(after._meta?.[RECEIPT_META_KEY])}.json`), "utf8")), { issuerKeys: [loadPublicKey(join(dir, "keys", "gateway.pub"))], principalKeys: [loadPublicKey(join(dir, "keys", "principal.pub"))] }).statement!.predicate as any;
+      expect(st.tool).toEqual({ name: "stripe.refund", provenance: "observed", upstream: "payments" });
+      expect(st.consumed.factIds).toEqual([plan.factId]);
+    } finally {
+      await g.close();
+    }
+  });
+});

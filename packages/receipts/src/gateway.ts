@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
-import type { FactConfig, GatewayConfig } from "./config.ts";
+import type { FactConfig, GatewayConfig, UpstreamConfig } from "./config.ts";
 import { digestOf, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto.ts";
 import { delegationValidAt, verifyDelegation, type Delegation } from "./delegation.ts";
 import { createIssuer } from "./issue.ts";
@@ -83,17 +83,39 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
   const pDigest = policyDigest(policyText);
   const issuer = createIssuer(gatewayKey, cfg.receiptsDir, openLog(cfg, gatewayKey));
 
-  const upstream = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
-  if ("url" in cfg.upstream) {
-    const token = cfg.upstream.tokenEnv ? process.env[cfg.upstream.tokenEnv] : undefined;
-    if (cfg.upstream.tokenEnv && !token) throw new Error(`upstream token: environment variable ${cfg.upstream.tokenEnv} is not set`);
-    await upstream.connect(new StreamableHTTPClientTransport(new URL(cfg.upstream.url), token ? { requestInit: { headers: { authorization: `Bearer ${token}` } } } : {}));
-  } else {
-    await upstream.connect(new StdioClientTransport({ command: cfg.upstream.command, args: cfg.upstream.args, env: cfg.upstream.env, stderr: "inherit" }));
+  // One gateway, one grant, one session, and as many upstreams as the agent's job needs. Each tool name belongs to
+  // exactly one upstream, decided at startup, so a receipt's tool is unambiguous and consumed facts flow across them.
+  const upstreamConfigs: { name: string; cfg: UpstreamConfig }[] = cfg.upstreams ? cfg.upstreams.map((u) => ({ name: u.name, cfg: u })) : [{ name: "upstream", cfg: cfg.upstream! }];
+  const upstreams = new Map<string, Client>();
+  const owner = new Map<string, string>();
+  const advertised: Tool[] = [];
+  for (const { name, cfg: u } of upstreamConfigs) {
+    const client = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
+    if ("url" in u) {
+      const token = u.tokenEnv ? process.env[u.tokenEnv] : undefined;
+      if (u.tokenEnv && !token) throw new Error(`upstream ${name}: environment variable ${u.tokenEnv} is not set`);
+      await client.connect(new StreamableHTTPClientTransport(new URL(u.url), token ? { requestInit: { headers: { authorization: `Bearer ${token}` } } } : {}));
+    } else {
+      await client.connect(new StdioClientTransport({ command: u.command, args: u.args, env: u.env, stderr: "inherit" }));
+    }
+    upstreams.set(name, client);
+    const { tools } = await client.listTools();
+    for (const t of tools) {
+      const other = owner.get(t.name);
+      if (other) {
+        for (const c of upstreams.values()) await c.close();
+        throw new Error(`tool "${t.name}" is offered by both upstream "${other}" and upstream "${name}"; a gateway needs one owner per tool`);
+      }
+      owner.set(t.name, name);
+      advertised.push(t);
+    }
   }
 
-  const callUpstream = async (name: string, args: Record<string, unknown>, meta?: Record<string, string>): Promise<CallToolResult> =>
-    (await upstream.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) })) as CallToolResult;
+  const callUpstream = async (name: string, args: Record<string, unknown>, meta?: Record<string, string>): Promise<CallToolResult> => {
+    const via = owner.get(name);
+    if (!via) throw new Error(`no upstream offers tool "${name}"`);
+    return (await upstreams.get(via)!.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) })) as CallToolResult;
+  };
 
   async function gatherFacts(tool: string, args: Record<string, unknown>, meta: Record<string, string>): Promise<Record<string, FactRecord>> {
     const facts: Record<string, FactRecord> = {};
@@ -170,7 +192,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       delegation: { envelope: grantEnvelope, provenance: "attested" },
       session: { id: null, toolUseId: null, provenance: "claimed" },
       model: { id: typeof modelClaim === "string" ? modelClaim : null, provenance: "claimed" },
-      tool: { name: tool, provenance: "observed" },
+      tool: { name: tool, provenance: "observed", ...(owner.has(tool) && upstreamConfigs.length > 1 ? { upstream: owner.get(tool)! } : {}) },
       request: { args, argsDigest: digestOf(args), provenance: "claimed" },
       facts,
       consumed: { factIds: consumedNow, provenance: "observed" },
@@ -196,11 +218,12 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
     agentId: delegation.agent,
     delegation,
     async listTools() {
-      const { tools } = await upstream.listTools();
-      return tools.filter((t) => delegation.scopes.includes(t.name));
+      return advertised.filter((t) => delegation.scopes.includes(t.name));
     },
     handleCall,
-    close: () => upstream.close(),
+    async close() {
+      for (const c of upstreams.values()) await c.close();
+    },
   };
 }
 

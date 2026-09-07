@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -82,9 +83,13 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
   const issuer = createIssuer(gatewayKey, cfg.receiptsDir, openLog(cfg, gatewayKey));
 
   const upstream = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
-  await upstream.connect(
-    new StdioClientTransport({ command: cfg.upstream.command, args: cfg.upstream.args, env: cfg.upstream.env, stderr: "inherit" }),
-  );
+  if ("url" in cfg.upstream) {
+    const token = cfg.upstream.tokenEnv ? process.env[cfg.upstream.tokenEnv] : undefined;
+    if (cfg.upstream.tokenEnv && !token) throw new Error(`upstream token: environment variable ${cfg.upstream.tokenEnv} is not set`);
+    await upstream.connect(new StreamableHTTPClientTransport(new URL(cfg.upstream.url), token ? { requestInit: { headers: { authorization: `Bearer ${token}` } } } : {}));
+  } else {
+    await upstream.connect(new StdioClientTransport({ command: cfg.upstream.command, args: cfg.upstream.args, env: cfg.upstream.env, stderr: "inherit" }));
+  }
 
   const callUpstream = async (name: string, args: Record<string, unknown>, meta?: Record<string, string>): Promise<CallToolResult> =>
     (await upstream.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) })) as CallToolResult;

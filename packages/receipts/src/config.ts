@@ -22,11 +22,11 @@ const FactSchema = z.object({
 
 export const GatewayConfigSchema = z.object({
   identity: z.object({ keyFile: z.string() }),
-  upstream: z.object({
-    command: z.string(),
-    args: z.array(z.string()).default([]),
-    env: z.record(z.string(), z.string()).optional(),
-  }),
+  /** the upstream MCP server: a process to spawn over stdio, or a URL to reach over Streamable HTTP with an optional bearer token from the environment */
+  upstream: z.union([
+    z.object({ command: z.string(), args: z.array(z.string()).default([]), env: z.record(z.string(), z.string()).optional() }),
+    z.object({ url: z.string().url(), tokenEnv: z.string().min(1).optional() }),
+  ]),
   grantFile: z.string(),
   trustedPrincipalKeys: z.array(z.string()).min(1),
   policyFile: z.string(),

@@ -8,5 +8,7 @@ export type { MemoryUnderTest, Op, Report, Scenario, ScenarioScore } from "./eva
 export { ledgerUnderTest, overwriteStoreUnderTest } from "./evals-ledger.ts";
 export { factMetadata, factText, mem0Store, zepStore } from "./stores.ts";
 export { blastRadius, formatBlastRadius, loadReceipts } from "./blast.ts";
+export { memoryHttpHandler, serveMemoryHttp } from "./http.ts";
+export type { MemoryHttpOptions, RunningMemoryServer } from "./http.ts";
 export type { BlastRadius, ReceiptSummary } from "./blast.ts";
 export type { Mem0Like, Mem0Options, Store, ZepLike, ZepOptions } from "./stores.ts";

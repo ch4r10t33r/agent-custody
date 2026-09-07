@@ -36,7 +36,10 @@ function split(n: number): number {
  */
 class SubtreeCache {
   private readonly perfect = new Map<string, Buffer>();
-  constructor(private readonly leaves: Buffer[]) {}
+  private readonly leaves: Buffer[];
+  constructor(leaves: Buffer[]) {
+    this.leaves = leaves;
+  }
   mth(lo: number, hi: number): Buffer {
     const n = hi - lo;
     if (n === 0) return createHash("sha256").digest();

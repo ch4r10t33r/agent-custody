@@ -11,6 +11,7 @@ function sitePath(repoPath: string): string | null {
   const m = (re: RegExp) => repoPath.match(re);
   let x: RegExpMatchArray | null;
   if (repoPath === "README.md") return "/repo";
+  if (repoPath === "CHANGELOG.md") return "/changelog";
   if (repoPath === "packages/receipts/README.md") return "/receipts/";
   if ((x = m(/^packages\/receipts\/docs\/([^/]+)\.md$/))) return `/receipts/${x[1]}`;
   if (repoPath === "packages/state/README.md") return "/state/";
@@ -32,6 +33,7 @@ export default withMermaid(
       "site/guide/:page": "guide/:page",
       "site/receipt/:page": "receipt/:page",
       "README.md": "repo.md",
+      "CHANGELOG.md": "changelog.md",
       "packages/receipts/README.md": "receipts/index.md",
       "packages/receipts/docs/:page": "receipts/:page",
       "packages/state/README.md": "state/index.md",
@@ -70,6 +72,8 @@ export default withMermaid(
         { text: "Start here", items: [
           { text: "What each piece is for", link: "/guide/pieces" },
           { text: "Getting started", link: "/guide/getting-started" },
+          { text: "Deployment", link: "/guide/deployment" },
+          { text: "Changelog", link: "/changelog" },
         ] },
         { text: "Receipts", items: [
           { text: "Overview", link: "/receipts/" },

@@ -193,4 +193,5 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 **Next, in the order it pays off**
 
 1. A retention schedule: run sweeps on a timer from the CLI or a hosted plane, with the receipts of each sweep kept as the record.
+2. A storage interface for the ledger with SQLite as the first alternative to JSONL, for durability, concurrent readers, and indexed queries at scale; JSONL stays the default and the auditable export. [Issue #1](https://github.com/ch4r10t33r/agent-custody/issues/1).
 

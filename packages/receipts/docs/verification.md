@@ -171,7 +171,17 @@ The remote log also serves `GET /head`, its current tree head signed with the lo
 
 On a gateway receipt the execution is `observed`: the gateway saw what the upstream returned. An upstream that holds a key can do better and sign its result for the receipt being issued; the gateway embeds the signature, and a verifier given the upstream's public key checks it and reports the execution as `attested` by that key. The check binds the signature to the receipt id, the tool, and the digest of the result content, so a signature cannot be moved between receipts.
 
-For upstream authors, `signResult(result, key, receiptId, tool)` from `@agent-custody/receipts` does the signing; the receipt id arrives in the call's `_meta["agent-custody/receipt"]`. The memory server in `@agent-custody/state` signs when started with `--key`, and the demo's fake upstream does too. Provider-native signatures, such as Stripe's webhook signatures, are adapters on top of the same field and are not implemented yet.
+For upstream authors, `signResult(result, key, receiptId, tool)` from `@agent-custody/receipts` does the signing; the receipt id arrives in the call's `_meta["agent-custody/receipt"]`. The memory server in `@agent-custody/state` signs when started with `--key`, and the demo's fake upstream does too.
+
+### Provider-native deliveries
+
+Real providers do not sign per receipt. Stripe signs webhooks and GitHub signs deliveries with an HMAC over the raw body under a shared secret, unbound to any receipt. An MCP server wrapping such a provider can attach the delivery that corresponds to the call, with `attachProviderAttestation(result, { provider: "stripe-webhook", rawBody, signature, bind: "data.object.id" })`, and the gateway embeds it as `execution.upstream`. A verifier given the secret recomputes the HMAC, checks Stripe's timestamp against the receipt's within five minutes, and checks that the value at `bind` in the delivery appears in the receipt's result, which is what ties a delivery to this call.
+
+```bash
+STRIPE_WEBHOOK_SECRET=whsec_... node src/cli.ts verify receipts/<id>.json --issuer-key keys/gateway.pub --principal-key keys/principal.pub --stripe-secret-env STRIPE_WEBHOOK_SECRET
+```
+
+The report then says `attested (shared secret)`, deliberately distinct from `attested`: anyone holding the secret could forge a delivery, so this is the provider's word as far as the secret is trusted, not a signature only the provider could make. Without the secret the delivery is carried and not checked, and the report says so. The demo's fake Stripe attaches webhooks when started with `--webhook-secret`; the conformance vectors include a receipt verified with and without the secret.
 
 ## Retention on the log
 

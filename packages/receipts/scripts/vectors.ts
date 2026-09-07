@@ -27,6 +27,8 @@ interface Case {
   principalKeys: string[];
   logKeys: string[];
   upstreamKeys?: string[];
+  /** shared secrets for provider-native deliveries; test values, published on purpose */
+  providerSecrets?: { stripe?: string; github?: string };
   log: string[] | null;
   expected: { ok: boolean; failing: string[] };
 }
@@ -56,6 +58,7 @@ function addCase(c: Omit<Case, "expected">, opts?: Partial<VerifyOptions>) {
     principalKeys: c.principalKeys.map((k) => keyFrom(k)),
     logKeys: c.logKeys.map((k) => keyFrom(k)),
     ...(c.upstreamKeys ? { upstreamKeys: c.upstreamKeys.map((k) => keyFrom(k)) } : {}),
+    ...(c.providerSecrets ? { providerSecrets: c.providerSecrets } : {}),
     ...(logFile ? { logFile } : {}),
     ...opts,
   });
@@ -91,6 +94,25 @@ addCase({ name: "resigned-policy-inconsistent", description: "Predicate edited s
 addCase({ name: "resigned-args-digest", description: "Request args edited without updating the digest, re-signed with the gateway key.", bundle: resigned(executed, gatewayKey, (st) => { (st.predicate.request.args as Record<string, unknown>).amount = 1; }), ...G, log: glog });
 addCase({ name: "inclusion-proof-wrong-index", description: "The inclusion proof's leaf index changed. The tree head still verifies; the proof does not.", bundle: { ...executed, inclusion: { ...executed.inclusion, leafIndex: executed.inclusion.leafIndex + 1 } }, ...G, log: glog });
 addCase({ name: "log-copy-from-another-log", description: "Verified against a copy of a different log. Everything passes except the recomputed root.", bundle: executed, ...G, log: ["not-the-same-leaf"] });
+
+// ---- a provider-native delivery: the fake Stripe attaches the webhook it would send, signed with the shared secret ----
+const pfx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-provider-")));
+{
+  const cfg = JSON.parse(readFileSync(pfx.configFile, "utf8"));
+  cfg.upstream.args = [...cfg.upstream.args.filter((a: string, i: number, all: string[]) => a !== "--key" && all[i - 1] !== "--key"), "--webhook-secret", "whsec_vectors"];
+  writeFileSync(pfx.configFile, JSON.stringify(cfg));
+}
+key("gateway-2", pfx.gatewayPub);
+key("principal-2", pfx.principalPub);
+const pgw = await createGateway(loadConfig(pfx.configFile));
+const pok = await pgw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 2500 } });
+await pgw.close();
+const withWebhook = bundleFile(pfx.receiptsDir, String(pok._meta?.[RECEIPT_META_KEY]));
+const plog = logLines(pfx.logFile);
+const P = { issuerKeys: ["gateway-2"], principalKeys: ["principal-2"], logKeys: [] as string[] };
+addCase({ name: "gateway-executed-stripe-webhook", description: "The upstream attached the Stripe webhook for the refund, signed with the shared secret whsec_vectors. With that secret given, the delivery verifies and binds to the refund id in the result: attested by shared secret.", bundle: withWebhook, ...P, providerSecrets: { stripe: "whsec_vectors" }, log: plog });
+addCase({ name: "gateway-executed-stripe-webhook-wrong-secret", description: "The same receipt with the wrong secret. The provider check fails; everything else passes.", bundle: withWebhook, ...P, providerSecrets: { stripe: "whsec_other" }, log: plog });
+addCase({ name: "gateway-executed-stripe-webhook-no-secret", description: "The same receipt with no secret given. The delivery is carried, not checked; every other check passes.", bundle: withWebhook, ...P, log: plog });
 
 // ---- SDK receipts: self-reported, no delegation ----
 const sfx = buildSdkFixture(mkdtempSync(join(tmpdir(), "vectors-sdk-")), undefined, "vectors");

@@ -2,7 +2,7 @@
 import { canonicalize, digestOf, dsseVerify, type Envelope, type PublicKeyRef } from "./crypto.ts";
 import { delegationValidAt, verifyDelegation } from "./delegation.ts";
 import { leafHash, MerkleLog, verifyConsistency, verifyInclusion } from "./log.ts";
-import { checkUpstream, contentDigest } from "./upstream.ts";
+import { checkProvider, checkUpstream, contentDigest, isProviderAttestation, type ProviderSecrets } from "./upstream.ts";
 import { RECEIPT_PREDICATE_TYPE, RECEIPT_TYPE, TREEHEAD_TYPE, type ReceiptBundle, type ReceiptStatement, type TreeHead } from "./receipt.ts";
 
 export interface Check {
@@ -19,6 +19,8 @@ export interface VerifyOptions {
   logKeys?: PublicKeyRef[];
   /** keys of upstreams that sign their results; with one given, an execution carrying an upstream signature is checked and becomes attested */
   upstreamKeys?: PublicKeyRef[];
+  /** shared secrets for provider-native deliveries; with the matching one given, an execution carrying a Stripe or GitHub delivery is checked */
+  providerSecrets?: ProviderSecrets;
   /** If given, the root is recomputed from this log file at the receipt's tree size and compared. */
   logFile?: string;
 }
@@ -74,10 +76,17 @@ export function verifyBundle(bundle: ReceiptBundle, opts: VerifyOptions): Verify
   }
 
   add("request args digest", digestOf(p.request.args) === p.request.argsDigest && st.subject[0]?.digest.sha256 === p.request.argsDigest);
-  if ((p.execution.status === "executed" || p.execution.status === "failed") && p.execution.upstream && (opts.upstreamKeys?.length ?? 0) > 0) {
+  if ((p.execution.status === "executed" || p.execution.status === "failed") && p.execution.upstream) {
     const result = p.execution.result as { content: unknown; isError?: boolean };
-    const u = checkUpstream(p.execution.upstream.envelope, opts.upstreamKeys!, { receiptId: p.receiptId, tool: p.tool.name, contentDigest: contentDigest(result) });
-    add("upstream signature (upstream key)", u.ok, u.ok ? `keyid ${short(u.keyid)}` : u.error);
+    if (isProviderAttestation(p.execution.upstream)) {
+      if (opts.providerSecrets) {
+        const u = checkProvider(p.execution.upstream, opts.providerSecrets, { timestamp: p.timestamp, result });
+        add("upstream signature (provider secret)", u.ok, u.ok ? u.keyid : u.error);
+      }
+    } else if ((opts.upstreamKeys?.length ?? 0) > 0) {
+      const u = checkUpstream(p.execution.upstream.envelope, opts.upstreamKeys!, { receiptId: p.receiptId, tool: p.tool.name, contentDigest: contentDigest(result) });
+      add("upstream signature (upstream key)", u.ok, u.ok ? `keyid ${short(u.keyid)}` : u.error);
+    }
   }
   if (p.policy) {
     const consistent = p.policy.decision === "allow" ? p.execution.status !== "denied" : p.execution.status === "denied";
@@ -166,8 +175,11 @@ export function formatReport(r: VerifyResult): string {
   if (p.policy) row("policy", p.policy.provenance, `${p.policy.decision} [${p.policy.reasons.join(",")}] policy ${short(p.policy.policyDigest)}`);
   else row("policy", "-", "(none evaluated)");
   if (p.consumed) row("consumed", p.consumed.provenance, p.consumed.factIds.length === 0 ? "(no facts shown before this call)" : p.consumed.factIds);
-  const upstreamCheck = r.checks.find((c) => c.name === "upstream signature (upstream key)");
+  const upstreamCheck = r.checks.find((c) => c.name === "upstream signature (upstream key)" || c.name === "upstream signature (provider secret)");
   const hasUpstream = (p.execution.status === "executed" || p.execution.status === "failed") && !!p.execution.upstream;
-  row("execution", upstreamCheck?.ok ? "attested" : p.execution.provenance, `${p.execution.status}${hasUpstream ? (upstreamCheck ? (upstreamCheck.ok ? ` (signed by upstream ${upstreamCheck.detail})` : " (upstream signature FAILED)") : " (carries an upstream signature; pass --upstream-key to check it)") : ""}`);
+  const byProvider = hasUpstream && isProviderAttestation((p.execution as { upstream?: unknown }).upstream);
+  const attestedAs = upstreamCheck?.ok ? (byProvider ? "attested (shared secret)" : "attested") : p.execution.provenance;
+  const note = !hasUpstream ? "" : upstreamCheck ? (upstreamCheck.ok ? ` (${byProvider ? upstreamCheck.detail : `signed by upstream ${upstreamCheck.detail}`})` : " (upstream signature FAILED)") : byProvider ? " (carries a provider delivery; pass the provider secret to check it)" : " (carries an upstream signature; pass --upstream-key to check it)";
+  row("execution", attestedAs, `${p.execution.status}${note}`);
   return lines.join("\n");
 }

@@ -2,6 +2,7 @@
 import type { Envelope } from "./crypto.ts";
 import type { InclusionProof } from "./log.ts";
 import type { PolicyDecision } from "./policy.ts";
+import type { UpstreamEvidence } from "./upstream.ts";
 
 export const RECEIPT_TYPE = "application/vnd.in-toto+json";
 export const RECEIPT_PREDICATE_TYPE = "https://agent-custody.dev/receipt/v0.2";
@@ -59,8 +60,8 @@ export interface ReceiptPredicate {
         result: unknown;
         resultDigest: string;
         provenance: Provenance;
-        /** an upstream's own signature over what it returned, bound to this receipt; checked by a verifier holding the upstream's key */
-        upstream?: { envelope: Envelope };
+        /** an upstream's own signature over what it returned, bound to this receipt and checked with the upstream's key; or a provider's delivery, checked with the provider's shared secret */
+        upstream?: UpstreamEvidence;
       }
     | { status: "denied"; reason: string; provenance: Provenance }
     | { status: "error"; error: string; provenance: Provenance };

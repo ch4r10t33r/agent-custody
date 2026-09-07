@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { loadPrivateKey } from "../src/crypto.ts";
 import { RECEIPT_META_KEY } from "../src/gateway.ts";
-import { signResult } from "../src/upstream.ts";
+import { attachProviderAttestation, signResult, stripeSignature } from "../src/upstream.ts";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -37,12 +37,20 @@ const fail = (msg: string): CallToolResult => ({ isError: true, content: [{ type
 
 const keyArg = process.argv.indexOf("--key");
 const signingKey = keyArg >= 0 ? loadPrivateKey(process.argv[keyArg + 1]!) : null;
+// With --webhook-secret, refunds carry the webhook Stripe would send for them, signed the way Stripe signs it.
+const secretArg = process.argv.indexOf("--webhook-secret");
+const webhookSecret = secretArg >= 0 ? process.argv[secretArg + 1]! : null;
 
 const server = new Server({ name: "fake-stripe", version: "0.0.1" }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
   const result = handle(params.name, (params.arguments ?? {}) as Record<string, unknown>);
   const receiptId = (params._meta as Record<string, unknown> | undefined)?.[RECEIPT_META_KEY];
+  if (webhookSecret && params.name === "stripe.refund" && !result.isError) {
+    const refund = JSON.parse((result.content[0] as { text: string }).text) as { refund_id: string; amount: unknown };
+    const rawBody = JSON.stringify({ id: `evt_${randomUUID().slice(0, 8)}`, type: "charge.refunded", data: { object: { id: refund.refund_id, object: "refund", amount: refund.amount, status: "succeeded" } } });
+    return attachProviderAttestation(result, { provider: "stripe-webhook", rawBody, signature: stripeSignature(rawBody, webhookSecret, Math.floor(Date.now() / 1000)), bind: "data.object.id" });
+  }
   return signingKey && typeof receiptId === "string" ? signResult(result, signingKey, receiptId, params.name) : result;
 });
 

@@ -9,6 +9,8 @@ const issuerPem = ref("");
 const principalPem = ref("");
 const logPem = ref("");
 const upstreamPem = ref("");
+const stripeSecret = ref("");
+const githubSecret = ref("");
 const logText = ref("");
 const report = ref("");
 const result = ref<Result | null>(null);
@@ -16,7 +18,7 @@ const error = ref("");
 const busy = ref(false);
 const supported = typeof globalThis.crypto?.subtle?.importKey === "function";
 
-const samples = computed(() => (vectors.cases as any[]).filter((c) => ["gateway-executed", "gateway-executed-upstream-attested", "gateway-denied", "sdk-executed", "remote-log-with-log-key"].includes(c.name)));
+const samples = computed(() => (vectors.cases as any[]).filter((c) => ["gateway-executed", "gateway-executed-upstream-attested", "gateway-executed-stripe-webhook", "gateway-denied", "sdk-executed", "remote-log-with-log-key"].includes(c.name)));
 
 function load(c: any) {
   const pem = (names: string[]) => names.map((n) => (vectors.keys as any)[n].publicKeyPem).join("\n");
@@ -25,6 +27,8 @@ function load(c: any) {
   principalPem.value = pem(c.principalKeys);
   logPem.value = pem(c.logKeys);
   upstreamPem.value = pem(c.upstreamKeys ?? []);
+  stripeSecret.value = c.providerSecrets?.stripe ?? "";
+  githubSecret.value = c.providerSecrets?.github ?? "";
   logText.value = c.log ? (c.log as string[]).map((l) => JSON.stringify(l)).join("\n") : "";
   report.value = "";
   result.value = null;
@@ -54,7 +58,7 @@ async function verify() {
     const issuerKeys = await keys(issuerPem.value);
     if (issuerKeys.length === 0) throw new Error("at least one issuer public key (SPKI PEM) is required");
     const logLeaves = logText.value.trim() ? logText.value.trim().split("\n").map((l) => JSON.parse(l) as string) : undefined;
-    const r = await verifyBundle(bundle, { issuerKeys, principalKeys: await keys(principalPem.value), logKeys: await keys(logPem.value), upstreamKeys: await keys(upstreamPem.value), ...(logLeaves ? { logLeaves } : {}) });
+    const r = await verifyBundle(bundle, { issuerKeys, principalKeys: await keys(principalPem.value), logKeys: await keys(logPem.value), upstreamKeys: await keys(upstreamPem.value), ...(stripeSecret.value || githubSecret.value ? { providerSecrets: { ...(stripeSecret.value ? { stripe: stripeSecret.value } : {}), ...(githubSecret.value ? { github: githubSecret.value } : {}) } } : {}), ...(logLeaves ? { logLeaves } : {}) });
     result.value = r;
     report.value = formatReport(r);
   } catch (e) {
@@ -82,6 +86,7 @@ async function verify() {
       <div><label>Principal public keys (for gateway receipts)</label><textarea v-model="principalPem" rows="5" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>
       <div><label>Log public keys (only for receipts logged to a remote log)</label><textarea v-model="logPem" rows="5" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>
       <div><label>Upstream public keys (only when the upstream signed its result)</label><textarea v-model="upstreamPem" rows="5" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>
+      <div><label>Provider secrets (only when the upstream attached a Stripe webhook or GitHub delivery; stays in your browser)</label><input v-model="stripeSecret" placeholder="Stripe webhook signing secret, whsec_…" /><input v-model="githubSecret" placeholder="GitHub webhook secret" style="margin-top:0.3rem" /></div>
       <div><label>A copy of the log, optional (<code>log.jsonl</code>, one JSON string per line)</label><textarea v-model="logText" rows="5" spellcheck="false" placeholder='"eyJ..."'></textarea></div>
     </div>
     <div class="actions">
@@ -98,7 +103,7 @@ async function verify() {
 <style scoped>
 .verifier { margin: 1rem 0 2rem; }
 label { display: block; font-size: 0.85rem; color: var(--vp-c-text-2); margin: 0.75rem 0 0.25rem; }
-textarea { width: 100%; font: 12px/1.4 var(--vp-font-family-mono); padding: 0.5rem; border: 1px solid var(--vp-c-divider); border-radius: 6px; background: var(--vp-c-bg-alt); color: var(--vp-c-text-1); resize: vertical; }
+input, textarea { width: 100%; font: 12px/1.4 var(--vp-font-family-mono); padding: 0.5rem; border: 1px solid var(--vp-c-divider); border-radius: 6px; background: var(--vp-c-bg-alt); color: var(--vp-c-text-1); resize: vertical; }
 .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 1rem; }
 @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
 .samples { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; font-size: 0.85rem; color: var(--vp-c-text-2); }

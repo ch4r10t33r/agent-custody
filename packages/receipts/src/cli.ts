@@ -15,6 +15,13 @@ import { createSdkIssuer } from "./sdk/index.ts";
 import { handleHookEvent, type HookInput } from "./sdk/claude.ts";
 import { auditExtends, formatReport, verifyBundle } from "./verify.ts";
 
+/** A shared secret from an environment variable; never from the command line, where it would land in shell history. */
+function secretFrom(envName: string): string {
+  const v = process.env[envName];
+  if (!v) throw new Error(`environment variable ${envName} is not set`);
+  return v;
+}
+
 const USAGE = `agent-custody <command>
 
   keygen  --dir <dir> --name <name>
@@ -25,7 +32,7 @@ const USAGE = `agent-custody <command>
   prune   --log <log.jsonl> --before <ISO instant> [--receipts <dir>]
           retention on the receipt log: replaces older leaves with their hashes, so proofs still verify and the content is gone
   log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
-  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--upstream-key <pub>] [--log <log.jsonl>] [--json]
+  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--upstream-key <pub>] [--stripe-secret-env NAME] [--github-secret-env NAME] [--log <log.jsonl>] [--json]
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--json]
           checks that the newer receipt's log extends the older one's: nothing between them was rewritten
 `;
@@ -128,6 +135,8 @@ async function main(argv: string[]): Promise<number> {
           "principal-key": { type: "string", multiple: true },
           "log-key": { type: "string", multiple: true },
           "upstream-key": { type: "string", multiple: true },
+          "stripe-secret-env": { type: "string" },
+          "github-secret-env": { type: "string" },
           log: { type: "string" },
           json: { type: "boolean", default: false },
         },
@@ -141,6 +150,7 @@ async function main(argv: string[]): Promise<number> {
         principalKeys: (values["principal-key"] ?? []).map(loadPublicKey),
         ...(values["log-key"] ? { logKeys: values["log-key"].map(loadPublicKey) } : {}),
         ...(values["upstream-key"] ? { upstreamKeys: values["upstream-key"].map(loadPublicKey) } : {}),
+        ...(values["stripe-secret-env"] || values["github-secret-env"] ? { providerSecrets: { ...(values["stripe-secret-env"] ? { stripe: secretFrom(values["stripe-secret-env"]) } : {}), ...(values["github-secret-env"] ? { github: secretFrom(values["github-secret-env"]) } : {}) } } : {}),
         ...(values.log ? { logFile: values.log } : {}),
       });
       console.log(values.json ? JSON.stringify(result, null, 2) : formatReport(result));

@@ -256,6 +256,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - SDK core: policy decision, record, and a generic `wrap(tool, fn)` for any framework whose tools are functions.
 - Claude Code command hook for PreToolUse, PostToolUse, and PostToolUseFailure, with blocking on deny.
 - Claude Agent SDK in-process hooks over the same handler.
+- Provider-native deliveries: an upstream wrapping Stripe or GitHub attaches the signed webhook or delivery for the call; a verifier with the shared secret checks the HMAC, the timestamp, and the binding to the result, and reports the execution as attested by shared secret.
 - Logarithmic appends: the Merkle log caches complete subtrees, so issuing a receipt costs the same at the millionth leaf as at the first; measured at 0.15 ms per receipt and about half a millisecond per gateway call including policy, a fact lookup, and the upstream signature.
 - Retention on the log: `prune` replaces leaves older than a cutoff with their hashes and removes their bundles, so proofs still verify and the content is gone.
 - Several upstreams under one gateway and one grant, each tool owned by exactly one, with the receipt naming which served the call; consumed facts flow across them.
@@ -273,10 +274,9 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 **Next, in the order it pays off**
 
 1. OpenTelemetry export: emit each receipt as a span with the receipt id and issuer kind as attributes, so existing collectors and dashboards carry them without a new pipeline.
-2. Provider-native upstream signatures (Stripe webhook signatures, GitHub delivery signatures) as adapters onto the upstream attestation field. [Issue #7](https://github.com/ch4r10t33r/agent-custody/issues/7).
-3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
-4. Delegation chains for sub-agents.
-5. Receiver-attested receipts for agent-to-agent calls.
-6. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
+2. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
+3. Delegation chains for sub-agents.
+4. Receiver-attested receipts for agent-to-agent calls.
+5. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
 
 A Python SDK follows the same shape once the TypeScript adapters have settled.

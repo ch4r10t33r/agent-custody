@@ -13,7 +13,7 @@ import { digestOf, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto
 import { delegationValidAt, verifyDelegation, type Delegation } from "./delegation.ts";
 import { createIssuer } from "./issue.ts";
 import { openLog } from "./log-sink.ts";
-import { upstreamSignatureOf } from "./upstream.ts";
+import { upstreamEvidenceOf } from "./upstream.ts";
 import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
 import type { FactRecord, ReceiptPredicate } from "./receipt.ts";
 
@@ -176,8 +176,8 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
         // state, such as the memory server, cites the receipt as the source of what it stores.
         const observed = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.value]));
         const result = await callUpstream(tool, args, { ...upstreamMeta, [OBSERVED_META_KEY]: observed });
-        const upstreamSig = upstreamSignatureOf(result);
-        execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed", ...(upstreamSig ? { upstream: { envelope: upstreamSig } } : {}) };
+        const evidence = upstreamEvidenceOf(result);
+        execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed", ...(evidence ? { upstream: evidence } : {}) };
         noteServedFacts(result);
       } catch (e) {
         execution = { status: "error", error: String(e instanceof Error ? e.message : e), provenance: "observed" };

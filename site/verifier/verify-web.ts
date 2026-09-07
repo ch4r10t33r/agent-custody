@@ -98,7 +98,33 @@ const ISSUER_NOTE: Record<string, string> = {
 };
 const short = (s: string) => s.slice(0, 12);
 
-export interface Options { issuerKeys: PublicKey[]; principalKeys: PublicKey[]; logKeys?: PublicKey[]; upstreamKeys?: PublicKey[]; logLeaves?: string[] }
+export interface Options { issuerKeys: PublicKey[]; principalKeys: PublicKey[]; logKeys?: PublicKey[]; upstreamKeys?: PublicKey[]; providerSecrets?: { stripe?: string; github?: string }; logLeaves?: string[] }
+
+async function hmacHex(secret: string, data: string): Promise<string> {
+  const key = await subtle().importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return hex(await subtle().sign("HMAC", key, enc.encode(data)));
+}
+
+async function checkProvider(att: any, secrets: { stripe?: string; github?: string }, timestamp: string, result: unknown): Promise<{ ok: boolean; detail: string }> {
+  const secret = att.provider === "stripe-webhook" ? secrets.stripe : secrets.github;
+  if (!secret) return { ok: false, detail: `no ${att.provider === "stripe-webhook" ? "Stripe" : "GitHub"} secret given` };
+  if (att.provider === "stripe-webhook") {
+    const parts = Object.fromEntries(String(att.signature).split(",").map((kv: string) => kv.split("=")));
+    if (!parts.t || !parts.v1) return { ok: false, detail: "Stripe-Signature header lacks t or v1" };
+    if ((await hmacHex(secret, `${parts.t}.${att.rawBody}`)) !== parts.v1) return { ok: false, detail: "Stripe signature does not verify with this secret" };
+    const skew = Math.abs(Number(parts.t) * 1000 - Date.parse(timestamp)) / 1000;
+    if (!(skew <= 300)) return { ok: false, detail: `Stripe timestamp is ${Math.round(skew)}s from the receipt, beyond tolerance` };
+  } else {
+    const hexSig = String(att.signature).startsWith("sha256=") ? String(att.signature).slice(7) : "";
+    if (!hexSig || (await hmacHex(secret, att.rawBody)) !== hexSig) return { ok: false, detail: "GitHub signature does not verify with this secret" };
+  }
+  let body: any;
+  try { body = JSON.parse(att.rawBody); } catch { return { ok: false, detail: "delivery body is not JSON" }; }
+  const bound = String(att.bind).split(".").reduce((v: any, k: string) => (v && typeof v === "object" ? v[k] : undefined), body);
+  if (bound === undefined || bound === null || bound === "") return { ok: false, detail: `delivery has no value at ${att.bind}` };
+  if (!JSON.stringify(result).includes(JSON.stringify(bound).replace(/^"|"$/g, ""))) return { ok: false, detail: `delivery's ${att.bind} (${String(bound)}) does not appear in the receipt's result` };
+  return { ok: true, detail: `shared secret (${att.provider}, bound on ${att.bind})` };
+}
 
 /** The same checks, in the same order, with the same names, as the reference verifyBundle. */
 export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Result> {
@@ -137,7 +163,13 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
   }
   const argsDigest = await digestOf(p.request.args);
   add("request args digest", argsDigest === p.request.argsDigest && st.subject[0]?.digest.sha256 === p.request.argsDigest);
-  if ((p.execution.status === "executed" || p.execution.status === "failed") && p.execution.upstream && (opts.upstreamKeys?.length ?? 0) > 0) {
+  const isProvider = (v: any) => !!v && (v.provider === "stripe-webhook" || v.provider === "github-delivery") && typeof v.rawBody === "string";
+  if ((p.execution.status === "executed" || p.execution.status === "failed") && p.execution.upstream && isProvider(p.execution.upstream)) {
+    if (opts.providerSecrets) {
+      const u = await checkProvider(p.execution.upstream, opts.providerSecrets, p.timestamp, p.execution.result);
+      add("upstream signature (provider secret)", u.ok, u.detail);
+    }
+  } else if ((p.execution.status === "executed" || p.execution.status === "failed") && p.execution.upstream && (opts.upstreamKeys?.length ?? 0) > 0) {
     const u = await dsseVerify(p.execution.upstream.envelope, opts.upstreamKeys!);
     let ok = u.ok && p.execution.upstream.envelope.payloadType === UPSTREAM_TYPE;
     let detail = u.ok ? `keyid ${short(u.keyid)}` : u.error;
@@ -217,8 +249,11 @@ export function formatReport(r: Result): string {
   for (const [k, f] of Object.entries<any>(p.facts)) row(`fact.${k}`, f.provenance, f.value);
   if (p.policy) row("policy", p.policy.provenance, `${p.policy.decision} [${p.policy.reasons.join(",")}] policy ${short(p.policy.policyDigest)}`); else row("policy", "-", "(none evaluated)");
   if (p.consumed) row("consumed", p.consumed.provenance, p.consumed.factIds.length === 0 ? "(no facts shown before this call)" : p.consumed.factIds);
-  const upstreamCheck = r.checks.find((c) => c.name === "upstream signature (upstream key)");
+  const upstreamCheck = r.checks.find((c) => c.name === "upstream signature (upstream key)" || c.name === "upstream signature (provider secret)");
   const hasUpstream = (p.execution.status === "executed" || p.execution.status === "failed") && !!p.execution.upstream;
-  row("execution", upstreamCheck?.ok ? "attested" : p.execution.provenance, `${p.execution.status}${hasUpstream ? (upstreamCheck ? (upstreamCheck.ok ? ` (signed by upstream ${upstreamCheck.detail})` : " (upstream signature FAILED)") : " (carries an upstream signature; add the upstream key to check it)") : ""}`);
+  const byProvider = hasUpstream && !!(p.execution.upstream as any).provider;
+  const attestedAs = upstreamCheck?.ok ? (byProvider ? "attested (shared secret)" : "attested") : p.execution.provenance;
+  const note = !hasUpstream ? "" : upstreamCheck ? (upstreamCheck.ok ? ` (${byProvider ? upstreamCheck.detail : `signed by upstream ${upstreamCheck.detail}`})` : " (upstream signature FAILED)") : byProvider ? " (carries a provider delivery; add the provider secret to check it)" : " (carries an upstream signature; add the upstream key to check it)";
+  row("execution", attestedAs, `${p.execution.status}${note}`);
   return lines.join("\n");
 }

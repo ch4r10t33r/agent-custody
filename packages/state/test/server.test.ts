@@ -28,7 +28,7 @@ describe("memory server, driven directly", () => {
   afterAll(() => client.close());
 
   it("lists the four tools", async () => {
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.confirm", "memory.retract", "memory.get", "memory.history"]);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.confirm", "memory.retract", "memory.forget", "memory.get", "memory.history"]);
   });
 
   it("write, read, supersede, retract, history; the source is null, the actor is whatever the caller claims, and the fact is quarantined", async () => {
@@ -82,6 +82,7 @@ permit(principal, action == Action::"memory.history", resource);
 permit(principal, action == Action::"memory.write", resource) when { context.args.space == "team:support" };
 permit(principal, action == Action::"memory.retract", resource);
 permit(principal, action == Action::"memory.confirm", resource);
+permit(principal, action == Action::"memory.forget", resource);
 `;
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "memory-gateway-"));
@@ -91,7 +92,7 @@ permit(principal, action == Action::"memory.confirm", resource);
     gatewayPub = gateway.pubFile;
     principalPub = principal.pubFile;
     const now = Date.now();
-    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "memory.retract", "memory.history", "memory.confirm"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
+    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "memory.retract", "memory.history", "memory.confirm", "memory.forget"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
     writeFileSync(join(dir, "policy.cedar"), POLICY);
     ledgerFile = join(dir, "ledger.jsonl");
     // A ledger that already holds a self-reported fact before it is put under the gateway: the quarantine case.
@@ -171,6 +172,21 @@ permit(principal, action == Action::"memory.confirm", resource);
     expect(b.stillBelieved).toHaveLength(2);
     expect(b.receipts.map((r) => r.receiptId)).toContain(String(unrelated._meta?.[RECEIPT_META_KEY]));
     expect(b.retraction).toBeNull();
+  });
+
+  it("a forget through the gateway: the value is gone from the ledger, and the receipt's observed result certifies it", async () => {
+    const w = await gw.handleCall({ name: "memory.write", arguments: { subject: "person:3", predicate: "phone", value: "+1 555 0100", space: "team:support" } });
+    const factId = value(w).fact.factId;
+    const r = await gw.handleCall({ name: "memory.forget", arguments: { factId, reason: "deletion request 88" } });
+    expect(r.isError).toBeFalsy();
+    expect(value(r)).toMatchObject({ factId, erasedFromLedger: true, actor: "support-agent", stillHeld: [] });
+    expect(readFileSync(ledgerFile, "utf8")).not.toContain("+1 555 0100");
+    const v = verifyBundle(receiptOf(r), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)], logFile: join(dir, "log.jsonl") });
+    expect(v.ok).toBe(true);
+    const exec = v.statement!.predicate.execution as any;
+    expect(exec.provenance).toBe("observed");
+    expect(JSON.parse(exec.result.content[0].text)).toMatchObject({ factId, erasedFromLedger: true, valueDigest: value(r).valueDigest });
+    expect(new Ledger(ledgerFile).asOf({ subject: "person:3" })).toEqual([]);
   });
 
   it("a retraction through the gateway cites its own receipt", async () => {

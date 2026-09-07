@@ -44,6 +44,7 @@ In the gateway's config, the memory server is the upstream, and the grant names 
 | `memory.read` | the facts believed at a moment, by space, subject, predicate, valid time, transaction time | the query |
 | `memory.confirm` | lifts a quarantined fact to attested; accepted only through the gateway | `factId` |
 | `memory.retract` | undoes a belief, keeping it visible to questions about the past | `factId`, `reason` |
+| `memory.forget` | erases the value from the ledger and every store, keeping the digest; the receipt is the certificate | `factId`, `reason` |
 | `memory.get` | one fact by id in any state, for the gateway's policy lookups | `factId` |
 | `memory.history` | every event that touched a fact | `factId` |
 
@@ -68,6 +69,14 @@ The lookup for writes is optional, so a write that supersedes nothing needs no l
 Trust tiers are Cedar policies over the space and, through `includeClaimed`, over quarantine: `permit(principal, action == Action::"memory.write", resource) when { context.args.space == "team:support" };` lets this agent write team memory and nothing else. A read's receipt carries, as `observed`, the exact facts returned, so the ids the agent relied on are already on the record.
 
 `--allow-direct` lets the server take calls without a gateway; then `source.receiptId` is null and `actor` is whatever the caller said, recorded as such. [examples/03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the whole loop, including a denied write and a retraction that cites its own receipt.
+
+## Certified forget
+
+A deletion demand is different from a correction. Retract keeps the record; forget erases the value. `memory.forget` removes the fact's value from the ledger file itself, replacing it with the value's digest so the ledger can still prove what it held without holding it, stops believing the fact, and removes it from every store behind the server. The result says exactly what happened: erased from the ledger, removed from which stores, still held by which, with the digest, the actor, and the reason.
+
+The certificate is the receipt. Through the gateway, `memory.forget` is a receipted call whose result the gateway observed, so the signed, logged receipt records that the erasure happened, who asked for it, and what the stores answered. Hand that receipt to whoever demanded the deletion; anyone with the gateway's public key can verify it.
+
+What forget does not reach, and the docs will not pretend otherwise: receipts. The receipt that recorded the original write carries the value in its request arguments, and the receipts of reads carry it in their results; they are signed and in a Merkle log, so they cannot be edited. Erasure from the receipt log is a retention policy on the log, and selective redaction of receipts is on the receipts roadmap.
 
 ## Blast radius
 
@@ -157,6 +166,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 - Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
+- Certified forget: `memory.forget` erases a value from the ledger file keeping its digest, stops believing it, removes it from every store, and reports exactly what happened; the gateway's receipt of that call is the certificate.
 - Policy over provenance: the gateway looks up the fact a write supersedes or a retraction targets, so policy decides on its space, actor, and provenance; a claimed fact can be displaced, an attested org fact cannot.
 - Consumed facts and blast radius: the memory server declares the facts it serves, the gateway records them on every later receipt, and `blast` walks from a fact to every downstream call and derived belief, transitively, with its retraction status.
 - Write-through adapters for Mem0 and Zep: every write lands in the store with custody metadata, the store id is recorded on the fact, retractions reach the store, and failures are ordered so nothing is half-recorded.
@@ -165,4 +175,4 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. Signed forget statements: a retention or deletion request produces a verifiable record of which facts were removed from the ledger and from every store behind it.
+1. A shared memory server over HTTP, so several gateways and direct writers use one ledger and quarantine is a live deployment.

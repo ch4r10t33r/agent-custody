@@ -125,4 +125,29 @@ describe("fact ledger", () => {
     const reopened = new Ledger(l["file" as keyof Ledger] as unknown as string, c);
     expect(reopened.size).toBe(4);
   });
+
+  it("forgetting erases the value from the file, keeps its digest, stops believing it, and survives reopening", () => {
+    const c = clock();
+    const f = file();
+    const l = new Ledger(f, c);
+    const secret = l.assert({ subject: "person:1", predicate: "ssn", value: "123-45-6789", space: "org", actor: "intake", provenance: "attested", source: { receiptId: "r-1" } });
+    l.assert({ subject: "person:1", predicate: "plan", value: "pro", space: "org", actor: "intake" });
+    c.set("2026-09-03T00:00:00.000Z");
+    const ev = l.forget({ factId: secret.fact.factId, actor: "user:dpo", reason: "deletion request 4471", source: { receiptId: "r-9" } });
+    expect(ev.kind).toBe("forget");
+    expect(ev.valueDigest).toMatch(/^[0-9a-f]{64}$/);
+    const raw = readFileSync(f, "utf8");
+    expect(raw).not.toContain("123-45-6789");
+    expect(raw).toContain(ev.valueDigest);
+    expect(l.asOf({ subject: "person:1" }).map((x) => x.predicate)).toEqual(["plan"]);
+    expect(l.history(secret.fact.factId).map((e) => e.kind)).toEqual(["assert", "forget"]);
+    expect(l.facts().find((x) => x.factId === secret.fact.factId)).toMatchObject({ value: null, forgotten: { valueDigest: ev.valueDigest, at: "2026-09-03T00:00:00.000Z" } });
+    // what was believed before the erasure still answers, without the value
+    expect(l.asOf({ subject: "person:1", validAt: "2026-09-02T00:00:00.000Z", txAt: "2026-09-02T00:00:00.000Z" }).map((x) => [x.predicate, x.value])).toEqual([["ssn", null], ["plan", "pro"]]);
+    const reopened = new Ledger(f, c);
+    expect(reopened.size).toBe(3);
+    expect(reopened.asOf({ subject: "person:1" })).toHaveLength(1);
+    expect(() => l.forget({ factId: secret.fact.factId, actor: "x", reason: "again" })).toThrow(/already forgotten/);
+    expect(() => l.forget({ factId: "nope", actor: "x", reason: "x" })).toThrow(/unknown fact/);
+  });
 });

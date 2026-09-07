@@ -2,7 +2,7 @@
 // what the clients send and answer the way the services do. What matters is that a fact reaches the store with its
 // custody metadata, its store id is recorded on the fact, and a retraction reaches the store.
 import { createServer, type Server } from "node:http";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -116,5 +116,16 @@ describe("write-through stores", () => {
     expect((r.content[0] as any).text).toMatch(/retracted in the ledger, but still held by mem0/);
     expect(ledger.asOf({ subject: "acct:44" })).toEqual([]);
     expect(JSON.parse((r.content[1] as any).text).removedFrom).toEqual(["zep"]);
+  });
+
+  it("forgetting erases the value from the ledger and removes it from both stores; the result is the certificate", async () => {
+    const w = value((await client.callTool({ name: "memory.write", arguments: { subject: "person:9", predicate: "email", value: "dana@example.com", space: "team:support" } })) as CallToolResult);
+    const r = value((await client.callTool({ name: "memory.forget", arguments: { factId: w.fact.factId, reason: "deletion request" } })) as CallToolResult);
+    expect(r).toMatchObject({ factId: w.fact.factId, erasedFromLedger: true, stillHeld: [] });
+    expect(r.removedFrom.sort()).toEqual(["mem0", "zep"]);
+    expect(r.valueDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).not.toContain("dana@example.com");
+    expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === `/v1/memories/${w.fact.external.mem0}/`)).toBe(true);
+    expect(zep.seen.some((s) => s.method === "DELETE" && s.path === `/graph/episodes/${w.fact.external.zep}`)).toBe(true);
   });
 });

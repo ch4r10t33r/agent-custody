@@ -34,6 +34,7 @@ const Confirm = z.object({ factId: z.string().min(1) });
 const Retract = z.object({ factId: z.string().min(1), reason: z.string().min(1), actor: z.string().min(1).optional() });
 const History = z.object({ factId: z.string().min(1) });
 const Get = z.object({ factId: z.string().min(1) });
+const Forget = z.object({ factId: z.string().min(1), reason: z.string().min(1) });
 
 const str = { type: "string" as const };
 export const TOOLS: Tool[] = [
@@ -56,6 +57,11 @@ export const TOOLS: Tool[] = [
     name: "memory.retract",
     description: "Undo a belief: the fact leaves the present, stays visible to questions about the past, and whatever it superseded is believed again.",
     inputSchema: { type: "object", properties: { factId: str, reason: str, actor: str }, required: ["factId", "reason"] },
+  },
+  {
+    name: "memory.forget",
+    description: "Erase a fact's value: from the ledger file, keeping only its digest, and from every store behind the server. The fact stops being believed. The receipt for this call, with the result the gateway observed, is the certificate that the erasure happened.",
+    inputSchema: { type: "object", properties: { factId: str, reason: str }, required: ["factId", "reason"] },
   },
   {
     name: "memory.get",
@@ -135,6 +141,26 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
           const a = Confirm.parse(args);
           const ev = ledger.confirm({ factId: a.factId, actor: actorFor(undefined), source: { receiptId } });
           return json({ eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, source: ev.source });
+        }
+        case "memory.forget": {
+          const a = Forget.parse(args);
+          const fact = ledger.facts().find((f) => f.factId === a.factId);
+          const ev = ledger.forget({ factId: a.factId, actor: actorFor(undefined), reason: a.reason, source: { receiptId } });
+          const removedFrom: string[] = [];
+          const stillHeld: string[] = [];
+          for (const store of opts.stores ?? []) {
+            const id = fact?.external?.[store.name];
+            if (!id) continue;
+            try {
+              await store.remove(id, fact!);
+              removedFrom.push(store.name);
+            } catch (e) {
+              stillHeld.push(`${store.name}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+          const out = { factId: ev.factId, valueDigest: ev.valueDigest, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, erasedFromLedger: true, removedFrom, stillHeld };
+          if (stillHeld.length > 0) return { isError: true, content: [{ type: "text", text: `erased from the ledger, but still held by ${stillHeld.join("; ")}` }, { type: "text", text: JSON.stringify(out) }] };
+          return json(out);
         }
         case "memory.get": {
           const a = Get.parse(args);

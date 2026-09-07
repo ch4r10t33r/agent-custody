@@ -2,7 +2,8 @@
 // Bitemporal. Valid time is when a fact was true in the world; transaction time is when the ledger learned of it.
 // Nothing is ever edited in place. Correcting a belief is a new event, so "what did the agent believe at T" is always answerable.
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 /** Where a write came from. A receipt id means the write went through a receipts producer and can be verified there. */
@@ -28,6 +29,8 @@ export interface Fact {
   actor: string;
   source: Source;
   provenance: FactProvenance;
+  /** present once the value has been erased: the value field is null and this is the digest of what it was */
+  forgotten?: { valueDigest: string; at: string };
   /** ids of this fact in the retrieval stores it was written through to, by store name; absent when there are none */
   external?: Record<string, string>;
   /** ISO timestamps. validTo is null while the fact is believed to still hold. */
@@ -66,7 +69,23 @@ export interface ConfirmEvent {
   source: Source;
 }
 
-export type LedgerEvent = AssertEvent | RetractEvent | ConfirmEvent;
+/**
+ * A forget is erasure, not correction. The fact's value is removed from the ledger file itself and replaced by its
+ * digest, so the ledger can still prove which value it held without holding it. The fact stops being believed.
+ */
+export interface ForgetEvent {
+  eventId: string;
+  kind: "forget";
+  txTime: string;
+  factId: string;
+  actor: string;
+  reason: string;
+  source: Source;
+  /** sha256 of the canonical JSON of the erased value */
+  valueDigest: string;
+}
+
+export type LedgerEvent = AssertEvent | RetractEvent | ConfirmEvent | ForgetEvent;
 
 export interface AssertInput {
   subject: string;
@@ -86,6 +105,13 @@ export interface AssertInput {
 export interface ConfirmInput {
   factId: string;
   actor: string;
+  source?: Source;
+}
+
+export interface ForgetInput {
+  factId: string;
+  actor: string;
+  reason: string;
   source?: Source;
 }
 
@@ -195,12 +221,37 @@ export class Ledger {
     return event;
   }
 
+  /**
+   * Erases a fact's value from the ledger file, keeping its digest, and stops believing it. The file is rewritten in
+   * place, which is the one thing an append-only ledger must do for a deletion demand. Everything else about the fact
+   * stays: who wrote it, when, from which receipt, and now who erased it and why.
+   */
+  forget(input: ForgetInput): ForgetEvent {
+    const prior = this.factById(input.factId);
+    if (!prior) throw new Error(`cannot forget unknown fact ${input.factId}`);
+    if (prior.fact.forgotten) throw new Error(`fact ${input.factId} is already forgotten`);
+    const txTime = this.now().toISOString();
+    const valueDigest = createHash("sha256").update(canonical(prior.fact.value)).digest("hex");
+    for (const e of this.events) {
+      if (e.kind === "assert" && e.fact.factId === input.factId) {
+        e.fact.value = null;
+        e.fact.forgotten = { valueDigest, at: txTime };
+      }
+    }
+    const event: ForgetEvent = { eventId: randomUUID(), kind: "forget", txTime, factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null }, valueDigest };
+    this.events.push(event);
+    const tmp = `${this.file}.tmp`;
+    writeFileSync(tmp, this.events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    renameSync(tmp, this.file);
+    return event;
+  }
+
   /** The facts believed at a moment. Valid time answers "was it true then"; transaction time answers "did the ledger know it then". */
   asOf(q: AsOf = {}): Fact[] {
     const validAt = q.validAt ?? this.now().toISOString();
     const txAt = q.txAt ?? this.now().toISOString();
     const known = this.events.filter((e) => e.txTime <= txAt);
-    const retracted = new Set(known.filter((e): e is RetractEvent => e.kind === "retract").map((e) => e.factId));
+    const retracted = new Set(known.filter((e): e is RetractEvent | ForgetEvent => e.kind === "retract" || e.kind === "forget").map((e) => e.factId));
     const confirmed = new Set(known.filter((e): e is ConfirmEvent => e.kind === "confirm").map((e) => e.factId));
     const facts = new Map<string, Fact>();
     for (const e of known) {
@@ -252,7 +303,7 @@ export class Ledger {
   }
 
   private retractedAt(factId: string): boolean {
-    return this.events.some((e) => e.kind === "retract" && e.factId === factId);
+    return this.events.some((e) => (e.kind === "retract" || e.kind === "forget") && e.factId === factId);
   }
 
   private append(event: LedgerEvent): void {
@@ -260,3 +311,21 @@ export class Ledger {
     this.events.push(event);
   }
 }
+
+/** Canonical JSON: sorted keys, no whitespace, undefined dropped. The same encoding the receipts package uses. */
+function canonical(value: unknown): string {
+  const sort = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(sort);
+    if (v && typeof v === "object") {
+      const o: Record<string, unknown> = {};
+      for (const k of Object.keys(v as object).sort()) {
+        const x = (v as Record<string, unknown>)[k];
+        if (x !== undefined) o[k] = sort(x);
+      }
+      return o;
+    }
+    return v;
+  };
+  return JSON.stringify(sort(value));
+}
+

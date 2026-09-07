@@ -26,7 +26,8 @@ const Write = z.object({
   confidence: z.number().min(0).max(1).optional(),
   supersedes: z.string().min(1).optional(),
 });
-const Read = z.object({ subject: z.string().min(1).optional(), predicate: z.string().min(1).optional(), space: z.string().min(1).optional(), validAt: iso.optional(), txAt: iso.optional() });
+const Read = z.object({ subject: z.string().min(1).optional(), predicate: z.string().min(1).optional(), space: z.string().min(1).optional(), validAt: iso.optional(), txAt: iso.optional(), includeClaimed: z.boolean().optional() });
+const Confirm = z.object({ factId: z.string().min(1) });
 const Retract = z.object({ factId: z.string().min(1), reason: z.string().min(1), actor: z.string().min(1).optional() });
 const History = z.object({ factId: z.string().min(1) });
 
@@ -39,8 +40,13 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "memory.read",
-    description: "The facts believed at a moment. validAt asks whether a fact was true then; txAt asks whether the ledger knew it then. Both default to now. Filter by space, subject, predicate.",
-    inputSchema: { type: "object", properties: { subject: str, predicate: str, space: str, validAt: str, txAt: str } },
+    description: "The facts believed at a moment. validAt asks whether a fact was true then; txAt asks whether the ledger knew it then. Both default to now. Filter by space, subject, predicate. Quarantined (claimed, unconfirmed) facts are left out unless includeClaimed is true.",
+    inputSchema: { type: "object", properties: { subject: str, predicate: str, space: str, validAt: str, txAt: str, includeClaimed: { type: "boolean" } } },
+  },
+  {
+    name: "memory.confirm",
+    description: "Lift a quarantined (claimed) fact to attested. Only accepted through the gateway, so the confirming actor is the one named in the signed grant.",
+    inputSchema: { type: "object", properties: { factId: str }, required: ["factId"] },
   },
   {
     name: "memory.retract",
@@ -72,21 +78,29 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
     if (opts.requireGateway && !receiptId) return fail("memory server accepts calls only through the receipts gateway; no receipt id on this call");
     const args = req.params.arguments ?? {};
     const actorFor = (claimed: string | undefined) => gatewayAgent ?? claimed ?? "anonymous";
+    // A write is attested when it came through the gateway: the actor is from a signed grant and the receipt exists.
+    const provenance = receiptId && gatewayAgent ? "attested" : "claimed";
     try {
       switch (req.params.name) {
         case "memory.write": {
           const a = Write.parse(args);
-          const ev = ledger.assert({ subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) });
+          const ev = ledger.assert({ subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) });
           return json({ fact: ev.fact, eventId: ev.eventId, txTime: ev.txTime, supersedes: ev.supersedes });
         }
         case "memory.read": {
-          const q = Read.parse(args);
-          return json({ facts: ledger.asOf(q) });
+          const { includeClaimed, ...q } = Read.parse(args);
+          return json({ facts: ledger.asOf({ ...q, include: includeClaimed ? "all" : "attested" }) });
         }
         case "memory.retract": {
           const a = Retract.parse(args);
           const ev = ledger.retract({ factId: a.factId, actor: actorFor(a.actor), reason: a.reason, source: { receiptId } });
           return json({ eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source });
+        }
+        case "memory.confirm": {
+          if (provenance !== "attested") return fail("confirmation must come through the receipts gateway; a self-reported caller cannot lift a fact out of quarantine");
+          const a = Confirm.parse(args);
+          const ev = ledger.confirm({ factId: a.factId, actor: actorFor(undefined), source: { receiptId } });
+          return json({ eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, source: ev.source });
         }
         case "memory.history":
           return json({ events: ledger.history(History.parse(args).factId) });

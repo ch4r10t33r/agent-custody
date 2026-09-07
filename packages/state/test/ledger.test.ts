@@ -102,4 +102,27 @@ describe("fact ledger", () => {
     expect(reopened.asOf()).toEqual(l.asOf());
     expect(reopened.asOf({ validAt: "2026-09-01T12:00:00.000Z" }).map((x) => x.value)).toEqual([1]);
   });
+
+  it("a claimed fact is quarantined until an attested party confirms it, and the confirmation has its own transaction time", () => {
+    const c = clock();
+    const l = new Ledger(file(), c);
+    const claimed = l.assert({ subject: "acct:42", predicate: "owner", value: "dana", space: "org", actor: "sdk-bot" });
+    const attested = l.assert({ subject: "acct:42", predicate: "plan", value: "pro", space: "org", actor: "support-agent", provenance: "attested", source: { receiptId: "r-1" } });
+    expect(l.asOf({ include: "attested" }).map((f) => f.factId)).toEqual([attested.fact.factId]);
+    expect(l.asOf().map((f) => f.provenance)).toEqual(["claimed", "attested"]);
+    c.set("2026-09-02T00:00:00.000Z");
+    const ok = l.confirm({ factId: claimed.fact.factId, actor: "support-agent", source: { receiptId: "r-2" } });
+    expect(ok.kind).toBe("confirm");
+    expect(l.asOf({ include: "attested" }).map((f) => f.factId).sort()).toEqual([claimed.fact.factId, attested.fact.factId].sort());
+    // before the confirmation was recorded, the fact was still in quarantine
+    expect(l.asOf({ include: "attested", validAt: "2026-09-01T12:00:00.000Z", txAt: "2026-09-01T12:00:00.000Z" }).map((f) => f.factId)).toEqual([attested.fact.factId]);
+    expect(l.history(claimed.fact.factId).map((e) => e.kind)).toEqual(["assert", "confirm"]);
+    expect(() => l.confirm({ factId: claimed.fact.factId, actor: "x" })).toThrow(/already attested/);
+    expect(() => l.confirm({ factId: attested.fact.factId, actor: "x" })).toThrow(/already attested/);
+    expect(() => l.confirm({ factId: "nope", actor: "x" })).toThrow(/unknown fact/);
+    l.retract({ factId: claimed.fact.factId, actor: "x", reason: "wrong" });
+    expect(() => l.confirm({ factId: claimed.fact.factId, actor: "x" })).toThrow(/is retracted/);
+    const reopened = new Ledger(l["file" as keyof Ledger] as unknown as string, c);
+    expect(reopened.size).toBe(4);
+  });
 });

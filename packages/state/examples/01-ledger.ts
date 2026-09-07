@@ -31,7 +31,7 @@ show("   believed now");
 show("   what was believed just before the retraction", { validAt: undo.txTime, txAt: new Date(new Date(undo.txTime).getTime() - 1).toISOString() });
 
 console.log("5. The history of the bad fact, oldest first:");
-for (const e of ledger.history(bad.fact.factId)) console.log(`   ${e.kind} at ${e.txTime}${e.kind === "retract" ? ` by ${e.actor}: ${e.reason}` : ` by ${e.fact.actor}`}`);
+for (const e of ledger.history(bad.fact.factId)) console.log(`   ${e.kind} at ${e.txTime} by ${e.kind === "assert" ? e.fact.actor : e.actor}${e.kind === "retract" ? `: ${e.reason}` : ""}`);
 
 const now = ledger.asOf({ subject: "acct:42", predicate: "plan" });
 if (now.length !== 1 || now[0]!.value !== "enterprise" || ledger.size !== 4) throw new Error("unexpected ledger state");

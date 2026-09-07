@@ -10,6 +10,13 @@ export interface Source {
   receiptId: string | null;
 }
 
+/**
+ * How far the write can be trusted. attested: it came through the receipts gateway, so the actor is the agent named in
+ * a human-signed grant and the receipt exists. claimed: it came from somewhere that only says who it is. A claimed
+ * fact is quarantined: the memory server does not return it by default until an attested party confirms it.
+ */
+export type FactProvenance = "attested" | "claimed";
+
 export interface Fact {
   factId: string;
   subject: string;
@@ -20,6 +27,7 @@ export interface Fact {
   /** Who wrote it: a user id, an agent id, a tool name. */
   actor: string;
   source: Source;
+  provenance: FactProvenance;
   /** ISO timestamps. validTo is null while the fact is believed to still hold. */
   validFrom: string;
   validTo: string | null;
@@ -46,7 +54,17 @@ export interface RetractEvent {
   source: Source;
 }
 
-export type LedgerEvent = AssertEvent | RetractEvent;
+/** A confirm lifts a claimed fact to attested. Only an attested party can confirm; the event records who and which receipt. */
+export interface ConfirmEvent {
+  eventId: string;
+  kind: "confirm";
+  txTime: string;
+  factId: string;
+  actor: string;
+  source: Source;
+}
+
+export type LedgerEvent = AssertEvent | RetractEvent | ConfirmEvent;
 
 export interface AssertInput {
   subject: string;
@@ -55,9 +73,17 @@ export interface AssertInput {
   space: string;
   actor: string;
   source?: Source;
+  /** default claimed; the memory server sets attested for writes that came through the gateway */
+  provenance?: FactProvenance;
   validFrom?: string;
   confidence?: number;
   supersedes?: string;
+}
+
+export interface ConfirmInput {
+  factId: string;
+  actor: string;
+  source?: Source;
 }
 
 export interface RetractInput {
@@ -75,6 +101,8 @@ export interface AsOf {
   space?: string;
   subject?: string;
   predicate?: string;
+  /** "attested" returns only facts that were attested at txAt; default "all" */
+  include?: "attested" | "all";
 }
 
 export class Ledger {
@@ -120,6 +148,7 @@ export class Ledger {
         space: input.space,
         actor: input.actor,
         source: input.source ?? { receiptId: null },
+        provenance: input.provenance ?? "claimed",
         validFrom,
         validTo: null,
         confidence: input.confidence ?? null,
@@ -146,16 +175,27 @@ export class Ledger {
     return event;
   }
 
+  confirm(input: ConfirmInput): ConfirmEvent {
+    const prior = this.factById(input.factId);
+    if (!prior) throw new Error(`cannot confirm unknown fact ${input.factId}`);
+    if (this.retractedAt(input.factId)) throw new Error(`fact ${input.factId} is retracted`);
+    if (prior.fact.provenance === "attested" || this.confirmedAt(input.factId)) throw new Error(`fact ${input.factId} is already attested`);
+    const event: ConfirmEvent = { eventId: randomUUID(), kind: "confirm", txTime: this.now().toISOString(), factId: input.factId, actor: input.actor, source: input.source ?? { receiptId: null } };
+    this.append(event);
+    return event;
+  }
+
   /** The facts believed at a moment. Valid time answers "was it true then"; transaction time answers "did the ledger know it then". */
   asOf(q: AsOf = {}): Fact[] {
     const validAt = q.validAt ?? this.now().toISOString();
     const txAt = q.txAt ?? this.now().toISOString();
     const known = this.events.filter((e) => e.txTime <= txAt);
     const retracted = new Set(known.filter((e): e is RetractEvent => e.kind === "retract").map((e) => e.factId));
+    const confirmed = new Set(known.filter((e): e is ConfirmEvent => e.kind === "confirm").map((e) => e.factId));
     const facts = new Map<string, Fact>();
     for (const e of known) {
       if (e.kind !== "assert") continue;
-      facts.set(e.fact.factId, { ...e.fact });
+      facts.set(e.fact.factId, { ...e.fact, provenance: confirmed.has(e.fact.factId) ? "attested" : e.fact.provenance });
       if (e.supersedes && facts.has(e.supersedes) && !retracted.has(e.fact.factId)) {
         facts.get(e.supersedes)!.validTo = e.fact.validFrom;
       }
@@ -167,13 +207,18 @@ export class Ledger {
         (f.validTo === null || validAt < f.validTo) &&
         (q.space === undefined || f.space === q.space) &&
         (q.subject === undefined || f.subject === q.subject) &&
-        (q.predicate === undefined || f.predicate === q.predicate),
+        (q.predicate === undefined || f.predicate === q.predicate) &&
+        (q.include !== "attested" || f.provenance === "attested"),
     );
   }
 
-  /** Every event that touched a fact, oldest first: its assert, the assert that superseded it, its retraction. */
+  /** Every event that touched a fact, oldest first: its assert, the assert that superseded it, its confirmation, its retraction. */
   history(factId: string): LedgerEvent[] {
     return this.events.filter((e) => (e.kind === "assert" ? e.fact.factId === factId || e.supersedes === factId : e.factId === factId));
+  }
+
+  private confirmedAt(factId: string): boolean {
+    return this.events.some((e) => e.kind === "confirm" && e.factId === factId);
   }
 
   private factById(factId: string): AssertEvent | undefined {

@@ -42,10 +42,13 @@ In the gateway's config, the memory server is the upstream, and the grant names 
 | --- | --- | --- |
 | `memory.write` | records a belief in a space, optionally superseding an earlier fact | `context.args.space`, `subject`, `predicate`, `value` |
 | `memory.read` | the facts believed at a moment, by space, subject, predicate, valid time, transaction time | the query |
+| `memory.confirm` | lifts a quarantined fact to attested; accepted only through the gateway | `factId` |
 | `memory.retract` | undoes a belief, keeping it visible to questions about the past | `factId`, `reason` |
 | `memory.history` | every event that touched a fact | `factId` |
 
-Trust tiers are Cedar policies over the space: `permit(principal, action == Action::"memory.write", resource) when { context.args.space == "team:support" };` lets this agent write team memory and nothing else. A read's receipt carries, as `observed`, the exact facts returned, so the ids the agent relied on are already on the record.
+**Quarantine.** Every fact carries a provenance. A write that came through the gateway is `attested`: its actor is the agent named in a human-signed grant and its receipt exists. A write that arrived any other way is `claimed`, and claimed facts are quarantined: `memory.read` leaves them out unless the caller asks for `includeClaimed`, and the policy can refuse that. `memory.confirm`, accepted only through the gateway, lifts a claimed fact to attested with its own receipt and transaction time, so "was this fact still in quarantine on Tuesday" is answerable. A tool result an SDK-only agent wrote down cannot become something the rest of the fleet believes until an attested party says so. Today the server has one client, over stdio, so claimed facts reach a gateway-fronted ledger by being there before it was put under the gateway, or by a direct writer sharing the file; a shared memory server over HTTP, on the plan, is what makes mixed attested and self-reported writers a live deployment.
+
+Trust tiers are Cedar policies over the space and, through `includeClaimed`, over quarantine: `permit(principal, action == Action::"memory.write", resource) when { context.args.space == "team:support" };` lets this agent write team memory and nothing else. A read's receipt carries, as `observed`, the exact facts returned, so the ids the agent relied on are already on the record.
 
 `--allow-direct` lets the server take calls without a gateway; then `source.receiptId` is null and `actor` is whatever the caller said, recorded as such. [examples/03-memory-behind-the-gateway.ts](examples/03-memory-behind-the-gateway.ts) runs the whole loop, including a denied write and a retraction that cites its own receipt.
 
@@ -85,12 +88,13 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 - Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
+- Quarantine: facts carry `attested` or `claimed` provenance; claimed facts are hidden from reads by default and a gateway-only `memory.confirm` lifts them, as a recorded event.
 
 **Next, in the order it pays off**
 
 1. A consumed-facts field on receipts: the gateway records which fact ids a read returned, so later receipts in the session show what the agent relied on.
 2. Blast radius: given a fact id, every downstream receipt and derived fact that cited it, and the retraction that undoes the belief.
 3. Write-through adapters for the memory stores teams already use, tested against the real packages, so the ledger sits under their retrieval and a retraction reaches the store. Certified forget depends on this: a deletion is only real once it has reached the stores that serve recall.
-4. Trust tiers: quarantine of self-reported writes until an attested source or a human confirms them, and Cedar policy over spaces and provenance so a claimed write cannot displace an attested org-space fact.
+4. Trust tiers, the rest: Cedar policy over provenance so a claimed write cannot supersede an attested org-space fact, and quarantine of values that came from untrusted tool output even when the actor is attested.
 5. Signed forget statements: a retention or deletion request produces a verifiable record of which facts were removed from the ledger and from every store behind it.
 6. A memory-mutation eval harness: stale-fact rate, contradiction handling, and blast radius of a bad write, scored the same way for this ledger and for any store put behind the same interface.

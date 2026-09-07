@@ -38,12 +38,16 @@ export interface Gateway {
   close(): Promise<void>;
 }
 
-function resolveFactArgs(template: Record<string, string>, args: Record<string, unknown>): Record<string, unknown> {
+/** Returns null when an optional lookup references a call argument that is absent. */
+function resolveFactArgs(template: Record<string, string>, args: Record<string, unknown>, optional = false): Record<string, unknown> | null {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(template)) {
     if (v.startsWith("$args.")) {
       const key = v.slice("$args.".length);
-      if (!(key in args)) throw new Error(`fact argument "${k}" needs call argument "${key}", which is missing`);
+      if (!(key in args) || args[key] === undefined) {
+        if (optional) return null;
+        throw new Error(`fact argument "${k}" needs call argument "${key}", which is missing`);
+      }
       out[k] = args[key];
     } else {
       out[k] = v;
@@ -85,11 +89,13 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
   const callUpstream = async (name: string, args: Record<string, unknown>, meta?: Record<string, string>): Promise<CallToolResult> =>
     (await upstream.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) })) as CallToolResult;
 
-  async function gatherFacts(tool: string, args: Record<string, unknown>): Promise<Record<string, FactRecord>> {
+  async function gatherFacts(tool: string, args: Record<string, unknown>, meta: Record<string, string>): Promise<Record<string, FactRecord>> {
     const facts: Record<string, FactRecord> = {};
     for (const f of cfg.facts.filter((f: FactConfig) => f.forTools.includes(tool))) {
-      const fargs = resolveFactArgs(f.args, args);
-      const result = await callUpstream(f.tool, fargs);
+      const fargs = resolveFactArgs(f.args, args, f.optional);
+      if (fargs === null) continue;
+      // Lookups carry the same metadata as the forwarded call: they are the gateway acting for this receipt.
+      const result = await callUpstream(f.tool, fargs, meta);
       if (result.isError) throw new Error(`fact "${f.name}" lookup via ${f.tool} failed: ${JSON.stringify(extractValue(result))}`);
       facts[f.name] = { tool: f.tool, args: fargs, value: extractValue(result), resultDigest: digestOf(result), provenance: "observed" };
     }
@@ -112,6 +118,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
     const modelClaim = params._meta?.[MODEL_META_KEY];
     // What the agent had been shown before this call; recorded before this call's own result is seen.
     const consumedNow = [...consumed];
+    const upstreamMeta = { [RECEIPT_META_KEY]: receiptId, [AGENT_META_KEY]: delegation.agent, [PRINCIPAL_META_KEY]: delegation.principal };
 
     let facts: Record<string, FactRecord> = {};
     let policy: PolicyDecision;
@@ -121,7 +128,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       policy = { decision: "deny", reasons: [], errors: [`tool "${tool}" is not in the delegation scopes`], policyDigest: pDigest };
     } else {
       try {
-        facts = await gatherFacts(tool, args);
+        facts = await gatherFacts(tool, args, upstreamMeta);
         const factValues = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.value]));
         policy = evaluate(policyText, {
           agentId: delegation.agent,
@@ -137,7 +144,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       try {
         // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
         // state, such as the memory server, cites the receipt as the source of what it stores.
-        const result = await callUpstream(tool, args, { [RECEIPT_META_KEY]: receiptId, [AGENT_META_KEY]: delegation.agent, [PRINCIPAL_META_KEY]: delegation.principal });
+        const result = await callUpstream(tool, args, upstreamMeta);
         execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed" };
         noteServedFacts(result);
       } catch (e) {

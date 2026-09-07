@@ -33,6 +33,7 @@ const Read = z.object({ subject: z.string().min(1).optional(), predicate: z.stri
 const Confirm = z.object({ factId: z.string().min(1) });
 const Retract = z.object({ factId: z.string().min(1), reason: z.string().min(1), actor: z.string().min(1).optional() });
 const History = z.object({ factId: z.string().min(1) });
+const Get = z.object({ factId: z.string().min(1) });
 
 const str = { type: "string" as const };
 export const TOOLS: Tool[] = [
@@ -55,6 +56,11 @@ export const TOOLS: Tool[] = [
     name: "memory.retract",
     description: "Undo a belief: the fact leaves the present, stays visible to questions about the past, and whatever it superseded is believed again.",
     inputSchema: { type: "object", properties: { factId: str, reason: str, actor: str }, required: ["factId", "reason"] },
+  },
+  {
+    name: "memory.get",
+    description: "One fact by id, whatever its state: its space, actor, provenance, source receipt, validity. Meant for the gateway's fact lookups, so policy can decide on the fact a write supersedes or a retraction targets.",
+    inputSchema: { type: "object", properties: { factId: str }, required: ["factId"] },
   },
   {
     name: "memory.history",
@@ -129,6 +135,15 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
           const a = Confirm.parse(args);
           const ev = ledger.confirm({ factId: a.factId, actor: actorFor(undefined), source: { receiptId } });
           return json({ eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, source: ev.source });
+        }
+        case "memory.get": {
+          const a = Get.parse(args);
+          const f = ledger.facts().find((x) => x.factId === a.factId);
+          if (!f) return fail(`unknown fact ${a.factId}`);
+          const retracted = ledger.history(a.factId).some((e) => e.kind === "retract");
+          // Cedar has no null: absent fields stay absent, so a policy tests them with `has`.
+          const clean = Object.fromEntries(Object.entries({ ...f, source: f.source.receiptId ?? undefined, retracted }).filter(([, v]) => v !== null && v !== undefined));
+          return json(clean);
         }
         case "memory.history":
           return json({ events: ledger.history(History.parse(args).factId) });

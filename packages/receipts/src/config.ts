@@ -16,6 +16,8 @@ const FactSchema = z.object({
   args: z.record(z.string(), z.string()),
   /** which intercepted tools trigger this lookup */
   forTools: z.array(z.string().min(1)).min(1),
+  /** when true and a "$args.<key>" the template needs is absent from the call, the lookup is skipped and the fact is simply not present */
+  optional: z.boolean().default(false),
 });
 
 export const GatewayConfigSchema = z.object({

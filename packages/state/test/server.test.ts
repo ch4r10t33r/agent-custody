@@ -28,7 +28,7 @@ describe("memory server, driven directly", () => {
   afterAll(() => client.close());
 
   it("lists the four tools", async () => {
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.confirm", "memory.retract", "memory.history"]);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.confirm", "memory.retract", "memory.get", "memory.history"]);
   });
 
   it("write, read, supersede, retract, history; the source is null, the actor is whatever the caller claims, and the fact is quarantined", async () => {
@@ -183,5 +183,79 @@ permit(principal, action == Action::"memory.confirm", resource);
     const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), factId);
     expect(b.retraction?.reason).toBe("stale CRM value");
     expect(b.stillBelieved.length).toBeGreaterThan(0);
+  });
+});
+
+describe("policy over provenance: the gateway looks up the fact a write supersedes or a retraction targets", () => {
+  let dir: string;
+  let gw: Gateway;
+  let ledgerFile: string;
+  let attestedOrg: string;
+  let claimedOrg: string;
+  const POLICY = `permit(principal, action == Action::"memory.read", resource);
+permit(principal, action == Action::"memory.get", resource);
+// writes and retractions are fine unless they touch an attested org-space fact
+permit(principal, action == Action::"memory.write", resource);
+permit(principal, action == Action::"memory.retract", resource);
+forbid(principal, action in [Action::"memory.write", Action::"memory.retract"], resource)
+when { context.facts has target && context.facts.target.space == "org" && context.facts.target.provenance == "attested" };
+`;
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "memory-provenance-"));
+    writeKeyPair(generateKeyPair(), join(dir, "keys"), "gateway");
+    const principalKp = generateKeyPair();
+    writeKeyPair(principalKp, join(dir, "keys"), "principal");
+    const now = Date.now();
+    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "memory.retract", "memory.get"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
+    writeFileSync(join(dir, "policy.cedar"), POLICY);
+    ledgerFile = join(dir, "ledger.jsonl");
+    const seed = new Ledger(ledgerFile);
+    attestedOrg = seed.assert({ subject: "policy:refunds", predicate: "limit", value: 100000, space: "org", actor: "finance-agent", provenance: "attested", source: { receiptId: "earlier" } }).fact.factId;
+    claimedOrg = seed.assert({ subject: "policy:refunds", predicate: "note", value: "draft", space: "org", actor: "sdk-bot" }).fact.factId;
+    writeFileSync(join(dir, "gateway.json"), JSON.stringify({
+      identity: { keyFile: "keys/gateway.key" },
+      upstream: { command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile] },
+      grantFile: "grant.json",
+      trustedPrincipalKeys: ["keys/principal.pub"],
+      policyFile: "policy.cedar",
+      facts: [
+        { name: "target", tool: "memory.get", args: { factId: "$args.supersedes" }, forTools: ["memory.write"], optional: true },
+        { name: "target", tool: "memory.get", args: { factId: "$args.factId" }, forTools: ["memory.retract"] },
+      ],
+      receiptsDir: "receipts",
+      logFile: "log.jsonl",
+    }));
+    gw = await createGateway(loadConfig(join(dir, "gateway.json")));
+  });
+  afterAll(() => gw.close());
+
+  it("a write that supersedes nothing needs no lookup and is allowed", async () => {
+    const r = await gw.handleCall({ name: "memory.write", arguments: { subject: "acct:1", predicate: "plan", value: "pro", space: "team:support" } });
+    expect(r.isError).toBeFalsy();
+  });
+
+  it("superseding an attested org fact is forbidden; the receipt shows the fact the policy saw, observed", async () => {
+    const r = await gw.handleCall({ name: "memory.write", arguments: { subject: "policy:refunds", predicate: "limit", value: 10 ** 9, space: "org", supersedes: attestedOrg } });
+    expect(r.isError).toBe(true);
+    expect((r.content[0] as any).text).toMatch(/Denied by policy/);
+    const bundle = JSON.parse(readFileSync(join(dir, "receipts", `${String(r._meta?.[RECEIPT_META_KEY])}.json`), "utf8"));
+    const p = verifyBundle(bundle, { issuerKeys: [loadPublicKey(join(dir, "keys", "gateway.pub"))], principalKeys: [loadPublicKey(join(dir, "keys", "principal.pub"))] }).statement!.predicate as any;
+    expect(p.facts.target.provenance).toBe("observed");
+    expect(p.facts.target.value).toMatchObject({ factId: attestedOrg, space: "org", provenance: "attested", retracted: false });
+    expect(new Ledger(ledgerFile).asOf({ subject: "policy:refunds", predicate: "limit" })[0]?.value).toBe(100000);
+  });
+
+  it("superseding a claimed org fact, and retracting it, are allowed; retracting the attested one is not", async () => {
+    const ok = await gw.handleCall({ name: "memory.write", arguments: { subject: "policy:refunds", predicate: "note", value: "final", space: "org", supersedes: claimedOrg } });
+    expect(ok.isError).toBeFalsy();
+    // the replacement came through the gateway, so it is attested: this policy now protects it too
+    const protectedNow = await gw.handleCall({ name: "memory.retract", arguments: { factId: value(ok).fact.factId, reason: "cleanup" } });
+    expect(protectedNow.isError).toBe(true);
+    // the claimed original can still be retracted
+    const gone = await gw.handleCall({ name: "memory.retract", arguments: { factId: claimedOrg, reason: "cleanup" } });
+    expect(gone.isError).toBeFalsy();
+    const kept = await gw.handleCall({ name: "memory.retract", arguments: { factId: attestedOrg, reason: "trying" } });
+    expect(kept.isError).toBe(true);
+    expect(new Ledger(ledgerFile).asOf({ subject: "policy:refunds", predicate: "limit" })).toHaveLength(1);
   });
 });

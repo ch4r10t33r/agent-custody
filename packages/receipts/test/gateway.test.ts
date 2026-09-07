@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -25,6 +25,28 @@ beforeAll(async () => {
 afterAll(async () => gw?.close());
 
 describe("gateway", () => {
+  it("an optional fact lookup whose call argument is absent is skipped, and a required one denies", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-custody-optional-"));
+    const f = buildFixture(dir);
+    const cfg = JSON.parse(readFileSync(f.configFile, "utf8"));
+    cfg.facts = [
+      { name: "maybe", tool: "customer.lookup", args: { customer_id: "$args.related_customer" }, forTools: ["customer.lookup"], optional: true },
+      { name: "must", tool: "customer.lookup", args: { customer_id: "$args.other" }, forTools: ["stripe.refund"] },
+    ];
+    writeFileSync(f.configFile, JSON.stringify(cfg));
+    const g = await createGateway(loadConfig(f.configFile));
+    try {
+      const ok = await g.handleCall({ name: "customer.lookup", arguments: { customer_id: "cust_123" } });
+      expect(ok.isError).toBeFalsy();
+      expect(decode(JSON.parse(readFileSync(join(f.receiptsDir, `${String(ok._meta?.[RECEIPT_META_KEY])}.json`), "utf8"))).predicate.facts).toEqual({});
+      const denied = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 1 } });
+      expect(denied.isError).toBe(true);
+      expect((denied.content[0] as any).text).toMatch(/needs call argument "other"/);
+    } finally {
+      await g.close();
+    }
+  });
+
   it("only advertises tools inside the delegated scope", async () => {
     expect((await gw.listTools()).map((t) => t.name).sort()).toEqual(["customer.lookup", "stripe.refund"]);
   });

@@ -13,12 +13,13 @@ const TREEHEAD_TYPE = "application/vnd.agent-custody.treehead+json";
 const DELEGATION_TYPE = "application/vnd.agent-custody.delegation+json";
 const subtle = () => globalThis.crypto.subtle;
 
+type Bytes = Uint8Array<ArrayBuffer>;
 const enc = new TextEncoder();
-const b64 = { decode: (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)) };
+const b64 = { decode: (s: string): Bytes => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)) };
 const hex = (buf: ArrayBuffer | Uint8Array) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-const unhex = (h: string) => Uint8Array.from(h.match(/.{2}/g) ?? [], (x) => parseInt(x, 16));
-const concat = (...parts: Uint8Array[]) => { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; };
-const sha256 = async (data: Uint8Array) => new Uint8Array(await subtle().digest("SHA-256", data));
+const unhex = (h: string): Bytes => Uint8Array.from(h.match(/.{2}/g) ?? [], (x) => parseInt(x, 16));
+const concat = (...parts: Bytes[]): Bytes => { const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0)); let o = 0; for (const p of parts) { out.set(p, o); o += p.length; } return out; };
+const sha256 = async (data: Bytes): Promise<Bytes> => new Uint8Array(await subtle().digest("SHA-256", data));
 
 export function canonicalize(value: unknown): string {
   const sort = (v: unknown): unknown => {
@@ -37,7 +38,7 @@ export async function publicKeyFromPem(pem: string): Promise<PublicKey> {
   return { key, keyid: hex(await sha256(der)), pem };
 }
 
-function pae(payloadType: string, payload: Uint8Array): Uint8Array {
+function pae(payloadType: string, payload: Bytes): Bytes {
   return concat(enc.encode(`DSSEv1 ${enc.encode(payloadType).length} ${payloadType} ${payload.length} `), payload);
 }
 
@@ -57,8 +58,8 @@ export async function dsseVerify(env: Envelope, trusted: PublicKey[]): Promise<{
 
 // ---- RFC 6962 / 9162 ----
 const leafHash = (data: string) => sha256(concat(new Uint8Array([0]), enc.encode(data)));
-const nodeHash = (l: Uint8Array, r: Uint8Array) => sha256(concat(new Uint8Array([1]), l, r));
-export async function verifyInclusion(leaf: Uint8Array, proof: Bundle["inclusion"], rootHex: string): Promise<boolean> {
+const nodeHash = (l: Bytes, r: Bytes) => sha256(concat(new Uint8Array([1]), l, r));
+export async function verifyInclusion(leaf: Bytes, proof: Bundle["inclusion"], rootHex: string): Promise<boolean> {
   let fn = proof.leafIndex, sn = proof.treeSize - 1;
   if (fn < 0 || sn < 0 || fn > sn) return false;
   let r = leaf;
@@ -151,7 +152,7 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
     const included = await verifyInclusion(await leafHash(canonicalize(bundle.envelope)), bundle.inclusion, head.rootHash);
     add("log inclusion proof", included, `leaf ${bundle.inclusion.leafIndex} of ${bundle.inclusion.treeSize}, root ${short(head.rootHash)}`);
     if (opts.logLeaves) {
-      const hashes: Uint8Array[] = [];
+      const hashes: Bytes[] = [];
       for (const l of opts.logLeaves) hashes.push(await leafHash(l));
       if (head.treeSize > hashes.length) add("log file root matches tree head", false, `log copy has ${hashes.length} leaves, tree head is at ${head.treeSize}`);
       else { const root = await rootOf(hashes, head.treeSize); add("log file root matches tree head", root === head.rootHash, `recomputed ${short(root)}`); }
@@ -160,9 +161,9 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
   return done(st);
 }
 
-async function rootOf(hashes: Uint8Array[], size: number): Promise<string> {
+async function rootOf(hashes: Bytes[], size: number): Promise<string> {
   const split = (n: number) => { let k = 1; while (k * 2 < n) k *= 2; return k; };
-  const mth = async (lo: number, hi: number): Promise<Uint8Array> => {
+  const mth = async (lo: number, hi: number): Promise<Bytes> => {
     const n = hi - lo;
     if (n === 0) return sha256(new Uint8Array(0));
     if (n === 1) return hashes[lo]!;

@@ -17,6 +17,8 @@ export const RECEIPT_META_KEY = "agent-custody/receipt";
 export const AGENT_META_KEY = "agent-custody/agent";
 /** Set on read results: the ids of the facts served, so the gateway can record what the agent was shown. */
 export const FACTS_META_KEY = "agent-custody/facts";
+/** Set by the gateway on the forwarded call: the values it fetched itself for this call, by fact name. */
+export const OBSERVED_META_KEY = "agent-custody/observed";
 
 const iso = z.string().datetime({ offset: true });
 const Write = z.object({
@@ -29,8 +31,10 @@ const Write = z.object({
   validFrom: iso.optional(),
   confidence: z.number().min(0).max(1).optional(),
   supersedes: z.string().min(1).optional(),
+  /** names a fact the gateway fetched for this call, and optionally a dot path into it, that the value must equal; the write is then verified, or refused */
+  evidence: z.object({ fact: z.string().min(1), path: z.string().optional() }).optional(),
 });
-const Read = z.object({ subject: z.string().min(1).optional(), predicate: z.string().min(1).optional(), space: z.string().min(1).optional(), validAt: iso.optional(), txAt: iso.optional(), includeClaimed: z.boolean().optional() });
+const Read = z.object({ subject: z.string().min(1).optional(), predicate: z.string().min(1).optional(), space: z.string().min(1).optional(), validAt: iso.optional(), txAt: iso.optional(), includeClaimed: z.boolean().optional(), requireVerified: z.boolean().optional() });
 const Confirm = z.object({ factId: z.string().min(1) });
 const Retract = z.object({ factId: z.string().min(1), reason: z.string().min(1), actor: z.string().min(1).optional() });
 const History = z.object({ factId: z.string().min(1) });
@@ -41,13 +45,13 @@ const str = { type: "string" as const };
 export const TOOLS: Tool[] = [
   {
     name: "memory.write",
-    description: "Record a belief: subject, predicate, value, in a space. Optionally supersede an earlier fact. Returns the new fact with its id, transaction time, actor, and source receipt.",
-    inputSchema: { type: "object", properties: { subject: str, predicate: str, value: {}, space: str, actor: str, validFrom: str, confidence: { type: "number" }, supersedes: str }, required: ["subject", "predicate", "value", "space"] },
+    description: "Record a belief: subject, predicate, value, in a space. Optionally supersede an earlier fact. With evidence naming a fact the gateway fetched for this call, the value must equal it (or the field at path) and the write is verified; otherwise it is refused. Returns the new fact with its id, transaction time, actor, provenance, and source receipt.",
+    inputSchema: { type: "object", properties: { subject: str, predicate: str, value: {}, space: str, actor: str, validFrom: str, confidence: { type: "number" }, supersedes: str, evidence: { type: "object", properties: { fact: str, path: str }, required: ["fact"] } }, required: ["subject", "predicate", "value", "space"] },
   },
   {
     name: "memory.read",
-    description: "The facts believed at a moment. validAt asks whether a fact was true then; txAt asks whether the ledger knew it then. Both default to now. Filter by space, subject, predicate. Quarantined (claimed, unconfirmed) facts are left out unless includeClaimed is true.",
-    inputSchema: { type: "object", properties: { subject: str, predicate: str, space: str, validAt: str, txAt: str, includeClaimed: { type: "boolean" } } },
+    description: "The facts believed at a moment. validAt asks whether a fact was true then; txAt asks whether the ledger knew it then. Both default to now. Filter by space, subject, predicate. Quarantined (claimed, unconfirmed) facts are left out unless includeClaimed is true; requireVerified returns only facts whose value the gateway checked against its source.",
+    inputSchema: { type: "object", properties: { subject: str, predicate: str, space: str, validAt: str, txAt: str, includeClaimed: { type: "boolean" }, requireVerified: { type: "boolean" } } },
   },
   {
     name: "memory.confirm",
@@ -102,12 +106,22 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
     if (opts.requireGateway && !receiptId) return fail("memory server accepts calls only through the receipts gateway; no receipt id on this call");
     const actorFor = (claimed: string | undefined) => gatewayAgent ?? claimed ?? "anonymous";
     // A write is attested when it came through the gateway: the actor is from a signed grant and the receipt exists.
-    const provenance = receiptId && gatewayAgent ? "attested" : "claimed";
+    const provenance: "attested" | "claimed" = receiptId && gatewayAgent ? "attested" : "claimed";
+    const observed = (meta[OBSERVED_META_KEY] ?? {}) as Record<string, unknown>;
     try {
       switch (name) {
         case "memory.write": {
           const a = Write.parse(args);
-          const input = { subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) } as const;
+          let writeProvenance: "claimed" | "attested" | "verified" = provenance;
+          if (a.evidence) {
+            // Value-level quarantine: the agent may say where the value came from, and the gateway's own observation decides.
+            if (provenance !== "attested") return fail("evidence needs the gateway: only a fact the gateway fetched itself can verify a value");
+            if (!(a.evidence.fact in observed)) return fail(`no fact named "${a.evidence.fact}" was fetched by the gateway for this call; configure a fact lookup for memory.write`);
+            const expected = a.evidence.path ? a.evidence.path.split(".").reduce<unknown>((v, k) => (v && typeof v === "object" ? (v as Record<string, unknown>)[k] : undefined), observed[a.evidence.fact]) : observed[a.evidence.fact];
+            if (JSON.stringify(sortKeys(expected)) !== JSON.stringify(sortKeys(a.value ?? null))) return fail(`value differs from what the gateway observed in "${a.evidence.fact}${a.evidence.path ? "." + a.evidence.path : ""}"; write refused`);
+            writeProvenance = "verified";
+          }
+          const input = { subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance: writeProvenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) } as const;
           // The stores are written first, so their ids can be recorded on the fact; the ledger's checks run beforehand
           // so a write the ledger would refuse never reaches a store.
           ledger.validateAssert(input);
@@ -118,8 +132,8 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
           return json({ fact: ev.fact, eventId: ev.eventId, txTime: ev.txTime, supersedes: ev.supersedes });
         }
         case "memory.read": {
-          const { includeClaimed, ...q } = Read.parse(args);
-          const facts = ledger.asOf({ ...q, include: includeClaimed ? "all" : "attested" });
+          const { includeClaimed, requireVerified, ...q } = Read.parse(args);
+          const facts = ledger.asOf({ ...q, include: requireVerified ? "verified" : includeClaimed ? "all" : "attested" });
           return { ...json({ facts }), _meta: { [FACTS_META_KEY]: facts.map((f) => f.factId) } };
         }
         case "memory.retract": {
@@ -196,3 +210,14 @@ export async function serveStdio(server: Server): Promise<void> {
     server.onclose = resolve;
   });
 }
+
+function sortKeys(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(sortKeys);
+  if (v && typeof v === "object") {
+    const o: Record<string, unknown> = {};
+    for (const k of Object.keys(v as object).sort()) o[k] = sortKeys((v as Record<string, unknown>)[k]);
+    return o;
+  }
+  return v;
+}
+

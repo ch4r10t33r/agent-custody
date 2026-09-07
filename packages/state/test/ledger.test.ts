@@ -150,4 +150,16 @@ describe("fact ledger", () => {
     expect(() => l.forget({ factId: secret.fact.factId, actor: "x", reason: "again" })).toThrow(/already forgotten/);
     expect(() => l.forget({ factId: "nope", actor: "x", reason: "x" })).toThrow(/unknown fact/);
   });
+
+  it("provenance is ranked: include verified leaves out attested, include attested leaves out claimed", () => {
+    const l = new Ledger(file(), clock());
+    l.assert({ subject: "s", predicate: "a", value: 1, space: "org", actor: "x" });
+    l.assert({ subject: "s", predicate: "b", value: 2, space: "org", actor: "x", provenance: "attested" });
+    l.assert({ subject: "s", predicate: "c", value: 3, space: "org", actor: "x", provenance: "verified" });
+    expect(l.asOf({ include: "verified" }).map((f) => f.predicate)).toEqual(["c"]);
+    expect(l.asOf({ include: "attested" }).map((f) => f.predicate)).toEqual(["b", "c"]);
+    expect(l.asOf().map((f) => f.predicate)).toEqual(["a", "b", "c"]);
+    const v = l.asOf({ include: "verified" })[0]!;
+    expect(() => l.confirm({ factId: v.factId, actor: "x" })).toThrow(/already attested/);
+  });
 });

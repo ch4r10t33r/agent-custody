@@ -194,6 +194,8 @@ The receipt id is the file name under `receiptsDir`.
 
 The call the gateway forwards carries three `_meta` keys the agent cannot set: `agent-custody/receipt`, the id of the receipt being issued for this call; `agent-custody/agent` and `agent-custody/principal`, from the signed delegation grant. An upstream that keeps state can cite the receipt as the source of what it stores and record the attested caller rather than a claimed one. The memory server in `@agent-custody/state` does exactly that. Fact lookups carry the same keys, since they are the gateway acting for the same receipt.
 
+The forwarded call also carries `agent-custody/observed`: the values of the facts the gateway fetched for this call, by name, so an upstream can check a value the agent claims against what the gateway itself saw. The memory server's evidence check works this way.
+
 The upstream can answer in kind. A result whose `_meta` carries `agent-custody/facts`, an array of fact ids, tells the gateway which facts it just served; the gateway remembers them for the rest of the session and every later receipt carries them as `consumed`, labelled `observed` because the gateway saw those results itself. That is what the agent had been shown by the time of each call, an upper bound on what it relied on, and it is what the state package's blast-radius query walks.
 
 ## Operational notes

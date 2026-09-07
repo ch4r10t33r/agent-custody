@@ -318,3 +318,61 @@ describe("several upstreams under one grant", () => {
     }
   });
 });
+
+describe("value-level quarantine: a write cites what the gateway observed", () => {
+  let dir: string;
+  let g: Gateway;
+  let ledgerFile: string;
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "memory-evidence-"));
+    writeKeyPair(generateKeyPair(), join(dir, "keys"), "gateway");
+    const principalKp = generateKeyPair();
+    writeKeyPair(principalKp, join(dir, "keys"), "principal");
+    const now = Date.now();
+    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "customer.lookup"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
+    // org-space writes must cite evidence; the memory server then checks the value against what the gateway fetched
+    writeFileSync(join(dir, "policy.cedar"), `permit(principal, action == Action::"memory.read", resource);
+permit(principal, action == Action::"customer.lookup", resource);
+permit(principal, action == Action::"memory.write", resource) when { context.args.space != "org" || context.args has evidence };
+`);
+    ledgerFile = join(dir, "ledger.jsonl");
+    writeFileSync(join(dir, "gateway.json"), JSON.stringify({
+      identity: { keyFile: "keys/gateway.key" },
+      upstreams: [
+        { name: "memory", command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile] },
+        { name: "crm", command: process.execPath, args: [join(import.meta.dirname, "..", "..", "receipts", "scripts", "fake-stripe.ts")] },
+      ],
+      facts: [{ name: "customer", tool: "customer.lookup", args: { customer_id: "$args.customer_id" }, forTools: ["memory.write"], optional: true }],
+      grantFile: "grant.json", trustedPrincipalKeys: ["keys/principal.pub"], policyFile: "policy.cedar", receiptsDir: "receipts", logFile: "log.jsonl",
+    }));
+    g = await createGateway(loadConfig(join(dir, "gateway.json")));
+  });
+  afterAll(() => g.close());
+
+  it("a value equal to what the gateway fetched from the CRM is written as verified", async () => {
+    const r = await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "email", value: "alex@example.com", space: "org", customer_id: "cust_123", evidence: { fact: "customer", path: "email" } } });
+    expect(r.isError, (r.content[0] as any).text).toBeFalsy();
+    expect(value(r).fact.provenance).toBe("verified");
+    expect(value(await g.handleCall({ name: "memory.read", arguments: { subject: "cust_123", requireVerified: true } })).facts.map((f: any) => f.predicate)).toEqual(["email"]);
+  });
+
+  it("a value that differs from the observation is refused, and so is evidence the gateway did not fetch", async () => {
+    const wrong = await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "email", value: "mallory@example.com", space: "org", customer_id: "cust_123", evidence: { fact: "customer", path: "email" } } });
+    expect(wrong.isError).toBe(true);
+    expect((wrong.content[0] as any).text).toMatch(/differs from what the gateway observed/);
+    const none = await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "email", value: "alex@example.com", space: "org", evidence: { fact: "customer", path: "email" } } });
+    expect(none.isError).toBe(true);
+    expect((none.content[0] as any).text).toMatch(/no fact named "customer" was fetched/);
+    expect(new Ledger(ledgerFile).asOf({ subject: "cust_123" })).toHaveLength(1);
+  });
+
+  it("without evidence an org write is denied by policy, while a team write goes through as attested", async () => {
+    const org = await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "plan", value: "enterprise", space: "org" } });
+    expect(org.isError).toBe(true);
+    expect((org.content[0] as any).text).toMatch(/Denied by policy/);
+    const team = await g.handleCall({ name: "memory.write", arguments: { subject: "cust_123", predicate: "plan", value: "enterprise", space: "team:support" } });
+    expect(value(team).fact.provenance).toBe("attested");
+    expect(value(await g.handleCall({ name: "memory.read", arguments: { subject: "cust_123", requireVerified: true } })).facts.map((f: any) => f.predicate)).toEqual(["email"]);
+    expect(value(await g.handleCall({ name: "memory.read", arguments: { subject: "cust_123" } })).facts.map((f: any) => f.predicate).sort()).toEqual(["email", "plan"]);
+  });
+});

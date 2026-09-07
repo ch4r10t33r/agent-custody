@@ -12,11 +12,15 @@ export interface Source {
 }
 
 /**
- * How far the write can be trusted. attested: it came through the receipts gateway, so the actor is the agent named in
- * a human-signed grant and the receipt exists. claimed: it came from somewhere that only says who it is. A claimed
- * fact is quarantined: the memory server does not return it by default until an attested party confirms it.
+ * How far the write can be trusted.
+ *  - claimed:  it came from somewhere that only says who it is. Quarantined: not returned by default until confirmed.
+ *  - attested: it came through the receipts gateway, so the actor is the agent named in a human-signed grant and the
+ *              receipt exists. The value is still what the agent said.
+ *  - verified: attested, and the value equals what the gateway itself fetched from the source system for this call.
+ *              The actor and the value are both vouched for by something other than the agent.
  */
-export type FactProvenance = "attested" | "claimed";
+export type FactProvenance = "claimed" | "attested" | "verified";
+const RANK: Record<FactProvenance, number> = { claimed: 0, attested: 1, verified: 2 };
 
 export interface Fact {
   factId: string;
@@ -130,8 +134,8 @@ export interface AsOf {
   space?: string;
   subject?: string;
   predicate?: string;
-  /** "attested" returns only facts that were attested at txAt; default "all" */
-  include?: "attested" | "all";
+  /** the least provenance to return: "attested" leaves out quarantined facts, "verified" leaves out everything the agent only asserted; default "all" */
+  include?: "attested" | "verified" | "all";
 }
 
 export class Ledger {
@@ -215,7 +219,7 @@ export class Ledger {
     const prior = this.factById(input.factId);
     if (!prior) throw new Error(`cannot confirm unknown fact ${input.factId}`);
     if (this.retractedAt(input.factId)) throw new Error(`fact ${input.factId} is retracted`);
-    if (prior.fact.provenance === "attested" || this.confirmedAt(input.factId)) throw new Error(`fact ${input.factId} is already attested`);
+    if (prior.fact.provenance !== "claimed" || this.confirmedAt(input.factId)) throw new Error(`fact ${input.factId} is already attested`);
     const event: ConfirmEvent = { eventId: randomUUID(), kind: "confirm", txTime: this.now().toISOString(), factId: input.factId, actor: input.actor, source: input.source ?? { receiptId: null } };
     this.append(event);
     return event;
@@ -269,7 +273,7 @@ export class Ledger {
         (q.space === undefined || f.space === q.space) &&
         (q.subject === undefined || f.subject === q.subject) &&
         (q.predicate === undefined || f.predicate === q.predicate) &&
-        (q.include !== "attested" || f.provenance === "attested"),
+        (q.include === undefined || q.include === "all" || RANK[f.provenance] >= RANK[q.include]),
     );
   }
 

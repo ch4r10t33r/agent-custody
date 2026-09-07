@@ -23,6 +23,8 @@ export const MODEL_META_KEY = "agent-custody/model";
 /** Set by the gateway on the call it forwards upstream: the receipt id, and the agent and principal from the attested grant. */
 export const AGENT_META_KEY = "agent-custody/agent";
 export const PRINCIPAL_META_KEY = "agent-custody/principal";
+/** Set by the gateway on the forwarded call: the values of the facts it fetched itself for this call, by name, so an upstream can check a claimed value against what the gateway observed. */
+export const OBSERVED_META_KEY = "agent-custody/observed";
 /** Set by an upstream on its result: the ids of the facts it served in this call. The gateway remembers them for the session. */
 export const FACTS_META_KEY = "agent-custody/facts";
 
@@ -111,13 +113,13 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
     }
   }
 
-  const callUpstream = async (name: string, args: Record<string, unknown>, meta?: Record<string, string>): Promise<CallToolResult> => {
+  const callUpstream = async (name: string, args: Record<string, unknown>, meta?: Record<string, unknown>): Promise<CallToolResult> => {
     const via = owner.get(name);
     if (!via) throw new Error(`no upstream offers tool "${name}"`);
     return (await upstreams.get(via)!.callTool({ name, arguments: args, ...(meta ? { _meta: meta } : {}) })) as CallToolResult;
   };
 
-  async function gatherFacts(tool: string, args: Record<string, unknown>, meta: Record<string, string>): Promise<Record<string, FactRecord>> {
+  async function gatherFacts(tool: string, args: Record<string, unknown>, meta: Record<string, unknown>): Promise<Record<string, FactRecord>> {
     const facts: Record<string, FactRecord> = {};
     for (const f of cfg.facts.filter((f: FactConfig) => f.forTools.includes(tool))) {
       const fargs = resolveFactArgs(f.args, args, f.optional);
@@ -172,7 +174,8 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       try {
         // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
         // state, such as the memory server, cites the receipt as the source of what it stores.
-        const result = await callUpstream(tool, args, upstreamMeta);
+        const observed = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.value]));
+        const result = await callUpstream(tool, args, { ...upstreamMeta, [OBSERVED_META_KEY]: observed });
         const upstreamSig = upstreamSignatureOf(result);
         execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed", ...(upstreamSig ? { upstream: { envelope: upstreamSig } } : {}) };
         noteServedFacts(result);

@@ -48,7 +48,9 @@ In the gateway's config, the memory server is the upstream, and the grant names 
 | `memory.get` | one fact by id in any state, for the gateway's policy lookups | `factId` |
 | `memory.history` | every event that touched a fact | `factId` |
 
-**Quarantine.** Every fact carries a provenance. A write that came through the gateway is `attested`: its actor is the agent named in a human-signed grant and its receipt exists. A write that arrived any other way is `claimed`, and claimed facts are quarantined: `memory.read` leaves them out unless the caller asks for `includeClaimed`, and the policy can refuse that. `memory.confirm`, accepted only through the gateway, lifts a claimed fact to attested with its own receipt and transaction time, so "was this fact still in quarantine on Tuesday" is answerable. A tool result an SDK-only agent wrote down cannot become something the rest of the fleet believes until an attested party says so. Over stdio the server has one client; shared over HTTP, below, gateways and direct writers feed one ledger and quarantine does its job.
+**Quarantine.** Every fact carries a provenance: `claimed`, `attested`, or `verified`. A write that came through the gateway is `attested`: its actor is the agent named in a human-signed grant and its receipt exists. A write that arrived any other way is `claimed`, and claimed facts are quarantined: `memory.read` leaves them out unless the caller asks for `includeClaimed`, and the policy can refuse that. `memory.confirm`, accepted only through the gateway, lifts a claimed fact to attested with its own receipt and transaction time, so "was this fact still in quarantine on Tuesday" is answerable. A tool result an SDK-only agent wrote down cannot become something the rest of the fleet believes until an attested party says so. Over stdio the server has one client; shared over HTTP, below, gateways and direct writers feed one ledger and quarantine does its job.
+
+**Value-level quarantine.** An attested write still carries whatever value the agent chose to write. When the agent can say where a value came from, the gateway's own observation decides. A `memory.write` may name `evidence: { fact, path }`, a fact the gateway fetched itself for this call through its fact-lookup mechanism (a CRM record, say) and optionally a field in it. The memory server compares the value with the observation: equal, and the fact is written as `verified`, the third provenance level, where both the actor and the value are vouched for by something other than the agent; different, and the write is refused. A policy can require evidence for a space (`context.args has evidence`), and `memory.read` with `requireVerified` returns only verified facts. The test suite runs this with a CRM lookup behind the same gateway as the memory server.
 
 **Policy over the fact being changed.** The gateway can look up the fact a write supersedes or a retraction targets before deciding, through its fact-lookup mechanism and the `memory.get` tool, and the policy then sees that fact's space, actor, and provenance as observed facts. This is the second half of trust tiers: a self-reported note in the org space can be superseded by anyone the grant allows, while an attested org fact cannot be displaced or retracted except by whoever the policy names. In the gateway config:
 
@@ -173,6 +175,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 - Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
+- Value-level quarantine: a write may cite a fact the gateway fetched itself; the value must match it and the fact is then `verified`, the provenance level above attested, or the write is refused.
 - Attested executions: with a key, the memory server signs its results for the gateway's receipt, so a verifier holding its public key sees memory calls as attested.
 - The memory server over HTTP: one ledger shared by several gateways and direct writers, bearer-token auth, quarantine live.
 - Certified forget: `memory.forget` erases a value from the ledger file keeping its digest, stops believing it, removes it from every store, and reports exactly what happened; the gateway's receipt of that call is the certificate.
@@ -184,7 +187,6 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. Value-level quarantine: a value that came from untrusted tool output stays quarantined even when the actor is attested, until a second source or a human agrees.
 2. Retention windows and legal hold on the ledger: forget on a schedule, and a hold that refuses forget for named facts until lifted.
 4. The memory tools from Python, through the sidecar, so SDK-only Python agents can write claimed facts to a shared ledger.
 

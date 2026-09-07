@@ -40,6 +40,7 @@ describe("gateway", () => {
     expect(st.predicate.request.provenance).toBe("claimed");
     expect(st.predicate.model).toEqual({ id: "m1", provenance: "claimed" });
     expect(st.predicate.issuer.kind).toBe("gateway");
+    expect(st.predicate.consumed).toEqual({ factIds: [], provenance: "observed" });
     const v = verifyBundle(bundle, opts);
     expect(failing(v)).toEqual([]);
     expect(v.checks.length).toBeGreaterThanOrEqual(12);

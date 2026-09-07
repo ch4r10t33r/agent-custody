@@ -14,6 +14,8 @@ export const SERVER_VERSION = "0.1.0";
 /** The same keys the receipts gateway sets on the upstream call. Duplicated here so this package needs no runtime import from receipts. */
 export const RECEIPT_META_KEY = "agent-custody/receipt";
 export const AGENT_META_KEY = "agent-custody/agent";
+/** Set on read results: the ids of the facts served, so the gateway can record what the agent was shown. */
+export const FACTS_META_KEY = "agent-custody/facts";
 
 const iso = z.string().datetime({ offset: true });
 const Write = z.object({
@@ -99,7 +101,8 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         }
         case "memory.read": {
           const { includeClaimed, ...q } = Read.parse(args);
-          return json({ facts: ledger.asOf({ ...q, include: includeClaimed ? "all" : "attested" }) });
+          const facts = ledger.asOf({ ...q, include: includeClaimed ? "all" : "attested" });
+          return { ...json({ facts }), _meta: { [FACTS_META_KEY]: facts.map((f) => f.factId) } };
         }
         case "memory.retract": {
           const a = Retract.parse(args);

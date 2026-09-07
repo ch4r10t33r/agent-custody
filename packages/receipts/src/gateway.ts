@@ -21,6 +21,8 @@ export const MODEL_META_KEY = "agent-custody/model";
 /** Set by the gateway on the call it forwards upstream: the receipt id, and the agent and principal from the attested grant. */
 export const AGENT_META_KEY = "agent-custody/agent";
 export const PRINCIPAL_META_KEY = "agent-custody/principal";
+/** Set by an upstream on its result: the ids of the facts it served in this call. The gateway remembers them for the session. */
+export const FACTS_META_KEY = "agent-custody/facts";
 
 export interface CallParams {
   name: string;
@@ -94,12 +96,22 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
     return facts;
   }
 
+  /** Every fact id an upstream has declared it served, in order of first sight. One gateway process is one agent session. */
+  const consumed: string[] = [];
+  const noteServedFacts = (result: CallToolResult) => {
+    const ids = result._meta?.[FACTS_META_KEY];
+    if (!Array.isArray(ids)) return;
+    for (const id of ids) if (typeof id === "string" && !consumed.includes(id)) consumed.push(id);
+  };
+
   async function handleCall(params: CallParams): Promise<CallToolResult> {
     const tool = params.name;
     const args = params.arguments ?? {};
     const receiptId = randomUUID();
     const timestamp = new Date().toISOString();
     const modelClaim = params._meta?.[MODEL_META_KEY];
+    // What the agent had been shown before this call; recorded before this call's own result is seen.
+    const consumedNow = [...consumed];
 
     let facts: Record<string, FactRecord> = {};
     let policy: PolicyDecision;
@@ -127,6 +139,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
         // state, such as the memory server, cites the receipt as the source of what it stores.
         const result = await callUpstream(tool, args, { [RECEIPT_META_KEY]: receiptId, [AGENT_META_KEY]: delegation.agent, [PRINCIPAL_META_KEY]: delegation.principal });
         execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed" };
+        noteServedFacts(result);
       } catch (e) {
         execution = { status: "error", error: String(e instanceof Error ? e.message : e), provenance: "observed" };
       }
@@ -146,6 +159,7 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       tool: { name: tool, provenance: "observed" },
       request: { args, argsDigest: digestOf(args), provenance: "claimed" },
       facts,
+      consumed: { factIds: consumedNow, provenance: "observed" },
       policy: { ...policy, provenance: "observed" },
       execution,
     });

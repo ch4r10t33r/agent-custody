@@ -44,6 +44,12 @@ export interface ReceiptPredicate {
   tool: { name: string; provenance: Provenance };
   request: { args: Record<string, unknown>; argsDigest: string; provenance: "claimed" };
   facts: Record<string, FactRecord>;
+  /**
+   * Fact ids the agent had been shown, through this gateway, by the time of this call: every id an upstream declared
+   * in its result _meta under "agent-custody/facts" on an earlier call in the session. Observed, because the gateway
+   * saw those results itself. Absent on SDK receipts. This is what the agent relied on, as an upper bound.
+   */
+  consumed?: { factIds: string[]; provenance: "observed" };
   /** null when the issuer evaluated no policy. */
   policy: (PolicyDecision & { provenance: Provenance }) | null;
   execution:

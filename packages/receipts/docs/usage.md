@@ -194,6 +194,8 @@ The receipt id is the file name under `receiptsDir`.
 
 The call the gateway forwards carries three `_meta` keys the agent cannot set: `agent-custody/receipt`, the id of the receipt being issued for this call; `agent-custody/agent` and `agent-custody/principal`, from the signed delegation grant. An upstream that keeps state can cite the receipt as the source of what it stores and record the attested caller rather than a claimed one. The memory server in `@agent-custody/state` does exactly that. Fact lookups do not carry them; only the forwarded call does.
 
+The upstream can answer in kind. A result whose `_meta` carries `agent-custody/facts`, an array of fact ids, tells the gateway which facts it just served; the gateway remembers them for the rest of the session and every later receipt carries them as `consumed`, labelled `observed` because the gateway saw those results itself. That is what the agent had been shown by the time of each call, an upper bound on what it relied on, and it is what the state package's blast-radius query walks.
+
 ## Operational notes
 
 - **Money is integer minor units.** Cedar has no floating point. A float in `args` that a policy touches is an evaluation error, which is a deny.

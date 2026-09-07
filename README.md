@@ -10,7 +10,7 @@ The agent is not trusted. The layer around it is, and every record says exactly 
 | --- | --- | --- |
 | [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, fourteen runnable tutorials |
 | [`agent-custody` on PyPI](packages/python/README.md) | The Python client of the sidecar: `decide`, `record`, `wrap`, and adapters for LangChain, the OpenAI Agents SDK, and the Claude Agent SDK, tested against the real packages | working; Go, Java, and Rust clients live in [examples/languages](packages/receipts/examples/languages) |
-| [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | bitemporal fact ledger, and a memory MCP server that runs behind the gateway so every belief is receipted and policy-checked |
+| [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | ledger, memory server behind the gateway, quarantine, blast radius, write-through to Mem0 and Zep, eval harness |
 
 Receipts are the unit. State is the ledger of what the agent came to believe from them. Both append to the same kind of signed log and are checked by the same kind of verifier.
 
@@ -135,4 +135,4 @@ site/                 the website, generated from this repository's markdown by 
 
 ## Plan
 
-The receipts package's roadmap is in [its README](packages/receipts/README.md#plan). The state package has the ledger and the memory server behind the gateway; next, in order: a consumed-facts field on receipts so the blast radius of a wrong fact can be queried; write-through adapters for existing memory stores; signed forget statements.
+The receipts package's roadmap is in [its README](packages/receipts/README.md#plan). The state package has the ledger, the memory server behind the gateway, quarantine, consumed facts and blast radius, write-through to Mem0 and Zep, and the eval harness; next, in order: Cedar policy over provenance so a claimed write cannot displace an attested fact, then signed forget statements that reach every store, then a shared memory server over HTTP.

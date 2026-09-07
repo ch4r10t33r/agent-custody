@@ -11,6 +11,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { createDelegation, createGateway, generateKeyPair, loadConfig, loadPublicKey, RECEIPT_META_KEY, verifyBundle, writeKeyPair, type Gateway } from "@agent-custody/receipts";
 import { Ledger } from "../src/ledger.ts";
 import { createMemoryServer } from "../src/server.ts";
+import { blastRadius, loadReceipts } from "../src/blast.ts";
 
 const value = (r: CallToolResult) => JSON.parse((r.content[0] as { text: string }).text);
 
@@ -153,12 +154,34 @@ permit(principal, action == Action::"memory.confirm", resource);
     expect(value(await gw.handleCall({ name: "memory.read", arguments: { subject: "acct:99" } })).facts.map((f: any) => f.provenance)).toEqual(["attested"]);
   });
 
+  it("receipts carry the facts the agent had been shown, and blast radius walks from a fact to every call and belief that relied on it", async () => {
+    const plan = new Ledger(ledgerFile).asOf({ subject: "acct:42" })[0]!;
+    const readBefore = await gw.handleCall({ name: "memory.read", arguments: { subject: "acct:42" } });
+    const st = (id: string) => verifyBundle(receiptOf({ _meta: { [RECEIPT_META_KEY]: id } } as any), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)] }).statement!.predicate as any;
+    // the read itself was made before the agent had been shown anything in this test's session except earlier reads
+    expect(st(String(readBefore._meta?.[RECEIPT_META_KEY])).consumed.provenance).toBe("observed");
+    const derived = await gw.handleCall({ name: "memory.write", arguments: { subject: "acct:42", predicate: "discount", value: "20%", space: "team:support" } });
+    expect(st(String(derived._meta?.[RECEIPT_META_KEY])).consumed.factIds).toContain(plan.factId);
+    const unrelated = await gw.handleCall({ name: "memory.write", arguments: { subject: "acct:77", predicate: "plan", value: "free", space: "team:support" } });
+    const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), plan.factId);
+    expect(b.fact?.factId).toBe(plan.factId);
+    expect(b.receipts.map((r) => r.receiptId)).toContain(String(derived._meta?.[RECEIPT_META_KEY]));
+    // acct:77 was written after the agent saw the plan fact too, so by the rule it is in the radius: an upper bound, not a proof of dependence
+    expect(b.derivedFacts.map((f) => `${f.subject} ${f.predicate}`).sort()).toEqual(["acct:42 discount", "acct:77 plan"]);
+    expect(b.stillBelieved).toHaveLength(2);
+    expect(b.receipts.map((r) => r.receiptId)).toContain(String(unrelated._meta?.[RECEIPT_META_KEY]));
+    expect(b.retraction).toBeNull();
+  });
+
   it("a retraction through the gateway cites its own receipt", async () => {
-    const factId = new Ledger(ledgerFile).asOf({ subject: "acct:42" })[0]!.factId;
+    const factId = new Ledger(ledgerFile).asOf({ subject: "acct:42", predicate: "plan" })[0]!.factId;
     const r = await gw.handleCall({ name: "memory.retract", arguments: { factId, reason: "stale CRM value" } });
     expect(r.isError).toBeFalsy();
     expect(value(r).source.receiptId).toBe(String(r._meta?.[RECEIPT_META_KEY]));
     expect(value(r).actor).toBe("support-agent");
-    expect(new Ledger(ledgerFile).asOf({ subject: "acct:42" })).toEqual([]);
+    expect(new Ledger(ledgerFile).asOf({ subject: "acct:42", predicate: "plan" })).toEqual([]);
+    const b = blastRadius(new Ledger(ledgerFile), loadReceipts(join(dir, "receipts")), factId);
+    expect(b.retraction?.reason).toBe("stale CRM value");
+    expect(b.stillBelieved.length).toBeGreaterThan(0);
   });
 });

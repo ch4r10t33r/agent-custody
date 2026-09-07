@@ -222,6 +222,17 @@ export class Ledger {
     );
   }
 
+  /** Every fact ever asserted, with supersession applied and retracted ones included, for audits that must see everything. */
+  facts(): Fact[] {
+    const out = new Map<string, Fact>();
+    for (const e of this.events) {
+      if (e.kind !== "assert") continue;
+      out.set(e.fact.factId, { ...e.fact });
+      if (e.supersedes && out.has(e.supersedes) && !this.retractedAt(e.fact.factId)) out.get(e.supersedes)!.validTo = e.fact.validFrom;
+    }
+    return [...out.values()];
+  }
+
   /** Every event that touched a fact, oldest first: its assert, the assert that superseded it, its confirmation, its retraction. */
   history(factId: string): LedgerEvent[] {
     return this.events.filter((e) => (e.kind === "assert" ? e.fact.factId === factId || e.supersedes === factId : e.factId === factId));

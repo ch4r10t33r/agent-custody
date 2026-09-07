@@ -157,6 +157,7 @@ export function formatReport(r: VerifyResult): string {
   for (const [k, f] of Object.entries(p.facts)) row(`fact.${k}`, f.provenance, f.value);
   if (p.policy) row("policy", p.policy.provenance, `${p.policy.decision} [${p.policy.reasons.join(",")}] policy ${short(p.policy.policyDigest)}`);
   else row("policy", "-", "(none evaluated)");
+  if (p.consumed) row("consumed", p.consumed.provenance, p.consumed.factIds.length === 0 ? "(no facts shown before this call)" : p.consumed.factIds);
   row("execution", p.execution.provenance, p.execution.status);
   return lines.join("\n");
 }

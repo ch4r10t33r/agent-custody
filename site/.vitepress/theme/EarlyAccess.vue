@@ -4,7 +4,7 @@
 import { computed, ref } from "vue";
 
 const ENDPOINT = "";
-const TO = "hello@agent-custody.dev";
+const TO = "partha@charioteerconsulting.com";
 
 const email = ref("");
 const agents = ref("");

@@ -28,7 +28,7 @@ describe("memory server, driven directly", () => {
   afterAll(() => client.close());
 
   it("lists the four tools", async () => {
-    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.confirm", "memory.retract", "memory.forget", "memory.get", "memory.history"]);
+    expect((await client.listTools()).tools.map((t) => t.name)).toEqual(["memory.write", "memory.read", "memory.confirm", "memory.retract", "memory.forget", "memory.hold", "memory.release", "memory.sweep", "memory.get", "memory.history"]);
   });
 
   it("write, read, supersede, retract, history; the source is null, the actor is whatever the caller claims, and the fact is quarantined", async () => {
@@ -84,6 +84,7 @@ permit(principal, action == Action::"memory.write", resource) when { context.arg
 permit(principal, action == Action::"memory.retract", resource);
 permit(principal, action == Action::"memory.confirm", resource);
 permit(principal, action == Action::"memory.forget", resource);
+permit(principal, action in [Action::"memory.hold", Action::"memory.release"], resource);
 `;
   beforeAll(async () => {
     dir = mkdtempSync(join(tmpdir(), "memory-gateway-"));
@@ -93,7 +94,7 @@ permit(principal, action == Action::"memory.forget", resource);
     gatewayPub = gateway.pubFile;
     principalPub = principal.pubFile;
     const now = Date.now();
-    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "memory.retract", "memory.history", "memory.confirm", "memory.forget"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
+    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "memory.retract", "memory.history", "memory.confirm", "memory.forget", "memory.hold", "memory.release"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
     writeFileSync(join(dir, "policy.cedar"), POLICY);
     ledgerFile = join(dir, "ledger.jsonl");
     memoryPub = writeKeyPair(generateKeyPair(), join(dir, "keys"), "memory").pubFile;
@@ -177,6 +178,23 @@ permit(principal, action == Action::"memory.forget", resource);
     expect(b.stillBelieved).toHaveLength(2);
     expect(b.receipts.map((r) => r.receiptId)).toContain(String(unrelated._meta?.[RECEIPT_META_KEY]));
     expect(b.retraction).toBeNull();
+  });
+
+  it("a legal hold through the gateway blocks forget until released, and both are receipted with the attested actor", async () => {
+    const w = await gw.handleCall({ name: "memory.write", arguments: { subject: "person:5", predicate: "phone", value: "+1 555 0199", space: "team:support" } });
+    const factId = value(w).fact.factId;
+    const h = await gw.handleCall({ name: "memory.hold", arguments: { factId, reason: "litigation hold 7" } });
+    expect(value(h)).toMatchObject({ kind: "hold", actor: "support-agent" });
+    expect(value(h).source.receiptId).toBe(String(h._meta?.[RECEIPT_META_KEY]));
+    const blocked = await gw.handleCall({ name: "memory.forget", arguments: { factId, reason: "deletion request" } });
+    expect(blocked.isError).toBe(true);
+    expect((blocked.content[0] as any).text).toMatch(/legal hold/);
+    expect(readFileSync(ledgerFile, "utf8")).toContain("+1 555 0199");
+    const rel = await gw.handleCall({ name: "memory.release", arguments: { factId, reason: "matter closed" } });
+    expect(value(rel).kind).toBe("release");
+    const gone = await gw.handleCall({ name: "memory.forget", arguments: { factId, reason: "deletion request" } });
+    expect(gone.isError).toBeFalsy();
+    expect(readFileSync(ledgerFile, "utf8")).not.toContain("+1 555 0199");
   });
 
   it("a forget through the gateway: the value is gone from the ledger, and the receipt's observed result certifies it", async () => {

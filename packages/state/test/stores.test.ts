@@ -128,4 +128,19 @@ describe("write-through stores", () => {
     expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === `/v1/memories/${w.fact.external.mem0}/`)).toBe(true);
     expect(zep.seen.some((s) => s.method === "DELETE" && s.path === `/graph/episodes/${w.fact.external.zep}`)).toBe(true);
   });
+
+  it("a sweep through the server forgets old facts in the ledger and removes each from both stores, skipping a held one", async () => {
+    const a = value((await client.callTool({ name: "memory.write", arguments: { subject: "old:1", predicate: "email", value: "old1@x", space: "team:support" } })) as CallToolResult);
+    const b = value((await client.callTool({ name: "memory.write", arguments: { subject: "old:2", predicate: "email", value: "old2@x", space: "team:support" } })) as CallToolResult);
+    value((await client.callTool({ name: "memory.hold", arguments: { factId: b.fact.factId, reason: "litigation" } })) as CallToolResult);
+    const future = new Date(Date.now() + 60_000).toISOString();
+    const r = value((await client.callTool({ name: "memory.sweep", arguments: { before: future, space: "team:support", reason: "retention" } })) as CallToolResult);
+    expect(r.forgotten.map((f: any) => f.factId)).toContain(a.fact.factId);
+    expect(r.held).toEqual([b.fact.factId]);
+    expect(r.stillHeld).toEqual([]);
+    expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === `/v1/memories/${a.fact.external.mem0}/`)).toBe(true);
+    expect(zep.seen.some((s) => s.method === "DELETE" && s.path === `/graph/episodes/${a.fact.external.zep}`)).toBe(true);
+    expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).not.toContain("old1@x");
+    expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).toContain("old2@x");
+  });
 });

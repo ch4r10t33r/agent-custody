@@ -45,6 +45,8 @@ In the gateway's config, the memory server is the upstream, and the grant names 
 | `memory.confirm` | lifts a quarantined fact to attested; accepted only through the gateway | `factId` |
 | `memory.retract` | undoes a belief, keeping it visible to questions about the past | `factId`, `reason` |
 | `memory.forget` | erases the value from the ledger and every store, keeping the digest; the receipt is the certificate | `factId`, `reason` |
+| `memory.hold`, `memory.release` | legal hold: while it stands the fact cannot be forgotten by request or sweep | `factId`, `reason` |
+| `memory.sweep` | retention: forget what was learned before an instant, in a space or all, skipping held facts, reaching every store | `before`, `space`, `reason` |
 | `memory.get` | one fact by id in any state, for the gateway's policy lookups | `factId` |
 | `memory.history` | every event that touched a fact | `factId` |
 
@@ -79,6 +81,8 @@ Trust tiers are Cedar policies over the space and, through `includeClaimed`, ove
 ## Certified forget
 
 A deletion demand is different from a correction. Retract keeps the record; forget erases the value. `memory.forget` removes the fact's value from the ledger file itself, replacing it with the value's digest so the ledger can still prove what it held without holding it, stops believing the fact, and removes it from every store behind the server. The result says exactly what happened: erased from the ledger, removed from which stores, still held by which, with the digest, the actor, and the reason.
+
+**Retention and legal hold.** `memory.sweep` forgets every fact the ledger learned of before an instant, in one space or all, and removes each from every store; it is retention as a receipted call, with the receipt as the record of what was erased. `memory.hold` puts a legal hold on a fact: while it stands, neither a deletion request nor a sweep can forget it, and `memory.release` lifts it. Holds and releases are events with actor, reason, and receipt, so the history of a fact shows the hold as plainly as the write. `agent-custody-memory sweep --ledger ... --before ... --reason ...` runs retention on the ledger file alone, for ledgers with no stores behind them.
 
 The certificate is the receipt. Through the gateway, `memory.forget` is a receipted call whose result the gateway observed, so the signed, logged receipt records that the erasure happened, who asked for it, and what the stores answered. Hand that receipt to whoever demanded the deletion; anyone with the gateway's public key can verify it.
 
@@ -158,7 +162,7 @@ The ledger refuses to supersede a fact that is unknown, already superseded, or r
 src/ledger.ts   the fact record, the two event kinds, as-of queries, supersession, retraction, JSONL persistence
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
-src/cli.ts      agent-custody-memory serve (stdio or --http), blast
+src/cli.ts      agent-custody-memory serve (stdio or --http), sweep, blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
 src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
@@ -175,6 +179,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 - Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
+- Retention and legal hold: a receipted sweep forgets what was learned before an instant and reaches the stores; a hold refuses forget and sweep until released, as events on the fact's history.
 - Value-level quarantine: a write may cite a fact the gateway fetched itself; the value must match it and the fact is then `verified`, the provenance level above attested, or the write is refused.
 - Attested executions: with a key, the memory server signs its results for the gateway's receipt, so a verifier holding its public key sees memory calls as attested.
 - The memory server over HTTP: one ledger shared by several gateways and direct writers, bearer-token auth, quarantine live.
@@ -187,6 +192,5 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-2. Retention windows and legal hold on the ledger: forget on a schedule, and a hold that refuses forget for named facts until lifted.
-4. The memory tools from Python, through the sidecar, so SDK-only Python agents can write claimed facts to a shared ledger.
+1. The memory tools from Python, through the sidecar, so SDK-only Python agents can write claimed facts to a shared ledger.
 

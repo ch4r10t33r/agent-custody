@@ -162,4 +162,28 @@ describe("fact ledger", () => {
     const v = l.asOf({ include: "verified" })[0]!;
     expect(() => l.confirm({ factId: v.factId, actor: "x" })).toThrow(/already attested/);
   });
+
+  it("a legal hold refuses forget and sweep until released; a sweep forgets what was learned before the cutoff", () => {
+    const c = clock("2026-09-01T00:00:00.000Z");
+    const l = new Ledger(file(), c);
+    const old = l.assert({ subject: "p:1", predicate: "email", value: "a@x", space: "org", actor: "x" });
+    const kept = l.assert({ subject: "p:2", predicate: "email", value: "b@x", space: "org", actor: "x" });
+    const other = l.assert({ subject: "p:3", predicate: "email", value: "c@x", space: "team", actor: "x" });
+    c.set("2026-09-10T00:00:00.000Z");
+    const recent = l.assert({ subject: "p:4", predicate: "email", value: "d@x", space: "org", actor: "x" });
+    l.hold({ factId: kept.fact.factId, actor: "legal", reason: "litigation 12" });
+    expect(l.held(kept.fact.factId)).toBe(true);
+    expect(() => l.forget({ factId: kept.fact.factId, actor: "x", reason: "request" })).toThrow(/legal hold/);
+    expect(() => l.hold({ factId: kept.fact.factId, actor: "legal", reason: "again" })).toThrow(/already on hold/);
+    const r = l.sweep({ before: "2026-09-05T00:00:00.000Z", space: "org", actor: "retention", reason: "90 days" });
+    expect(r.forgotten.map((e) => e.factId)).toEqual([old.fact.factId]);
+    expect(r.held).toEqual([kept.fact.factId]);
+    expect(l.facts().find((f) => f.factId === other.fact.factId)?.forgotten).toBeUndefined();
+    expect(l.facts().find((f) => f.factId === recent.fact.factId)?.forgotten).toBeUndefined();
+    l.release({ factId: kept.fact.factId, actor: "legal", reason: "matter closed" });
+    expect(l.held(kept.fact.factId)).toBe(false);
+    expect(() => l.release({ factId: kept.fact.factId, actor: "legal", reason: "twice" })).toThrow(/not on hold/);
+    expect(l.forget({ factId: kept.fact.factId, actor: "x", reason: "request" }).kind).toBe("forget");
+    expect(l.history(kept.fact.factId).map((e) => e.kind)).toEqual(["assert", "hold", "release", "forget"]);
+  });
 });

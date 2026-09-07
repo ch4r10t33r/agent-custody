@@ -89,7 +89,18 @@ export interface ForgetEvent {
   valueDigest: string;
 }
 
-export type LedgerEvent = AssertEvent | RetractEvent | ConfirmEvent | ForgetEvent;
+/** A legal hold: while it stands, the fact cannot be forgotten, by request or by retention sweep. Release lifts it. */
+export interface HoldEvent {
+  eventId: string;
+  kind: "hold" | "release";
+  txTime: string;
+  factId: string;
+  actor: string;
+  reason: string;
+  source: Source;
+}
+
+export type LedgerEvent = AssertEvent | RetractEvent | ConfirmEvent | ForgetEvent | HoldEvent;
 
 export interface AssertInput {
   subject: string;
@@ -114,6 +125,22 @@ export interface ConfirmInput {
 
 export interface ForgetInput {
   factId: string;
+  actor: string;
+  reason: string;
+  source?: Source;
+}
+
+export interface HoldInput {
+  factId: string;
+  actor: string;
+  reason: string;
+  source?: Source;
+}
+
+export interface SweepInput {
+  /** every fact the ledger learned of before this instant is forgotten, unless held or already forgotten */
+  before: string;
+  space?: string;
   actor: string;
   reason: string;
   source?: Source;
@@ -230,10 +257,50 @@ export class Ledger {
    * place, which is the one thing an append-only ledger must do for a deletion demand. Everything else about the fact
    * stays: who wrote it, when, from which receipt, and now who erased it and why.
    */
+  /** Whether a legal hold currently stands on the fact. */
+  held(factId: string): boolean {
+    let held = false;
+    for (const e of this.events) if ((e.kind === "hold" || e.kind === "release") && e.factId === factId) held = e.kind === "hold";
+    return held;
+  }
+
+  hold(input: HoldInput): HoldEvent {
+    const prior = this.factById(input.factId);
+    if (!prior) throw new Error(`cannot hold unknown fact ${input.factId}`);
+    if (prior.fact.forgotten) throw new Error(`fact ${input.factId} is already forgotten`);
+    if (this.held(input.factId)) throw new Error(`fact ${input.factId} is already on hold`);
+    const event: HoldEvent = { eventId: randomUUID(), kind: "hold", txTime: this.now().toISOString(), factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null } };
+    this.append(event);
+    return event;
+  }
+
+  release(input: HoldInput): HoldEvent {
+    if (!this.held(input.factId)) throw new Error(`fact ${input.factId} is not on hold`);
+    const event: HoldEvent = { eventId: randomUUID(), kind: "release", txTime: this.now().toISOString(), factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null } };
+    this.append(event);
+    return event;
+  }
+
+  /** Retention: forgets every fact the ledger learned of before the cutoff, in one space or all, skipping held and already-forgotten facts. Returns what it forgot and what it skipped. */
+  sweep(input: SweepInput): { forgotten: ForgetEvent[]; held: string[] } {
+    const forgotten: ForgetEvent[] = [];
+    const held: string[] = [];
+    const targets = this.events.filter((e): e is AssertEvent => e.kind === "assert" && e.txTime < input.before && (input.space === undefined || e.fact.space === input.space) && !e.fact.forgotten);
+    for (const e of targets) {
+      if (this.held(e.fact.factId)) {
+        held.push(e.fact.factId);
+        continue;
+      }
+      forgotten.push(this.forget({ factId: e.fact.factId, actor: input.actor, reason: input.reason, ...(input.source ? { source: input.source } : {}) }));
+    }
+    return { forgotten, held };
+  }
+
   forget(input: ForgetInput): ForgetEvent {
     const prior = this.factById(input.factId);
     if (!prior) throw new Error(`cannot forget unknown fact ${input.factId}`);
     if (prior.fact.forgotten) throw new Error(`fact ${input.factId} is already forgotten`);
+    if (this.held(input.factId)) throw new Error(`fact ${input.factId} is on legal hold; release it first`);
     const txTime = this.now().toISOString();
     const valueDigest = createHash("sha256").update(canonical(prior.fact.value)).digest("hex");
     for (const e of this.events) {

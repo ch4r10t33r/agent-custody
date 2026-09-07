@@ -14,6 +14,9 @@ const USAGE = `agent-custody-memory <command>
                                                    By default it refuses calls that did not come through the gateway.
   serve --ledger <ledger.jsonl> --http [--port 8790] [--host 127.0.0.1] [--token-env NAME] [--allow-direct]
                                                    the same server shared over HTTP: several gateways, one ledger
+  sweep --ledger <ledger.jsonl> --before <ISO instant> [--space <space>] --reason <text> [--actor <id>]
+                                                   retention on the ledger file alone: forgets what was learned before the instant, skipping held facts.
+                                                   Through the gateway, memory.sweep does the same and reaches the stores.
   blast --ledger <ledger.jsonl> --receipts <dir> --fact <factId> [--json]
                                                    everything that relied on a fact: later calls, derived beliefs, and whether it was retracted
 `;
@@ -37,6 +40,14 @@ async function main(argv: string[]): Promise<number> {
       }
       console.error(`agent-custody-memory: ledger=${values.ledger} events=${ledger.size} ${values["allow-direct"] ? "direct calls allowed" : "gateway calls only"}`);
       await serveStdio(createMemoryServer(ledger, { requireGateway: !values["allow-direct"], ...(identity ? { identity } : {}) }));
+      return 0;
+    }
+    case "sweep": {
+      const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, before: { type: "string" }, space: { type: "string" }, reason: { type: "string" }, actor: { type: "string", default: "cli" } } });
+      if (!values.ledger || !values.before || !values.reason) throw new Error("sweep needs --ledger, --before, and --reason");
+      const r = new Ledger(values.ledger).sweep({ before: new Date(values.before).toISOString(), ...(values.space ? { space: values.space } : {}), actor: values.actor, reason: values.reason });
+      console.log(`forgot ${r.forgotten.length} fact(s); ${r.held.length} on hold, kept`);
+      for (const f of r.forgotten) console.log(`  ${f.factId}  digest ${f.valueDigest.slice(0, 12)}`);
       return 0;
     }
     case "blast": {

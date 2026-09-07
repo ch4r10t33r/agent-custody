@@ -2,7 +2,7 @@
 // Bitemporal. Valid time is when a fact was true in the world; transaction time is when the ledger learned of it.
 // Nothing is ever edited in place. Correcting a belief is a new event, so "what did the agent believe at T" is always answerable.
 import { randomUUID } from "node:crypto";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -33,8 +33,8 @@ export interface Fact {
   actor: string;
   source: Source;
   provenance: FactProvenance;
-  /** present once the value has been erased: the value field is null and this is the digest of what it was */
-  forgotten?: { valueDigest: string; at: string };
+  /** present once the value has been erased: the value field is null and this is the digest of what it was, or null when none was kept */
+  forgotten?: { valueDigest: string | null; digestKind: DigestKind; at: string };
   /** ids of this fact in the retrieval stores it was written through to, by store name; absent when there are none */
   external?: Record<string, string>;
   /** ISO timestamps. validTo is null while the fact is believed to still hold. */
@@ -74,6 +74,12 @@ export interface ConfirmEvent {
 }
 
 /**
+ * How a forgotten value's digest was made. sha256 is guessable for short values by anyone holding the file;
+ * hmac-sha256 needs the ledger's forget key, kept outside the file; none keeps nothing derived from the value.
+ */
+export type DigestKind = "sha256" | "hmac-sha256" | "none";
+
+/**
  * A forget is erasure, not correction. The fact's value is removed from the ledger file itself and replaced by its
  * digest, so the ledger can still prove which value it held without holding it. The fact stops being believed.
  */
@@ -85,8 +91,9 @@ export interface ForgetEvent {
   actor: string;
   reason: string;
   source: Source;
-  /** sha256 of the canonical JSON of the erased value */
-  valueDigest: string;
+  /** digest of the canonical JSON of the erased value, per digestKind; null when none was kept */
+  valueDigest: string | null;
+  digestKind: DigestKind;
 }
 
 /** A legal hold: while it stands, the fact cannot be forgotten, by request or by retention sweep. Release lifts it. */
@@ -128,6 +135,8 @@ export interface ForgetInput {
   actor: string;
   reason: string;
   source?: Source;
+  /** false keeps no digest at all; default true */
+  keepDigest?: boolean;
 }
 
 export interface HoldInput {
@@ -144,6 +153,7 @@ export interface SweepInput {
   actor: string;
   reason: string;
   source?: Source;
+  keepDigest?: boolean;
 }
 
 export interface RetractInput {
@@ -169,10 +179,13 @@ export class Ledger {
   private readonly events: LedgerEvent[] = [];
   private readonly file: string;
   private readonly now: () => Date;
+  private readonly forgetKey: Buffer | null;
 
-  constructor(file: string, opts: { now?: () => Date } = {}) {
+  /** forgetKey: a secret kept outside the file; with it, forgotten values leave an HMAC rather than a plain hash. */
+  constructor(file: string, opts: { now?: () => Date; forgetKey?: string | Buffer } = {}) {
     this.file = file;
     this.now = opts.now ?? (() => new Date());
+    this.forgetKey = opts.forgetKey ? Buffer.from(opts.forgetKey) : null;
     if (existsSync(file)) {
       for (const line of readFileSync(file, "utf8").split("\n")) {
         if (line.trim()) this.events.push(JSON.parse(line));
@@ -291,7 +304,7 @@ export class Ledger {
         held.push(e.fact.factId);
         continue;
       }
-      forgotten.push(this.forget({ factId: e.fact.factId, actor: input.actor, reason: input.reason, ...(input.source ? { source: input.source } : {}) }));
+      forgotten.push(this.forget({ factId: e.fact.factId, actor: input.actor, reason: input.reason, ...(input.source ? { source: input.source } : {}), ...(input.keepDigest === undefined ? {} : { keepDigest: input.keepDigest }) }));
     }
     return { forgotten, held };
   }
@@ -302,14 +315,16 @@ export class Ledger {
     if (prior.fact.forgotten) throw new Error(`fact ${input.factId} is already forgotten`);
     if (this.held(input.factId)) throw new Error(`fact ${input.factId} is on legal hold; release it first`);
     const txTime = this.now().toISOString();
-    const valueDigest = createHash("sha256").update(canonical(prior.fact.value)).digest("hex");
+    const text = canonical(prior.fact.value);
+    const digestKind: DigestKind = input.keepDigest === false ? "none" : this.forgetKey ? "hmac-sha256" : "sha256";
+    const valueDigest = digestKind === "none" ? null : digestKind === "hmac-sha256" ? createHmac("sha256", this.forgetKey!).update(text).digest("hex") : createHash("sha256").update(text).digest("hex");
     for (const e of this.events) {
       if (e.kind === "assert" && e.fact.factId === input.factId) {
         e.fact.value = null;
-        e.fact.forgotten = { valueDigest, at: txTime };
+        e.fact.forgotten = { valueDigest, digestKind, at: txTime };
       }
     }
-    const event: ForgetEvent = { eventId: randomUUID(), kind: "forget", txTime, factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null }, valueDigest };
+    const event: ForgetEvent = { eventId: randomUUID(), kind: "forget", txTime, factId: input.factId, actor: input.actor, reason: input.reason, source: input.source ?? { receiptId: null }, valueDigest, digestKind };
     this.events.push(event);
     const tmp = `${this.file}.tmp`;
     writeFileSync(tmp, this.events.map((e) => JSON.stringify(e)).join("\n") + "\n");

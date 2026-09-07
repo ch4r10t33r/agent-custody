@@ -143,4 +143,10 @@ describe("write-through stores", () => {
     expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).not.toContain("old1@x");
     expect(readFileSync(ledger["file" as keyof Ledger] as unknown as string, "utf8")).toContain("old2@x");
   });
+
+  it("the forget result names the digest kind, and keepDigest false leaves none", async () => {
+    const w = value((await client.callTool({ name: "memory.write", arguments: { subject: "p:8", predicate: "email", value: "x@y", space: "team:support" } })) as CallToolResult);
+    const r = value((await client.callTool({ name: "memory.forget", arguments: { factId: w.fact.factId, reason: "request", keepDigest: false } })) as CallToolResult);
+    expect(r).toMatchObject({ digestKind: "none", valueDigest: null, erasedFromLedger: true });
+  });
 });

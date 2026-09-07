@@ -6,6 +6,7 @@ import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./
 import { createDelegation } from "./delegation.ts";
 import { createGateway, serveStdio } from "./gateway.ts";
 import { serveLog } from "./log-sink.ts";
+import { pruneLog } from "./retention.ts";
 import { serveSidecar } from "./sidecar.ts";
 import type { ReceiptBundle, TreeHead } from "./receipt.ts";
 import type { Envelope } from "./crypto.ts";
@@ -21,6 +22,8 @@ const USAGE = `agent-custody <command>
   gateway --config <gateway.json>
   hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_CUSTODY_CONFIG)
   serve   --config <sdk.json> [--port 8788] [--host 127.0.0.1]   the SDK as a local HTTP API for agents in other languages
+  prune   --log <log.jsonl> --before <ISO instant> [--receipts <dir>]
+          retention on the receipt log: replaces older leaves with their hashes, so proofs still verify and the content is gone
   log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
   verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--upstream-key <pub>] [--log <log.jsonl>] [--json]
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--json]
@@ -90,6 +93,14 @@ async function main(argv: string[]): Promise<number> {
       console.error(`agent-custody serve: ${running.url} agent=${issuer.agentId} keyid=${issuer.keyid} log=${issuer.log.kind}:${issuer.log.where}`);
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       await running.close();
+      return 0;
+    }
+    case "prune": {
+      const { values } = parseArgs({ args: rest, options: { log: { type: "string" }, before: { type: "string" }, receipts: { type: "string" } } });
+      if (!values.log || !values.before) throw new Error("prune needs --log and --before");
+      const r = pruneLog(values.log, new Date(values.before).toISOString(), values.receipts);
+      console.log(`pruned ${r.pruned.length} leaf(s), kept ${r.kept}, removed ${r.bundlesRemoved} bundle file(s)`);
+      for (const p of r.pruned) console.log(`  leaf ${p.leafIndex}  ${p.timestamp}  receipt ${p.receiptId ?? "?"}`);
       return 0;
     }
     case "log": {

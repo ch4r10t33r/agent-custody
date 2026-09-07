@@ -173,3 +173,13 @@ On a gateway receipt the execution is `observed`: the gateway saw what the upstr
 
 For upstream authors, `signResult(result, key, receiptId, tool)` from `@agent-custody/receipts` does the signing; the receipt id arrives in the call's `_meta["agent-custody/receipt"]`. The memory server in `@agent-custody/state` signs when started with `--key`, and the demo's fake upstream does too. Provider-native signatures, such as Stripe's webhook signatures, are adapters on top of the same field and are not implemented yet.
 
+## Retention on the log
+
+Receipts hold values: request arguments, results, facts. The log is append-only and hashed, so nothing can simply be deleted from it. `prune` is how retention reaches it without breaking a proof:
+
+```bash
+node src/cli.ts prune --log log.jsonl --before 2026-06-01T00:00:00Z --receipts receipts
+```
+
+Every leaf whose receipt is older than the cutoff is replaced in the file by its leaf hash, and the receipt's bundle file is deleted. The Merkle tree is built from leaf hashes, so every root, every inclusion proof, and every consistency proof for the remaining leaves is unchanged, and `--log` verification of later receipts still passes. Someone who kept a pruned receipt's bundle can still prove it was in the log; nobody holding only the log can recover what it said. Run it on the same schedule as memory retention.
+

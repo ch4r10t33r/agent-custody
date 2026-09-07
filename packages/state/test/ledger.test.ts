@@ -186,4 +186,29 @@ describe("fact ledger", () => {
     expect(l.forget({ factId: kept.fact.factId, actor: "x", reason: "request" }).kind).toBe("forget");
     expect(l.history(kept.fact.factId).map((e) => e.kind)).toEqual(["assert", "hold", "release", "forget"]);
   });
+
+  it("a forget key turns the kept digest into an HMAC, and keepDigest false keeps nothing", () => {
+    const f1 = file();
+    const a = new Ledger(f1, { ...clock(), forgetKey: "secret-one" });
+    const b = new Ledger(file(), { ...clock(), forgetKey: "secret-two" });
+    const plain = new Ledger(file(), clock());
+    const write = (l: Ledger) => l.assert({ subject: "p:1", predicate: "email", value: "dana@example.com", space: "org", actor: "x" }).fact.factId;
+    const ea = a.forget({ factId: write(a), actor: "dpo", reason: "request" });
+    const eb = b.forget({ factId: write(b), actor: "dpo", reason: "request" });
+    const ep = plain.forget({ factId: write(plain), actor: "dpo", reason: "request" });
+    expect(ea.digestKind).toBe("hmac-sha256");
+    expect(eb.digestKind).toBe("hmac-sha256");
+    expect(ep.digestKind).toBe("sha256");
+    expect(ea.valueDigest).not.toBe(eb.valueDigest);
+    expect(ea.valueDigest).not.toBe(ep.valueDigest);
+    expect(readFileSync(f1, "utf8")).not.toContain("dana@example.com");
+    // the same secret reproduces the digest, which is how the ledger proves what it erased to someone shown the key
+    const again = new Ledger(file(), { ...clock(), forgetKey: "secret-one" });
+    expect(again.forget({ factId: write(again), actor: "dpo", reason: "request" }).valueDigest).toBe(ea.valueDigest);
+    const none = new Ledger(file(), { ...clock(), forgetKey: "secret-one" });
+    const en = none.forget({ factId: write(none), actor: "dpo", reason: "request", keepDigest: false });
+    expect(en).toMatchObject({ digestKind: "none", valueDigest: null });
+    expect(none.facts()[0]?.forgotten).toMatchObject({ digestKind: "none", valueDigest: null });
+    expect(none.sweep({ before: new Date(Date.now() + 1000).toISOString(), actor: "r", reason: "r", keepDigest: false }).forgotten).toEqual([]);
+  });
 });

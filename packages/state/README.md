@@ -80,13 +80,13 @@ The lookup for writes is optional, so a write that supersedes nothing needs no l
 
 ## Certified forget
 
-A deletion demand is different from a correction. Retract keeps the record; forget erases the value. `memory.forget` removes the fact's value from the ledger file itself, replacing it with the value's digest so the ledger can still prove what it held without holding it, stops believing the fact, and removes it from every store behind the server. The result says exactly what happened: erased from the ledger, removed from which stores, still held by which, with the digest, the actor, and the reason.
+A deletion demand is different from a correction. Retract keeps the record; forget erases the value. `memory.forget` removes the fact's value from the ledger file itself, stops believing the fact, and removes it from every store behind the server. What it keeps in place of the value is a choice, recorded on the event as `digestKind`: a plain `sha256` of the value, which lets the ledger prove what it erased but is guessable for short values such as an email by anyone holding the file; an `hmac-sha256` under a forget key the server holds outside the file (`serve --forget-key-env NAME`), which proves the same to anyone shown the key and nothing to anyone else; or `none`, with `keepDigest: false`, for the case where counsel wants nothing derived from the value retained. Use the keyed form unless you have a reason not to. The result says exactly what happened: erased from the ledger, removed from which stores, still held by which, with the digest, the actor, and the reason.
 
-**Retention and legal hold.** `memory.sweep` forgets every fact the ledger learned of before an instant, in one space or all, and removes each from every store; it is retention as a receipted call, with the receipt as the record of what was erased. `memory.hold` puts a legal hold on a fact: while it stands, neither a deletion request nor a sweep can forget it, and `memory.release` lifts it. Holds and releases are events with actor, reason, and receipt, so the history of a fact shows the hold as plainly as the write. `agent-custody-memory sweep --ledger ... --before ... --reason ...` runs retention on the ledger file alone, for ledgers with no stores behind them.
+**Retention and legal hold.** `memory.sweep` forgets every fact the ledger learned of before an instant, in one space or all, and removes each from every store; it is retention as a receipted call, with the receipt as the record of what was erased. Retention windows live in the server: `serve --retention 'org=P365D,team:*=P90D,user:*=P30D'`, ISO 8601 durations by space pattern, and a sweep with no `before` uses them per space. To run it on a schedule without a daemon, `agent-custody-memory sweep --via retention-gateway.json --reason "quarterly retention"` spawns that gateway and calls `memory.sweep` through it, so the sweep runs as the principal named in the gateway's grant, a retention job with the single scope `memory.sweep`, and its receipt records when retention ran, by whom, what it erased, and what a hold kept. Any cron, systemd timer, or CI schedule drives that one command. `memory.hold` puts a legal hold on a fact: while it stands, neither a deletion request nor a sweep can forget it, and `memory.release` lifts it. Holds and releases are events with actor, reason, and receipt, so the history of a fact shows the hold as plainly as the write. `agent-custody-memory sweep --ledger ... --before ... --reason ...` runs retention on the ledger file alone, for ledgers with no stores behind them.
 
 The certificate is the receipt. Through the gateway, `memory.forget` is a receipted call whose result the gateway observed, so the signed, logged receipt records that the erasure happened, who asked for it, and what the stores answered. Hand that receipt to whoever demanded the deletion; anyone with the gateway's public key can verify it.
 
-What forget does not reach, and the docs will not pretend otherwise: receipts. The receipt that recorded the original write carries the value in its request arguments, and the receipts of reads carry it in their results; they are signed and in a Merkle log, so they cannot be edited. Erasure from the receipt log is a retention policy on the log, and selective redaction of receipts is on the receipts roadmap.
+Receipts are the other place a value lives: the receipt that recorded the write carries it in its request arguments, and the receipts of reads carry it in their results, signed and in a Merkle log. The receipts package's `prune` command is retention for the log: it replaces older leaves with their hashes, so every root and every proof still verifies while the content is gone, and removes the pruned receipts' bundle files. Run it on the same schedule as the sweep.
 
 ## Blast radius
 
@@ -162,7 +162,7 @@ The ledger refuses to supersede a fact that is unknown, already superseded, or r
 src/ledger.ts   the fact record, the two event kinds, as-of queries, supersession, retraction, JSONL persistence
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
-src/cli.ts      agent-custody-memory serve (stdio or --http), sweep, blast
+src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
 src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
@@ -179,6 +179,8 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 - Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
+- Forget digests are keyed under a server-held secret, or absent on request, so an erased value cannot be guessed back from the file.
+- Retention windows per space in the server, sweeps that default to them, and a `sweep --via` trigger that runs retention through a gateway as a named principal, on any timer.
 - Retention and legal hold: a receipted sweep forgets what was learned before an instant and reaches the stores; a hold refuses forget and sweep until released, as events on the fact's history.
 - Value-level quarantine: a write may cite a fact the gateway fetched itself; the value must match it and the fact is then `verified`, the provenance level above attested, or the write is refused.
 - Attested executions: with a key, the memory server signs its results for the gateway's receipt, so a verifier holding its public key sees memory calls as attested.
@@ -192,10 +194,8 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. A keyed, or absent, digest on forget, so an erased value cannot be guessed back from the file. [Issue #2](https://github.com/ch4r10t33r/agent-custody/issues/2).
-2. Retention as a receipted call on a schedule: per-space windows in the server config, a `sweep --via gateway.json` trigger any timer can run, and retention for the receipt log itself. [Issue #3](https://github.com/ch4r10t33r/agent-custody/issues/3).
-3. A storage interface for the ledger with SQLite as the first alternative to JSONL, for durability, concurrent readers, and indexed queries at scale; JSONL stays the default and the auditable export. [Issue #1](https://github.com/ch4r10t33r/agent-custody/issues/1).
-4. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
-5. The eval harness as a CLI with customer scenario files and a signed report. [Issue #5](https://github.com/ch4r10t33r/agent-custody/issues/5).
-6. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
+1. A storage interface for the ledger with SQLite as the first alternative to JSONL, for durability, concurrent readers, and indexed queries at scale; JSONL stays the default and the auditable export. [Issue #1](https://github.com/ch4r10t33r/agent-custody/issues/1).
+2. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
+3. The eval harness as a CLI with customer scenario files and a signed report. [Issue #5](https://github.com/ch4r10t33r/agent-custody/issues/5).
+4. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 

@@ -140,7 +140,10 @@ export class MerkleLog {
     this.file = file;
     if (existsSync(file)) {
       for (const line of readFileSync(file, "utf8").split("\n")) {
-        if (line.trim()) this.hashes.push(leafHash(JSON.parse(line)));
+        if (!line.trim()) continue;
+        const parsed = JSON.parse(line) as string | { pruned: string };
+        // A pruned leaf keeps only its hash: the tree, its roots, and every proof are unchanged; the content is gone.
+        this.hashes.push(typeof parsed === "string" ? leafHash(parsed) : Buffer.from(parsed.pruned, "hex"));
       }
     } else {
       mkdirSync(dirname(file), { recursive: true });

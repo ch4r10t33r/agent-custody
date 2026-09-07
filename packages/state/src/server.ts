@@ -39,9 +39,9 @@ const Confirm = z.object({ factId: z.string().min(1) });
 const Retract = z.object({ factId: z.string().min(1), reason: z.string().min(1), actor: z.string().min(1).optional() });
 const History = z.object({ factId: z.string().min(1) });
 const Get = z.object({ factId: z.string().min(1) });
-const Forget = z.object({ factId: z.string().min(1), reason: z.string().min(1) });
+const Forget = z.object({ factId: z.string().min(1), reason: z.string().min(1), keepDigest: z.boolean().optional() });
 const Hold = z.object({ factId: z.string().min(1), reason: z.string().min(1) });
-const Sweep = z.object({ before: iso, space: z.string().min(1).optional(), reason: z.string().min(1) });
+const Sweep = z.object({ before: iso.optional(), space: z.string().min(1).optional(), reason: z.string().min(1), keepDigest: z.boolean().optional() });
 
 const str = { type: "string" as const };
 export const TOOLS: Tool[] = [
@@ -67,8 +67,8 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "memory.forget",
-    description: "Erase a fact's value: from the ledger file, keeping only its digest, and from every store behind the server. The fact stops being believed. The receipt for this call, with the result the gateway observed, is the certificate that the erasure happened.",
-    inputSchema: { type: "object", properties: { factId: str, reason: str }, required: ["factId", "reason"] },
+    description: "Erase a fact's value: from the ledger file, keeping only its digest (keyed when the server has a forget key; none when keepDigest is false), and from every store behind the server. The fact stops being believed. The receipt for this call, with the result the gateway observed, is the certificate that the erasure happened.",
+    inputSchema: { type: "object", properties: { factId: str, reason: str, keepDigest: { type: "boolean" } }, required: ["factId", "reason"] },
   },
   {
     name: "memory.hold",
@@ -82,8 +82,8 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "memory.sweep",
-    description: "Retention: forget every fact the ledger learned of before an instant, in one space or all, skipping held facts, and remove each from every store. The receipt is the record of the sweep.",
-    inputSchema: { type: "object", properties: { before: str, space: str, reason: str }, required: ["before", "reason"] },
+    description: "Retention: forget every fact the ledger learned of before an instant, in one space or all, skipping held facts, and remove each from every store. Without `before`, the server's configured retention windows decide per space. The receipt is the record of the sweep.",
+    inputSchema: { type: "object", properties: { before: str, space: str, reason: str, keepDigest: { type: "boolean" } }, required: ["reason"] },
   },
   {
     name: "memory.get",
@@ -104,6 +104,25 @@ export interface MemoryServerOptions {
   stores?: Store[];
   /** With a key, every result to a gateway call is signed for that receipt, so a verifier holding the public key sees the execution as attested by this server. */
   identity?: KeyPair;
+  /** Retention windows by space pattern, ISO 8601 durations: { "org": "P365D", "team:*": "P90D" }. memory.sweep without `before` uses them. */
+  retention?: Record<string, string>;
+}
+
+/** Parses the ISO 8601 duration subset retention needs: P<n>W, P<n>D, PT<n>H, and combinations of D and H. */
+export function durationMs(iso: string): number {
+  const m = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?$/.exec(iso);
+  if (!m || iso === "P" || iso === "PT") throw new Error(`retention: cannot parse duration ${iso}; use forms like P90D, P2W, PT12H`);
+  const [, w = "0", d = "0", h = "0", min = "0"] = m;
+  return ((Number(w) * 7 + Number(d)) * 24 + Number(h)) * 3_600_000 + Number(min) * 60_000;
+}
+
+/** The retention cutoff for a space, from the first pattern that matches it; null when none does. */
+export function retentionCutoff(retention: Record<string, string>, space: string, now: Date): string | null {
+  for (const [pattern, duration] of Object.entries(retention)) {
+    const matches = pattern.endsWith("*") ? space.startsWith(pattern.slice(0, -1)) : space === pattern;
+    if (matches) return new Date(now.getTime() - durationMs(duration)).toISOString();
+  }
+  return null;
 }
 
 const json = (v: unknown): CallToolResult => ({ content: [{ type: "text", text: JSON.stringify(v) }] });
@@ -118,9 +137,9 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
     const result = await handle(req.params.name, req.params.arguments ?? {}, meta, receiptId);
     return opts.identity && receiptId ? signResult(result, opts.identity, receiptId, req.params.name) : result;
   });
-  async function forgetOne(factId: string, reason: string) {
+  async function forgetOne(factId: string, reason: string, keepDigest?: boolean) {
     const fact = ledger.facts().find((f) => f.factId === factId);
-    const ev = ledger.forget({ factId, actor: currentActor, reason, source: { receiptId: currentReceipt } });
+    const ev = ledger.forget({ factId, actor: currentActor, reason, source: { receiptId: currentReceipt }, ...(keepDigest === undefined ? {} : { keepDigest }) });
     const removedFrom: string[] = [];
     const stillHeld: string[] = [];
     for (const store of opts.stores ?? []) {
@@ -133,7 +152,7 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         stillHeld.push(`${store.name}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    return { factId: ev.factId, valueDigest: ev.valueDigest, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, erasedFromLedger: true, removedFrom, stillHeld };
+    return { factId: ev.factId, valueDigest: ev.valueDigest, digestKind: ev.digestKind, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, erasedFromLedger: true, removedFrom, stillHeld };
   }
   let currentActor = "anonymous";
   let currentReceipt: string | null = null;
@@ -203,7 +222,7 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         }
         case "memory.forget": {
           const a = Forget.parse(args);
-          const out = await forgetOne(a.factId, a.reason);
+          const out = await forgetOne(a.factId, a.reason, a.keepDigest);
           if (out.stillHeld.length > 0) return { isError: true, content: [{ type: "text", text: `erased from the ledger, but still held by ${out.stillHeld.join("; ")}` }, { type: "text", text: JSON.stringify(out) }] };
           return json(out);
         }
@@ -217,8 +236,14 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         }
         case "memory.sweep": {
           const a = Sweep.parse(args);
+          if (!a.before && !opts.retention) return fail("sweep needs `before`, or a server started with retention windows");
+          const now = new Date();
+          const cutoffFor = (space: string): string | null => a.before ?? retentionCutoff(opts.retention ?? {}, space, now);
           const targets = ledger.facts().filter((f) => !f.forgotten && (a.space === undefined || f.space === a.space));
-          const learnedBefore = new Set(ledger.facts().filter((f) => ledger.history(f.factId).find((e) => e.kind === "assert" && e.fact.factId === f.factId)!.txTime < a.before).map((f) => f.factId));
+          const learnedBefore = new Set(ledger.facts().filter((f) => {
+            const cutoff = cutoffFor(f.space);
+            return cutoff !== null && ledger.history(f.factId).find((e) => e.kind === "assert" && e.fact.factId === f.factId)!.txTime < cutoff;
+          }).map((f) => f.factId));
           const forgotten: Awaited<ReturnType<typeof forgetOne>>[] = [];
           const held: string[] = [];
           for (const f of targets) {
@@ -227,10 +252,10 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
               held.push(f.factId);
               continue;
             }
-            forgotten.push(await forgetOne(f.factId, a.reason));
+            forgotten.push(await forgetOne(f.factId, a.reason, a.keepDigest));
           }
           const stillHeld = forgotten.flatMap((o) => o.stillHeld);
-          const out = { before: a.before, space: a.space ?? null, forgotten: forgotten.map((o) => ({ factId: o.factId, valueDigest: o.valueDigest, removedFrom: o.removedFrom })), held, stillHeld };
+          const out = { before: a.before ?? null, retention: a.before ? null : (opts.retention ?? null), space: a.space ?? null, forgotten: forgotten.map((o) => ({ factId: o.factId, valueDigest: o.valueDigest, digestKind: o.digestKind, removedFrom: o.removedFrom })), held, stillHeld };
           if (stillHeld.length > 0) return { isError: true, content: [{ type: "text", text: `swept the ledger, but some values are still held by stores: ${stillHeld.join("; ")}` }, { type: "text", text: JSON.stringify(out) }] };
           return json(out);
         }

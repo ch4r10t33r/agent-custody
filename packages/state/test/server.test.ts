@@ -1,7 +1,8 @@
 // The memory server exists so beliefs get the same custody as actions. Two settings: driven directly over an
 // in-memory transport, and behind the real receipts gateway, where the receipt id and the attested agent reach it in
 // _meta and a caller's own claims about them are ignored.
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -392,5 +393,58 @@ permit(principal, action == Action::"memory.write", resource) when { context.arg
     expect(value(team).fact.provenance).toBe("attested");
     expect(value(await g.handleCall({ name: "memory.read", arguments: { subject: "cust_123", requireVerified: true } })).facts.map((f: any) => f.predicate)).toEqual(["email"]);
     expect(value(await g.handleCall({ name: "memory.read", arguments: { subject: "cust_123" } })).facts.map((f: any) => f.predicate).sort()).toEqual(["email", "plan"]);
+  });
+});
+
+describe("retention windows and the receipted sweep trigger", () => {
+  it("a sweep with no cutoff uses the server's retention windows per space", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "memory-retention-"));
+    const file = join(dir, "ledger.jsonl");
+    const old = new Ledger(file, { now: () => new Date(Date.now() - 40 * 86_400_000) });
+    const oldOrg = old.assert({ subject: "p:1", predicate: "email", value: "a@x", space: "org", actor: "x" }).fact.factId;
+    const oldTeam = old.assert({ subject: "p:2", predicate: "email", value: "b@x", space: "team:support", actor: "x" }).fact.factId;
+    const oldOther = old.assert({ subject: "p:3", predicate: "email", value: "c@x", space: "user:dana", actor: "x" }).fact.factId;
+    const recent = new Ledger(file).assert({ subject: "p:4", predicate: "email", value: "d@x", space: "org", actor: "x" }).fact.factId;
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await createMemoryServer(new Ledger(file), { retention: { org: "P30D", "team:*": "P1D" } }).connect(a);
+    const c = new Client({ name: "t", version: "0" });
+    await c.connect(b);
+    const r = value((await c.callTool({ name: "memory.sweep", arguments: { reason: "retention" } })) as CallToolResult);
+    expect(r.before).toBeNull();
+    expect(r.retention).toEqual({ org: "P30D", "team:*": "P1D" });
+    expect(r.forgotten.map((f: any) => f.factId).sort()).toEqual([oldOrg, oldTeam].sort());
+    const after = new Ledger(file).facts();
+    expect(after.find((f) => f.factId === oldOther)?.forgotten).toBeUndefined();
+    expect(after.find((f) => f.factId === recent)?.forgotten).toBeUndefined();
+    const none = (await c.callTool({ name: "memory.sweep", arguments: { reason: "x" } })) as CallToolResult;
+    expect(value(none).forgotten).toEqual([]);
+    await c.close();
+  });
+
+  it("sweep --via runs retention through a gateway as the principal in its grant, and the receipt is the record", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "memory-via-"));
+    const ledgerFile = join(dir, "ledger.jsonl");
+    const old = new Ledger(ledgerFile, { now: () => new Date(Date.now() - 100 * 86_400_000) });
+    const stale = old.assert({ subject: "p:1", predicate: "phone", value: "+1 555 0100", space: "org", actor: "x" }).fact.factId;
+    const held = old.assert({ subject: "p:2", predicate: "phone", value: "+1 555 0200", space: "org", actor: "x" }).fact.factId;
+    new Ledger(ledgerFile).hold({ factId: held, actor: "legal", reason: "matter 9" });
+    writeKeyPair(generateKeyPair(), join(dir, "keys"), "gateway");
+    const principalKp = generateKeyPair();
+    writeKeyPair(principalKp, join(dir, "keys"), "principal");
+    const now = Date.now();
+    writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "ops", agent: "retention-job", scopes: ["memory.sweep"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
+    writeFileSync(join(dir, "policy.cedar"), `permit(principal == Agent::"retention-job", action == Action::"memory.sweep", resource);\n`);
+    writeFileSync(join(dir, "gateway.json"), JSON.stringify({ identity: { keyFile: "keys/gateway.key" }, upstream: { command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile, "--retention", "org=P90D"] }, grantFile: "grant.json", trustedPrincipalKeys: ["keys/principal.pub"], policyFile: "policy.cedar", receiptsDir: "receipts", logFile: "log.jsonl" }));
+    const r = spawnSync(process.execPath, [join(import.meta.dirname, "..", "src", "cli.ts"), "sweep", "--via", join(dir, "gateway.json"), "--reason", "quarterly retention"], { encoding: "utf8", timeout: 60_000 });
+    expect(r.status, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout.trim());
+    expect(out.forgotten.map((f: any) => f.factId)).toEqual([stale]);
+    expect(out.held).toEqual([held]);
+    const bundles = readdirSync(join(dir, "receipts")).map((f) => JSON.parse(readFileSync(join(dir, "receipts", f), "utf8")));
+    const sweepReceipt = bundles.map((b) => verifyBundle(b, { issuerKeys: [loadPublicKey(join(dir, "keys", "gateway.pub"))], principalKeys: [loadPublicKey(join(dir, "keys", "principal.pub"))], logFile: join(dir, "log.jsonl") })).find((v) => v.statement?.predicate.tool.name === "memory.sweep")!;
+    expect(sweepReceipt.ok).toBe(true);
+    expect(sweepReceipt.statement!.predicate.agent).toEqual({ id: "retention-job", provenance: "attested" });
+    expect(readFileSync(ledgerFile, "utf8")).not.toContain("+1 555 0100");
+    expect(readFileSync(ledgerFile, "utf8")).toContain("+1 555 0200");
   });
 });

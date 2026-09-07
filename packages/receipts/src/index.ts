@@ -12,3 +12,4 @@ export * from "./verify.ts";
 export * from "./sdk/index.ts";
 export * from "./sidecar.ts";
 export * from "./upstream.ts";
+export * from "./retention.ts";

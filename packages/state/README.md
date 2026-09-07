@@ -45,6 +45,7 @@ In the gateway's config, the memory server is the upstream, and the grant names 
 | `memory.confirm` | lifts a quarantined fact to attested; accepted only through the gateway | `factId` |
 | `memory.retract` | undoes a belief, keeping it visible to questions about the past | `factId`, `reason` |
 | `memory.forget` | erases the value from the ledger and every store, keeping the digest; the receipt is the certificate | `factId`, `reason` |
+| `pack` (CLI) | one fact's history, receipts, holds, blast radius, and forget certificate as one signed artefact, verifiable offline | |
 | `memory.hold`, `memory.release` | legal hold: while it stands the fact cannot be forgotten by request or sweep | `factId`, `reason` |
 | `memory.sweep` | retention: forget what was learned before an instant, in a space or all, skipping held facts, reaching every store | `before`, `space`, `reason` |
 | `memory.get` | one fact by id in any state, for the gateway's policy lookups | `factId` |
@@ -84,7 +85,11 @@ A deletion demand is different from a correction. Retract keeps the record; forg
 
 **Retention and legal hold.** `memory.sweep` forgets every fact the ledger learned of before an instant, in one space or all, and removes each from every store; it is retention as a receipted call, with the receipt as the record of what was erased. Retention windows live in the server: `serve --retention 'org=P365D,team:*=P90D,user:*=P30D'`, ISO 8601 durations by space pattern, and a sweep with no `before` uses them per space. To run it on a schedule without a daemon, `agent-custody-memory sweep --via retention-gateway.json --reason "quarterly retention"` spawns that gateway and calls `memory.sweep` through it, so the sweep runs as the principal named in the gateway's grant, a retention job with the single scope `memory.sweep`, and its receipt records when retention ran, by whom, what it erased, and what a hold kept. Any cron, systemd timer, or CI schedule drives that one command. `memory.hold` puts a legal hold on a fact: while it stands, neither a deletion request nor a sweep can forget it, and `memory.release` lifts it. Holds and releases are events with actor, reason, and receipt, so the history of a fact shows the hold as plainly as the write. `agent-custody-memory sweep --ledger ... --before ... --reason ...` runs retention on the ledger file alone, for ledgers with no stores behind them.
 
-What forget reaches is the ledger and the stores with adapters. It does not reach caches, a model's context window, application logs, or any store without an adapter, and the adapters remove by id without yet checking that a store's search index has caught up ([issue #10](https://github.com/ch4r10t33r/agent-custody/issues/10)). Say that plainly to whoever is relying on it.
+What forget reaches is the ledger and the stores with adapters. It does not reach caches, a model's context window, application logs, or any store without an adapter. Say that plainly to whoever is relying on it.
+
+**Removal is verified, not assumed.** A delete by id and a search index catching up are different moments. After every retraction, forget, or sweep, the server asks each store's own search whether the fact still surfaces, a few times with backoff, and records the outcome per store in the result and so in the receipt: `verified` (the store's search no longer finds it), `stillIndexed` (it still does, after the retries), `unverified` (the store cannot be asked, or the adapter has no search), or `failed` (the removal itself failed). Mem0 and Zep both verify through their search APIs; the tests drive the real clients against indexes that lag by a configurable number of searches. A certificate that says `stillIndexed` is an honest certificate; run forget again later, or read it as the store's problem to fix.
+
+**The pack.** `agent-custody-memory pack --ledger ... --receipts ... --fact <id> --out pack.json --sign keys/pack.key` gathers everything about one fact into one signed artefact: its history with the receipt that produced each event, its holds and releases, its blast radius with every downstream receipt, and, if it was forgotten, the forget certificate with what each store answered. `pack --verify pack.json --key keys/pack.pub --issuer-key keys/gateway.pub --principal-key keys/principal.pub` checks the pack's signature and digest, every receipt inside it against the gateway's keys, that every event's receipt is present, and that the forget receipt names this fact and records the erasure. Touch one receipt inside and the whole pack fails. It is the artefact counsel attaches to a ticket; the reviewer needs the two public keys and nothing from you.
 
 The certificate is the receipt. Through the gateway, `memory.forget` is a receipted call whose result the gateway observed, so the signed, logged receipt records that the erasure happened, who asked for it, and what the stores answered. Hand that receipt to whoever demanded the deletion; anyone with the gateway's public key can verify it.
 
@@ -179,7 +184,8 @@ src/ledger.ts   the fact record, the event kinds, as-of queries, supersession, r
 src/storage.ts  the event stores: JSONL (default, auditable) and SQLite (durable, shared), chosen by file extension
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
-src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, export, blast
+src/pack.ts     the custody pack: build, sign, verify, format
+src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, pack, export, blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
 src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
@@ -199,6 +205,8 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
 - Forget digests are keyed under a server-held secret, or absent on request, so an erased value cannot be guessed back from the file.
 - Retention windows per space in the server, sweeps that default to them, and a `sweep --via` trigger that runs retention through a gateway as a named principal, on any timer.
+- The custody pack: a fact's history with receipts, holds, blast radius, and forget certificate as one signed artefact, verified as a whole.
+- Removal verification: after a retraction, forget, or sweep the server asks each store's search whether the value still surfaces and records verified, stillIndexed, unverified, or failed per store, in the receipt.
 - Retention and legal hold: a receipted sweep forgets what was learned before an instant and reaches the stores; a hold refuses forget and sweep until released, as events on the fact's history.
 - Value-level quarantine: a write may cite a fact the gateway fetched itself; the value must match it and the fact is then `verified`, the provenance level above attested, or the write is refused.
 - Attested executions: with a key, the memory server signs its results for the gateway's receipt, so a verifier holding its public key sees memory calls as attested.
@@ -215,7 +223,5 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 1. Indexed queries on the SQLite store, so a shared ledger with millions of events answers reads without loading them all. [Issue #8](https://github.com/ch4r10t33r/agent-custody/issues/8).
 2. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
-3. A counsel-ready export pack: a fact's history with its receipts, its blast radius, and its forget certificate as one signed artifact. [Issue #9](https://github.com/ch4r10t33r/agent-custody/issues/9).
-4. Verifying that a forgotten value is really absent from a store's search, not only deleted by id, and saying so in the receipt. [Issue #10](https://github.com/ch4r10t33r/agent-custody/issues/10).
-5. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane, with SSO, SCIM, residency, and SIEM export. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
+3. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane, with SSO, SCIM, residency, and SIEM export. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 

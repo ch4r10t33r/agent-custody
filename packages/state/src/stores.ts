@@ -9,9 +9,17 @@ export interface Store {
   readonly name: string;
   /** writes the fact and returns the store's own id for it */
   put(fact: Fact): Promise<string>;
-  /** removes the fact from the store; called on retraction */
+  /** removes the fact from the store; called on retraction and forget */
   remove(externalId: string, fact: Fact): Promise<void>;
+  /**
+   * Checks the store's own search no longer surfaces the fact: a delete by id and a search index catching up are
+   * different moments. Optional; a store without it is reported as unverified, never as verified.
+   */
+  verifyRemoved?(externalId: string, fact: Fact): Promise<boolean>;
 }
+
+/** What the server reports per store after a removal. */
+export type RemovalOutcome = "verified" | "stillIndexed" | "unverified" | "failed";
 
 /** One line a retrieval store can index: what the fact says, in words. */
 export function factText(f: Fact): string {
@@ -28,6 +36,7 @@ export function factMetadata(f: Fact): Record<string, unknown> {
 export interface Mem0Like {
   add(messages: { role: "user" | "assistant"; content: string }[], options?: Record<string, unknown>): Promise<{ id?: string }[]>;
   delete(memoryId: string): Promise<unknown>;
+  search?(query: string, options?: Record<string, unknown>): Promise<{ results: { id?: string; memory?: string }[] }>;
 }
 
 export interface Mem0Options {
@@ -48,6 +57,15 @@ export function mem0Store(client: Mem0Like, opts: Mem0Options): Store {
     async remove(externalId) {
       await client.delete(externalId);
     },
+    ...(client.search
+      ? {
+          async verifyRemoved(externalId, fact) {
+            // Mem0's search scopes by filters, not by top-level entity parameters; the real client refuses the latter.
+            const { results } = await client.search!(factText(fact), { filters: { user_id: opts.userId } });
+            return !results.some((r) => r.id === externalId || r.memory === factText(fact));
+          },
+        }
+      : {}),
   };
 }
 
@@ -57,6 +75,7 @@ export interface ZepLike {
   graph: {
     add(request: { userId?: string; graphId?: string; type: "json" | "text"; data: string; sourceDescription?: string; metadata?: Record<string, unknown> }): Promise<{ uuid: string }>;
     episode: { delete(uuid: string): Promise<unknown> };
+    search?(request: { userId?: string; graphId?: string; query: string; limit?: number }): Promise<{ edges?: { uuid: string; fact: string; episodes?: string[] }[]; episodes?: { uuid: string; content: string }[] }>;
   };
 }
 
@@ -74,5 +93,16 @@ export function zepStore(client: ZepLike, opts: ZepOptions): Store {
     async remove(externalId) {
       await client.graph.episode.delete(externalId);
     },
+    ...(client.graph.search
+      ? {
+          async verifyRemoved(externalId, fact) {
+            const target = opts.graphId ? { graphId: opts.graphId } : { userId: opts.userId! };
+            const r = await client.graph.search!({ ...target, query: factText(fact), limit: 20 });
+            const episodeHit = (r.episodes ?? []).some((e) => e.uuid === externalId);
+            const edgeHit = (r.edges ?? []).some((e) => (e.episodes ?? []).includes(externalId));
+            return !episodeHit && !edgeHit;
+          },
+        }
+      : {}),
   };
 }

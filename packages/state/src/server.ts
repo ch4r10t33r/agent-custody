@@ -9,7 +9,7 @@ import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, typ
 import { z } from "zod";
 import { signResult, type KeyPair } from "@agent-custody/receipts";
 import type { Fact, Ledger } from "./ledger.ts";
-import type { Store } from "./stores.ts";
+import type { RemovalOutcome, Store } from "./stores.ts";
 
 export const SERVER_VERSION = "0.1.0";
 /** The same keys the receipts gateway sets on the upstream call. Duplicated here so this package needs no runtime import from receipts. */
@@ -106,6 +106,8 @@ export interface MemoryServerOptions {
   identity?: KeyPair;
   /** Retention windows by space pattern, ISO 8601 durations: { "org": "P365D", "team:*": "P90D" }. memory.sweep without `before` uses them. */
   retention?: Record<string, string>;
+  /** After a removal, how many times to ask a store's search whether the value is gone, and the first wait between asks (doubling). Default 3 and 200 ms. */
+  verify?: { attempts?: number; delayMs?: number };
 }
 
 /** Parses the ISO 8601 duration subset retention needs: P<n>W, P<n>D, PT<n>H, and combinations of D and H. */
@@ -137,11 +139,16 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
     const result = await handle(req.params.name, req.params.arguments ?? {}, meta, receiptId);
     return opts.identity && receiptId ? signResult(result, opts.identity, receiptId, req.params.name) : result;
   });
-  async function forgetOne(factId: string, reason: string, keepDigest?: boolean) {
-    const fact = ledger.facts().find((f) => f.factId === factId);
-    const ev = ledger.forget({ factId, actor: currentActor, reason, source: { receiptId: currentReceipt }, ...(keepDigest === undefined ? {} : { keepDigest }) });
+  /**
+   * Removes a fact from every store it was written to, then asks each store's search whether it is really gone.
+   * The outcome per store is what the receipt records: verified, stillIndexed, unverified (the store cannot say), or failed.
+   */
+  async function removeFromStores(fact: Fact | undefined): Promise<{ removedFrom: string[]; stillHeld: string[]; verification: Record<string, RemovalOutcome> }> {
     const removedFrom: string[] = [];
     const stillHeld: string[] = [];
+    const verification: Record<string, RemovalOutcome> = {};
+    const attempts = Math.max(1, opts.verify?.attempts ?? 3);
+    const delayMs = opts.verify?.delayMs ?? 200;
     for (const store of opts.stores ?? []) {
       const id = fact?.external?.[store.name];
       if (!id) continue;
@@ -150,9 +157,35 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         removedFrom.push(store.name);
       } catch (e) {
         stillHeld.push(`${store.name}: ${e instanceof Error ? e.message : String(e)}`);
+        verification[store.name] = "failed";
+        continue;
       }
+      if (!store.verifyRemoved) {
+        verification[store.name] = "unverified";
+        continue;
+      }
+      let gone = false;
+      let checked = true;
+      for (let i = 0; i < attempts && !gone; i++) {
+        if (i > 0) await new Promise((r) => setTimeout(r, delayMs * 2 ** (i - 1)));
+        try {
+          gone = await store.verifyRemoved(id, fact!);
+        } catch {
+          // The store could not be asked; that is not the same as the value being gone.
+          checked = false;
+          break;
+        }
+      }
+      verification[store.name] = !checked ? "unverified" : gone ? "verified" : "stillIndexed";
     }
-    return { factId: ev.factId, valueDigest: ev.valueDigest, digestKind: ev.digestKind, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, erasedFromLedger: true, removedFrom, stillHeld };
+    return { removedFrom, stillHeld, verification };
+  }
+
+  async function forgetOne(factId: string, reason: string, keepDigest?: boolean) {
+    const fact = ledger.facts().find((f) => f.factId === factId);
+    const ev = ledger.forget({ factId, actor: currentActor, reason, source: { receiptId: currentReceipt }, ...(keepDigest === undefined ? {} : { keepDigest }) });
+    const { removedFrom, stillHeld, verification } = await removeFromStores(fact);
+    return { factId: ev.factId, valueDigest: ev.valueDigest, digestKind: ev.digestKind, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, erasedFromLedger: true, removedFrom, stillHeld, verification };
   }
   let currentActor = "anonymous";
   let currentReceipt: string | null = null;
@@ -200,17 +233,8 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
           const ev = ledger.retract({ factId: a.factId, actor: actorFor(a.actor), reason: a.reason, source: { receiptId } });
           // The ledger is retracted first: custody must not depend on a store being up. A store that fails to remove
           // is reported, so the caller knows recall may still serve the value.
-          const stillHeld: string[] = [];
-          for (const store of opts.stores ?? []) {
-            const id = fact?.external?.[store.name];
-            if (!id) continue;
-            try {
-              await store.remove(id, fact!);
-            } catch (e) {
-              stillHeld.push(`${store.name}: ${e instanceof Error ? e.message : String(e)}`);
-            }
-          }
-          const out = { eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, removedFrom: (opts.stores ?? []).map((s) => s.name).filter((n) => fact?.external?.[n] && !stillHeld.some((h) => h.startsWith(n))) };
+          const { removedFrom, stillHeld, verification } = await removeFromStores(fact);
+          const out = { eventId: ev.eventId, factId: ev.factId, txTime: ev.txTime, actor: ev.actor, reason: ev.reason, source: ev.source, removedFrom, verification };
           if (stillHeld.length > 0) return { isError: true, content: [{ type: "text", text: `retracted in the ledger, but still held by ${stillHeld.join("; ")}` }, { type: "text", text: JSON.stringify(out) }] };
           return json(out);
         }
@@ -255,7 +279,7 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
             forgotten.push(await forgetOne(f.factId, a.reason, a.keepDigest));
           }
           const stillHeld = forgotten.flatMap((o) => o.stillHeld);
-          const out = { before: a.before ?? null, retention: a.before ? null : (opts.retention ?? null), space: a.space ?? null, forgotten: forgotten.map((o) => ({ factId: o.factId, valueDigest: o.valueDigest, digestKind: o.digestKind, removedFrom: o.removedFrom })), held, stillHeld };
+          const out = { before: a.before ?? null, retention: a.before ? null : (opts.retention ?? null), space: a.space ?? null, forgotten: forgotten.map((o) => ({ factId: o.factId, valueDigest: o.valueDigest, digestKind: o.digestKind, removedFrom: o.removedFrom, verification: o.verification })), held, stillHeld };
           if (stillHeld.length > 0) return { isError: true, content: [{ type: "text", text: `swept the ledger, but some values are still held by stores: ${stillHeld.join("; ")}` }, { type: "text", text: JSON.stringify(out) }] };
           return json(out);
         }

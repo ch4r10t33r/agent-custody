@@ -74,7 +74,8 @@ Receipts are the unit and state is the ledger built from them. A tool call produ
 - **Enforcement the agent cannot skip**, with a human-signed grant and a policy that decides on facts the gateway fetched itself.
 - **Proof of where a belief came from**, and which beliefs the fleet has not yet been allowed to trust.
 - **Undo with a blast radius**, so a bad belief is not only reverted but traced to the refunds, emails, and beliefs that depended on it.
-- **Certified forget**, a receipt that says the value is gone from the ledger and from every store, and a legal hold that stops it when it must not be.
+- **Certified forget**, a receipt that says the value is gone from the ledger and from every store, checked against each store's search rather than assumed, and a legal hold that stops it when it must not be.
+- **One artefact for counsel**, a signed pack with a fact's history, its receipts, its blast radius, and its forget certificate, verifiable by anyone with two public keys.
 - **Retention that runs**, as receipted sweeps, with a record of every sweep and of what a hold kept.
 - **A log the operator cannot rewrite**, when the log is run by someone else, and a proof that history was never rewritten between any two receipts.
 

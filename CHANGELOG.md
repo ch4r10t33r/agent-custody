@@ -2,6 +2,13 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.1.9 — 2026-09-07
+
+- **State:** the custody pack, `agent-custody-memory pack`: one fact's history with the receipt behind each event, its holds, its blast radius with every downstream receipt, and its forget certificate with what the stores answered, as one signed artefact; `pack --verify` checks the signature, the digest, every receipt inside against the gateway's keys, and that the forget receipt names the fact.
+- **State:** removal verification. After a retraction, forget, or sweep the server asks each store's own search whether the value still surfaces, with bounded retries, and records `verified`, `stillIndexed`, `unverified`, or `failed` per store in the result and so in the receipt. Mem0 and Zep verify through their search APIs.
+- **State:** the memory server warns at startup when no forget key is set, since a plain digest of a short value is guessable.
+- **Site:** a deployment page with the architecture and measured sizing, and this changelog.
+
 ## 0.1.8 — 2026-09-07
 
 - **State:** the eval harness as a CLI, `agent-custody-memory eval`, with validated scenario files for a team's own incidents, the naive baseline scored beside the ledger, a non-zero exit on regression for cron, and a signed report a reviewer verifies with `eval --verify`.

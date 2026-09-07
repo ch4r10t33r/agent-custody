@@ -16,6 +16,32 @@ import { createMemoryServer } from "../src/server.ts";
 import { mem0Store, zepStore } from "../src/stores.ts";
 
 interface Seen { method: string; path: string; body: any; auth: string | undefined }
+/** A store index that keeps surfacing a deleted item for `lag` searches after the delete: the thing #10 exists to catch. */
+function laggingIndex() {
+  const live = new Map<string, string>();
+  const stale = new Map<string, { text: string; left: number }>();
+  const state = { lag: 1 };
+  return {
+    state,
+    put(id: string, text: string) {
+      live.set(id, text);
+    },
+    remove(id: string) {
+      const text = live.get(id);
+      live.delete(id);
+      if (text !== undefined && state.lag > 0) stale.set(id, { text, left: state.lag });
+    },
+    search(): { id: string; text: string }[] {
+      const hits = [...live].map(([id, text]) => ({ id, text }));
+      for (const [id, s] of stale) {
+        hits.push({ id, text: s.text });
+        if (--s.left <= 0) stale.delete(id);
+      }
+      return hits;
+    },
+  };
+}
+
 function fake(routes: (req: Seen) => { status: number; body: unknown } | undefined): Promise<{ url: string; seen: Seen[]; close(): void; fail: { on: boolean } }> {
   const seen: Seen[] = [];
   const fail = { on: false };
@@ -36,24 +62,42 @@ describe("write-through stores", () => {
   let zep: Awaited<ReturnType<typeof fake>>;
   let client: Client;
   let ledger: Ledger;
+  const mem0Index = laggingIndex();
+  const zepIndex = laggingIndex();
 
   beforeAll(async () => {
     process.env.MEM0_TELEMETRY = "false";
     mem0 = await fake((r) => {
       if (r.method === "GET" && r.path === "/v1/ping/") return { status: 200, body: { status: "ok", org_id: "org_1", project_id: "proj_1" } };
-      if (r.method === "POST" && r.path === "/v3/memories/add/") return { status: 200, body: [{ id: "mem_1", memory: r.body.messages[0].content, event: "ADD" }] };
-      if (r.method === "DELETE" && /^\/v1\/memories\/[^/]+\/$/.test(r.path)) return { status: 200, body: { message: "Memory deleted successfully!" } };
+      if (r.method === "POST" && r.path === "/v3/memories/add/") {
+        const id = `mem_${mem0.seen.length}`;
+        mem0Index.put(id, r.body.messages[0].content);
+        return { status: 200, body: [{ id, memory: r.body.messages[0].content, event: "ADD" }] };
+      }
+      if (r.method === "DELETE" && /^\/v1\/memories\/[^/]+\/$/.test(r.path)) {
+        mem0Index.remove(r.path.split("/")[3]!);
+        return { status: 200, body: { message: "Memory deleted successfully!" } };
+      }
+      if (r.method === "POST" && r.path === "/v3/memories/search/") return { status: 200, body: { results: mem0Index.search().map((h) => ({ id: h.id, memory: h.text })) } };
       return undefined;
     });
     zep = await fake((r) => {
-      if (r.method === "POST" && r.path === "/graph") return { status: 200, body: { uuid: "ep_1", content: r.body.data, created_at: new Date().toISOString(), processed: false } };
-      if (r.method === "DELETE" && /^\/graph\/episodes\/[^/]+$/.test(r.path)) return { status: 200, body: { message: "deleted" } };
+      if (r.method === "POST" && r.path === "/graph") {
+        const uuid = `ep_${zep.seen.length}`;
+        zepIndex.put(uuid, r.body.data);
+        return { status: 200, body: { uuid, content: r.body.data, created_at: new Date().toISOString(), processed: false } };
+      }
+      if (r.method === "DELETE" && /^\/graph\/episodes\/[^/]+$/.test(r.path)) {
+        zepIndex.remove(r.path.split("/")[3]!);
+        return { status: 200, body: { message: "deleted" } };
+      }
+      if (r.method === "POST" && r.path === "/graph/search") return { status: 200, body: { episodes: zepIndex.search().map((h) => ({ uuid: h.id, content: h.text, created_at: new Date().toISOString() })), edges: [] } };
       return undefined;
     });
     ledger = new Ledger(join(mkdtempSync(join(tmpdir(), "stores-")), "ledger.jsonl"));
     const stores = [mem0Store(new MemoryClient({ apiKey: "test-key", host: mem0.url }), { userId: "user_42" }), zepStore(new ZepClient({ apiKey: "test-key", baseUrl: zep.url }), { userId: "user_42" })];
     const [a, b] = InMemoryTransport.createLinkedPair();
-    await createMemoryServer(ledger, { stores }).connect(a);
+    await createMemoryServer(ledger, { stores, verify: { attempts: 3, delayMs: 1 } }).connect(a);
     client = new Client({ name: "test", version: "0" });
     await client.connect(b);
   });
@@ -67,7 +111,7 @@ describe("write-through stores", () => {
 
   it("a write reaches both stores with the fact's custody metadata, and both ids are recorded on the fact", async () => {
     const r = value((await client.callTool({ name: "memory.write", arguments: { subject: "acct:42", predicate: "plan", value: "pro", space: "team:support", actor: "support-agent" } })) as CallToolResult);
-    expect(r.fact.external).toEqual({ mem0: "mem_1", zep: "ep_1" });
+    expect(Object.keys(r.fact.external).sort()).toEqual(["mem0", "zep"]);
     const add = mem0.seen.find((s) => s.path === "/v3/memories/add/")!;
     expect(add.auth).toBe("Token test-key");
     expect(add.body.messages).toEqual([{ role: "user", content: "acct:42 plan: pro" }]);
@@ -79,15 +123,16 @@ describe("write-through stores", () => {
     expect(graph.body.type).toBe("json");
     expect(JSON.parse(graph.body.data)).toMatchObject({ subject: "acct:42", predicate: "plan", value: "pro", space: "team:support" });
     expect(graph.body.source_description).toBe("agent-custody");
-    expect(new Ledger(ledger.location).asOf()[0]?.external).toEqual({ mem0: "mem_1", zep: "ep_1" });
+    expect(new Ledger(ledger.location).asOf()[0]?.external).toEqual(r.fact.external);
   });
 
   it("a retraction reaches both stores by the recorded ids", async () => {
-    const factId = ledger.asOf()[0]!.factId;
-    const r = value((await client.callTool({ name: "memory.retract", arguments: { factId, reason: "wrong" } })) as CallToolResult);
+    const fact = ledger.asOf()[0]!;
+    const r = value((await client.callTool({ name: "memory.retract", arguments: { factId: fact.factId, reason: "wrong" } })) as CallToolResult);
     expect(r.removedFrom.sort()).toEqual(["mem0", "zep"]);
-    expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === "/v1/memories/mem_1/")).toBe(true);
-    expect(zep.seen.some((s) => s.method === "DELETE" && s.path === "/graph/episodes/ep_1")).toBe(true);
+    expect(r.verification).toEqual({ mem0: "verified", zep: "verified" });
+    expect(mem0.seen.some((s) => s.method === "DELETE" && s.path === `/v1/memories/${fact.external!.mem0}/`)).toBe(true);
+    expect(zep.seen.some((s) => s.method === "DELETE" && s.path === `/graph/episodes/${fact.external!.zep}`)).toBe(true);
     expect(ledger.asOf()).toEqual([]);
   });
 
@@ -148,5 +193,30 @@ describe("write-through stores", () => {
     const w = value((await client.callTool({ name: "memory.write", arguments: { subject: "p:8", predicate: "email", value: "x@y", space: "team:support" } })) as CallToolResult);
     const r = value((await client.callTool({ name: "memory.forget", arguments: { factId: w.fact.factId, reason: "request", keepDigest: false } })) as CallToolResult);
     expect(r).toMatchObject({ digestKind: "none", valueDigest: null, erasedFromLedger: true });
+  });
+
+  it("removal is verified against the store's search: an index that lags one search still verifies, one that never clears is reported as still indexed", async () => {
+    mem0Index.state.lag = 1;
+    zepIndex.state.lag = 99;
+    const w = value((await client.callTool({ name: "memory.write", arguments: { subject: "p:11", predicate: "email", value: "lag@x", space: "team:support" } })) as CallToolResult);
+    const r = value((await client.callTool({ name: "memory.forget", arguments: { factId: w.fact.factId, reason: "request" } })) as CallToolResult);
+    expect(r.verification).toEqual({ mem0: "verified", zep: "stillIndexed" });
+    expect(r.stillHeld).toEqual([]);
+    expect(mem0.seen.filter((s) => s.path === "/v3/memories/search/").length).toBeGreaterThanOrEqual(2);
+    zepIndex.state.lag = 1;
+  });
+
+  it("a store without search is reported as unverified, never verified", async () => {
+    const calls: string[] = [];
+    const blind = { name: "blind", async put() { calls.push("put"); return "b1"; }, async remove() { calls.push("remove"); } };
+    const [a, b] = InMemoryTransport.createLinkedPair();
+    await createMemoryServer(new Ledger(join(mkdtempSync(join(tmpdir(), "blind-")), "l.jsonl")), { stores: [blind] }).connect(a);
+    const c = new Client({ name: "t", version: "0" });
+    await c.connect(b);
+    const w = value((await c.callTool({ name: "memory.write", arguments: { subject: "s", predicate: "p", value: 1, space: "org" } })) as CallToolResult);
+    const r = value((await c.callTool({ name: "memory.forget", arguments: { factId: w.fact.factId, reason: "r" } })) as CallToolResult);
+    expect(r.verification).toEqual({ blind: "unverified" });
+    expect(calls).toEqual(["put", "remove"]);
+    await c.close();
   });
 });

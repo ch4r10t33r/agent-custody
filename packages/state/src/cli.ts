@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { formatReport, runAll, SCENARIOS } from "./evals.ts";
 import { ledgerUnderTest, overwriteStoreUnderTest } from "./evals-ledger.ts";
 import { loadScenarios, signReport, verifyReport } from "./evals-file.ts";
+import { buildPack, formatPack, signPack, verifyPack } from "./pack.ts";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -52,6 +53,11 @@ const USAGE = `agent-custody-memory <command>
                                                    runs the memory-mutation scenarios on a fresh ledger; --baseline also scores a naive
                                                    overwrite store; --sign writes a signed report. Exits 1 if the ledger regresses.
   eval --verify <report.json> --key <pub>          checks a signed report and prints its scores
+  pack --ledger <ledger> --receipts <dir> --fact <factId> --out <pack.json> --sign <key>
+                                                   everything about one fact as one signed artefact: history with receipts, blast radius,
+                                                   holds, the forget certificate and what the stores answered. For counsel and auditors.
+  pack --verify <pack.json> --key <pub> [--issuer-key <pub>] [--principal-key <pub>]
+                                                   checks the pack's signature and every receipt inside it
   export --ledger <ledger.sqlite> --out <ledger.jsonl>  the auditable JSONL of any ledger, one event per line
   blast --ledger <ledger.jsonl> --receipts <dir> --fact <factId> [--json]
                                                    everything that relied on a fact: later calls, derived beliefs, and whether it was retracted
@@ -141,6 +147,26 @@ async function main(argv: string[]): Promise<number> {
         console.error(`signed report written to ${values.out}`);
       }
       return regressed ? 1 : 0;
+    }
+    case "pack": {
+      const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, receipts: { type: "string" }, fact: { type: "string" }, out: { type: "string" }, sign: { type: "string" }, verify: { type: "string" }, key: { type: "string", multiple: true }, "issuer-key": { type: "string", multiple: true }, "principal-key": { type: "string", multiple: true }, json: { type: "boolean", default: false } } });
+      if (values.verify) {
+        if (!values.key?.length) throw new Error("pack --verify needs --key <pub>");
+        const r = verifyPack(JSON.parse(readFileSync(values.verify, "utf8")), values.key.map(loadPublicKey), values["issuer-key"]?.length ? { issuerKeys: values["issuer-key"].map(loadPublicKey), principalKeys: (values["principal-key"] ?? []).map(loadPublicKey) } : undefined);
+        if (values.json) console.log(JSON.stringify(r, null, 2));
+        else {
+          for (const c of r.checks) console.log(`${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.detail ? `  (${c.detail})` : ""}`);
+          console.log(`\nRESULT: ${r.ok ? "VERIFIED" : "NOT VERIFIED"}`);
+          if (r.pack) console.log("\n" + formatPack(r.pack));
+        }
+        return r.ok ? 0 : 1;
+      }
+      if (!values.ledger || !values.receipts || !values.fact || !values.out || !values.sign) throw new Error("pack needs --ledger, --receipts, --fact, --out, and --sign");
+      const pack = buildPack(new Ledger(values.ledger), values.receipts, values.fact);
+      writeFileSync(values.out, JSON.stringify(signPack(pack, loadPrivateKey(values.sign)), null, 2));
+      console.log(formatPack(pack));
+      console.error(`signed pack written to ${values.out}`);
+      return pack.missingReceipts.length ? 1 : 0;
     }
     case "export": {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, out: { type: "string" } } });

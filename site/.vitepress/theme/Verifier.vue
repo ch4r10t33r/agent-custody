@@ -8,6 +8,7 @@ const bundleText = ref("");
 const issuerPem = ref("");
 const principalPem = ref("");
 const logPem = ref("");
+const upstreamPem = ref("");
 const logText = ref("");
 const report = ref("");
 const result = ref<Result | null>(null);
@@ -15,7 +16,7 @@ const error = ref("");
 const busy = ref(false);
 const supported = typeof globalThis.crypto?.subtle?.importKey === "function";
 
-const samples = computed(() => (vectors.cases as any[]).filter((c) => ["gateway-executed", "gateway-denied", "sdk-executed", "remote-log-with-log-key"].includes(c.name)));
+const samples = computed(() => (vectors.cases as any[]).filter((c) => ["gateway-executed", "gateway-executed-upstream-attested", "gateway-denied", "sdk-executed", "remote-log-with-log-key"].includes(c.name)));
 
 function load(c: any) {
   const pem = (names: string[]) => names.map((n) => (vectors.keys as any)[n].publicKeyPem).join("\n");
@@ -23,6 +24,7 @@ function load(c: any) {
   issuerPem.value = pem(c.issuerKeys);
   principalPem.value = pem(c.principalKeys);
   logPem.value = pem(c.logKeys);
+  upstreamPem.value = pem(c.upstreamKeys ?? []);
   logText.value = c.log ? (c.log as string[]).map((l) => JSON.stringify(l)).join("\n") : "";
   report.value = "";
   result.value = null;
@@ -52,7 +54,7 @@ async function verify() {
     const issuerKeys = await keys(issuerPem.value);
     if (issuerKeys.length === 0) throw new Error("at least one issuer public key (SPKI PEM) is required");
     const logLeaves = logText.value.trim() ? logText.value.trim().split("\n").map((l) => JSON.parse(l) as string) : undefined;
-    const r = await verifyBundle(bundle, { issuerKeys, principalKeys: await keys(principalPem.value), logKeys: await keys(logPem.value), ...(logLeaves ? { logLeaves } : {}) });
+    const r = await verifyBundle(bundle, { issuerKeys, principalKeys: await keys(principalPem.value), logKeys: await keys(logPem.value), upstreamKeys: await keys(upstreamPem.value), ...(logLeaves ? { logLeaves } : {}) });
     result.value = r;
     report.value = formatReport(r);
   } catch (e) {
@@ -79,6 +81,7 @@ async function verify() {
       <div><label>Issuer public keys (gateway or SDK app, SPKI PEM, one or more)</label><textarea v-model="issuerPem" rows="5" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>
       <div><label>Principal public keys (for gateway receipts)</label><textarea v-model="principalPem" rows="5" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>
       <div><label>Log public keys (only for receipts logged to a remote log)</label><textarea v-model="logPem" rows="5" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>
+      <div><label>Upstream public keys (only when the upstream signed its result)</label><textarea v-model="upstreamPem" rows="5" spellcheck="false" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>
       <div><label>A copy of the log, optional (<code>log.jsonl</code>, one JSON string per line)</label><textarea v-model="logText" rows="5" spellcheck="false" placeholder='"eyJ..."'></textarea></div>
     </div>
     <div class="actions">

@@ -53,7 +53,14 @@ export interface ReceiptPredicate {
   /** null when the issuer evaluated no policy. */
   policy: (PolicyDecision & { provenance: Provenance }) | null;
   execution:
-    | { status: "executed" | "failed"; result: unknown; resultDigest: string; provenance: Provenance }
+    | {
+        status: "executed" | "failed";
+        result: unknown;
+        resultDigest: string;
+        provenance: Provenance;
+        /** an upstream's own signature over what it returned, bound to this receipt; checked by a verifier holding the upstream's key */
+        upstream?: { envelope: Envelope };
+      }
     | { status: "denied"; reason: string; provenance: Provenance }
     | { status: "error"; error: string; provenance: Provenance };
 }

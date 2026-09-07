@@ -1,6 +1,10 @@
-// A stand-in upstream MCP server: a customer directory and a payments API. Nothing here is signed,
-// which is exactly why the receipt marks its results "observed" rather than "attested".
+// A stand-in upstream MCP server: a customer directory and a payments API. Without --key nothing here is signed,
+// which is exactly why the receipt marks its results "observed"; with --key it signs each result for the receipt the
+// gateway named, and a verifier holding the key sees the execution as attested.
 import { randomUUID } from "node:crypto";
+import { loadPrivateKey } from "../src/crypto.ts";
+import { RECEIPT_META_KEY } from "../src/gateway.ts";
+import { signResult } from "../src/upstream.ts";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -31,11 +35,19 @@ const tools: Tool[] = [
 const json = (v: unknown): CallToolResult => ({ content: [{ type: "text", text: JSON.stringify(v) }] });
 const fail = (msg: string): CallToolResult => ({ isError: true, content: [{ type: "text", text: msg }] });
 
+const keyArg = process.argv.indexOf("--key");
+const signingKey = keyArg >= 0 ? loadPrivateKey(process.argv[keyArg + 1]!) : null;
+
 const server = new Server({ name: "fake-stripe", version: "0.0.1" }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
-  const a = (params.arguments ?? {}) as Record<string, unknown>;
-  switch (params.name) {
+  const result = handle(params.name, (params.arguments ?? {}) as Record<string, unknown>);
+  const receiptId = (params._meta as Record<string, unknown> | undefined)?.[RECEIPT_META_KEY];
+  return signingKey && typeof receiptId === "string" ? signResult(result, signingKey, receiptId, params.name) : result;
+});
+
+function handle(name: string, a: Record<string, unknown>): CallToolResult {
+  switch (name) {
     case "customer.lookup": {
       const c = CUSTOMERS[String(a.customer_id)];
       return c ? json(c) : fail(`no such customer ${String(a.customer_id)}`);
@@ -45,7 +57,7 @@ server.setRequestHandler(CallToolRequestSchema, async ({ params }) => {
     case "stripe.payout":
       return json({ payout_id: `po_${randomUUID().slice(0, 8)}`, amount: a.amount, status: "paid" });
     default:
-      return fail(`unknown tool ${params.name}`);
+      return fail(`unknown tool ${name}`);
   }
-});
+}
 await server.connect(new StdioServerTransport());

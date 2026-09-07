@@ -66,6 +66,8 @@ when { context.facts has target && context.facts.target.space == "org" && contex
 
 The lookup for writes is optional, so a write that supersedes nothing needs no lookup; the one for retractions is required. The denial receipt records the fact the policy saw, observed by the gateway. The test suite runs exactly this configuration.
 
+**Attested executions.** Started with `--key memory.key`, the server signs every result for the receipt the gateway is issuing. A verifier given `memory.pub` then reports the execution of each memory call as attested by the memory server, not only observed by the gateway; the test suite verifies a write this way.
+
 **Shared over HTTP.** `agent-custody-memory serve --ledger ./ledger.jsonl --http --port 8790 --token-env MEMORY_TOKEN` serves the same tools over Streamable HTTP, so several gateways, one per agent host, and, with `--allow-direct`, SDK-only agents share one ledger. That is the deployment quarantine was built for: writes arriving through a gateway are attested, writes arriving directly are claimed and hidden until a gateway confirms them, and the ledger tells them apart. A gateway reaches it with `"upstream": { "url": "http://127.0.0.1:8790/mcp", "tokenEnv": "MEMORY_TOKEN" }` in its config. Bind wider than loopback only behind the token. The test suite runs exactly this: one gateway writer, one direct writer, one ledger.
 
 Trust tiers are Cedar policies over the space and, through `includeClaimed`, over quarantine: `permit(principal, action == Action::"memory.write", resource) when { context.args.space == "team:support" };` lets this agent write team memory and nothing else. A read's receipt carries, as `observed`, the exact facts returned, so the ids the agent relied on are already on the record.
@@ -169,6 +171,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 - Bitemporal fact ledger with supersession, retraction, as-of and history queries, persisted as JSONL.
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
+- Attested executions: with a key, the memory server signs its results for the gateway's receipt, so a verifier holding its public key sees memory calls as attested.
 - The memory server over HTTP: one ledger shared by several gateways and direct writers, bearer-token auth, quarantine live.
 - Certified forget: `memory.forget` erases a value from the ledger file keeping its digest, stops believing it, removes it from every store, and reports exactly what happened; the gateway's receipt of that call is the certificate.
 - Policy over provenance: the gateway looks up the fact a write supersedes or a retraction targets, so policy decides on its space, actor, and provenance; a claimed fact can be displaced, an attested org fact cannot.

@@ -13,6 +13,7 @@ import { digestOf, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto
 import { delegationValidAt, verifyDelegation, type Delegation } from "./delegation.ts";
 import { createIssuer } from "./issue.ts";
 import { openLog } from "./log-sink.ts";
+import { upstreamSignatureOf } from "./upstream.ts";
 import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
 import type { FactRecord, ReceiptPredicate } from "./receipt.ts";
 
@@ -150,7 +151,8 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
         // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
         // state, such as the memory server, cites the receipt as the source of what it stores.
         const result = await callUpstream(tool, args, upstreamMeta);
-        execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed" };
+        const upstreamSig = upstreamSignatureOf(result);
+        execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed", ...(upstreamSig ? { upstream: { envelope: upstreamSig } } : {}) };
         noteServedFacts(result);
       } catch (e) {
         execution = { status: "error", error: String(e instanceof Error ? e.message : e), provenance: "observed" };

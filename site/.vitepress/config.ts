@@ -28,6 +28,7 @@ export default withMermaid(
     rewrites: {
       "site/index.md": "index.md",
       "site/verify.md": "verify.md",
+      "site/early-access.md": "early-access.md",
       "site/guide/:page": "guide/:page",
       "site/receipt/:page": "receipt/:page",
       "README.md": "repo.md",
@@ -62,6 +63,7 @@ export default withMermaid(
         { text: "Python", link: "/python/" },
         { text: "Spec", link: "/receipt/v0.2" },
         { text: "Verify", link: "/verify" },
+        { text: "Early access", link: "/early-access" },
         { text: "GitHub", link: "https://github.com/ch4r10t33r/agent-custody" },
       ],
       sidebar: [
@@ -81,6 +83,7 @@ export default withMermaid(
         { text: "Python", items: [{ text: "The Python client", link: "/python/" }] },
         { text: "Specification", items: [{ text: "Receipt v0.2", link: "/receipt/v0.2" }, { text: "Conformance vectors", link: "/receipt/vectors" }] },
         { text: "Tools", items: [{ text: "Verify a receipt in the browser", link: "/verify" }] },
+        { text: "Hosted", items: [{ text: "Early access", link: "/early-access" }] },
       ],
       socialLinks: [{ icon: "github", link: "https://github.com/ch4r10t33r/agent-custody" }, { icon: "npm", link: "https://www.npmjs.com/org/agent-custody" }],
       footer: { message: 'Apache-2.0 · <a href="https://github.com/ch4r10t33r/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a>', copyright: "agent-custody" },

@@ -6,7 +6,7 @@ import { loadConfig } from "../src/config.ts";
 import { loadPublicKey } from "../src/crypto.ts";
 import { createGateway, RECEIPT_META_KEY, type Gateway } from "../src/gateway.ts";
 import type { ReceiptBundle, ReceiptStatement } from "../src/receipt.ts";
-import { verifyBundle, type VerifyOptions } from "../src/verify.ts";
+import { formatReport, verifyBundle, type VerifyOptions } from "../src/verify.ts";
 import { buildFixture, type Fixture } from "../scripts/fixture.ts";
 
 let fx: Fixture;
@@ -63,6 +63,13 @@ describe("gateway", () => {
     expect(st.predicate.model).toEqual({ id: "m1", provenance: "claimed" });
     expect(st.predicate.issuer.kind).toBe("gateway");
     expect(st.predicate.consumed).toEqual({ factIds: [], provenance: "observed" });
+    expect((st.predicate.execution as any).upstream?.envelope?.payloadType).toBe("application/vnd.agent-custody.upstream+json");
+    const attested = verifyBundle(bundle, { ...opts, upstreamKeys: [loadPublicKey(fx.upstreamPub)] });
+    expect(attested.checks.find((c) => c.name === "upstream signature (upstream key)")?.ok).toBe(true);
+    expect(formatReport(attested)).toMatch(/execution\s+attested\s+executed \(signed by upstream/);
+    const wrongKey = verifyBundle(bundle, { ...opts, upstreamKeys: [loadPublicKey(fx.principalPub)] });
+    expect(wrongKey.checks.find((c) => c.name === "upstream signature (upstream key)")?.ok).toBe(false);
+    expect(formatReport(verifyBundle(bundle, opts))).toMatch(/carries an upstream signature/);
     const v = verifyBundle(bundle, opts);
     expect(failing(v)).toEqual([]);
     expect(v.checks.length).toBeGreaterThanOrEqual(12);

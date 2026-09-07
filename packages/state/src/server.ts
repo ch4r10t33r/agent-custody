@@ -7,6 +7,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { signResult, type KeyPair } from "@agent-custody/receipts";
 import type { Fact, Ledger } from "./ledger.ts";
 import type { Store } from "./stores.ts";
 
@@ -80,6 +81,8 @@ export interface MemoryServerOptions {
   requireGateway?: boolean;
   /** Retrieval stores every write goes through to and every retraction reaches. A store that refuses a write fails the write; nothing is recorded. */
   stores?: Store[];
+  /** With a key, every result to a gateway call is signed for that receipt, so a verifier holding the public key sees the execution as attested by this server. */
+  identity?: KeyPair;
 }
 
 const json = (v: unknown): CallToolResult => ({ content: [{ type: "text", text: JSON.stringify(v) }] });
@@ -91,14 +94,17 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
   server.setRequestHandler(CallToolRequestSchema, async (req) => {
     const meta = (req.params._meta ?? {}) as Record<string, unknown>;
     const receiptId = typeof meta[RECEIPT_META_KEY] === "string" ? (meta[RECEIPT_META_KEY] as string) : null;
+    const result = await handle(req.params.name, req.params.arguments ?? {}, meta, receiptId);
+    return opts.identity && receiptId ? signResult(result, opts.identity, receiptId, req.params.name) : result;
+  });
+  async function handle(name: string, args: Record<string, unknown>, meta: Record<string, unknown>, receiptId: string | null): Promise<CallToolResult> {
     const gatewayAgent = typeof meta[AGENT_META_KEY] === "string" ? (meta[AGENT_META_KEY] as string) : null;
     if (opts.requireGateway && !receiptId) return fail("memory server accepts calls only through the receipts gateway; no receipt id on this call");
-    const args = req.params.arguments ?? {};
     const actorFor = (claimed: string | undefined) => gatewayAgent ?? claimed ?? "anonymous";
     // A write is attested when it came through the gateway: the actor is from a signed grant and the receipt exists.
     const provenance = receiptId && gatewayAgent ? "attested" : "claimed";
     try {
-      switch (req.params.name) {
+      switch (name) {
         case "memory.write": {
           const a = Write.parse(args);
           const input = { subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) } as const;
@@ -174,12 +180,12 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
         case "memory.history":
           return json({ events: ledger.history(History.parse(args).factId) });
         default:
-          return fail(`unknown tool ${req.params.name}`);
+          return fail(`unknown tool ${name}`);
       }
     } catch (e) {
       return fail(e instanceof z.ZodError ? `invalid arguments: ${e.issues.map((i) => `${i.path.join(".") || "(root)"}: ${i.message}`).join("; ")}` : String(e instanceof Error ? e.message : e));
     }
-  });
+  }
   return server;
 }
 

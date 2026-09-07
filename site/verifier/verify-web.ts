@@ -11,6 +11,7 @@ const RECEIPT_TYPE = "application/vnd.in-toto+json";
 const PREDICATE_TYPE = "https://agent-custody.dev/receipt/v0.2";
 const TREEHEAD_TYPE = "application/vnd.agent-custody.treehead+json";
 const DELEGATION_TYPE = "application/vnd.agent-custody.delegation+json";
+const UPSTREAM_TYPE = "application/vnd.agent-custody.upstream+json";
 const subtle = () => globalThis.crypto.subtle;
 
 type Bytes = Uint8Array<ArrayBuffer>;
@@ -97,7 +98,7 @@ const ISSUER_NOTE: Record<string, string> = {
 };
 const short = (s: string) => s.slice(0, 12);
 
-export interface Options { issuerKeys: PublicKey[]; principalKeys: PublicKey[]; logKeys?: PublicKey[]; logLeaves?: string[] }
+export interface Options { issuerKeys: PublicKey[]; principalKeys: PublicKey[]; logKeys?: PublicKey[]; upstreamKeys?: PublicKey[]; logLeaves?: string[] }
 
 /** The same checks, in the same order, with the same names, as the reference verifyBundle. */
 export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Result> {
@@ -136,6 +137,18 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
   }
   const argsDigest = await digestOf(p.request.args);
   add("request args digest", argsDigest === p.request.argsDigest && st.subject[0]?.digest.sha256 === p.request.argsDigest);
+  if ((p.execution.status === "executed" || p.execution.status === "failed") && p.execution.upstream && (opts.upstreamKeys?.length ?? 0) > 0) {
+    const u = await dsseVerify(p.execution.upstream.envelope, opts.upstreamKeys!);
+    let ok = u.ok && p.execution.upstream.envelope.payloadType === UPSTREAM_TYPE;
+    let detail = u.ok ? `keyid ${short(u.keyid)}` : u.error;
+    if (u.ok) {
+      const expectedDigest = await digestOf({ content: p.execution.result.content, isError: !!p.execution.result.isError });
+      if (u.payload.receiptId !== p.receiptId) { ok = false; detail = "signed for a different receipt"; }
+      else if (u.payload.tool !== p.tool.name) { ok = false; detail = `signed for tool ${u.payload.tool}`; }
+      else if (u.payload.contentDigest !== expectedDigest) { ok = false; detail = "signed content differs from the result in the receipt"; }
+    }
+    add("upstream signature (upstream key)", ok, detail);
+  }
   if (p.policy) {
     const consistent = p.policy.decision === "allow" ? p.execution.status !== "denied" : p.execution.status === "denied";
     add("policy decision consistent with execution", consistent, `${p.policy.decision} -> ${p.execution.status}`);
@@ -204,6 +217,8 @@ export function formatReport(r: Result): string {
   for (const [k, f] of Object.entries<any>(p.facts)) row(`fact.${k}`, f.provenance, f.value);
   if (p.policy) row("policy", p.policy.provenance, `${p.policy.decision} [${p.policy.reasons.join(",")}] policy ${short(p.policy.policyDigest)}`); else row("policy", "-", "(none evaluated)");
   if (p.consumed) row("consumed", p.consumed.provenance, p.consumed.factIds.length === 0 ? "(no facts shown before this call)" : p.consumed.factIds);
-  row("execution", p.execution.provenance, p.execution.status);
+  const upstreamCheck = r.checks.find((c) => c.name === "upstream signature (upstream key)");
+  const hasUpstream = (p.execution.status === "executed" || p.execution.status === "failed") && !!p.execution.upstream;
+  row("execution", upstreamCheck?.ok ? "attested" : p.execution.provenance, `${p.execution.status}${hasUpstream ? (upstreamCheck ? (upstreamCheck.ok ? ` (signed by upstream ${upstreamCheck.detail})` : " (upstream signature FAILED)") : " (carries an upstream signature; add the upstream key to check it)") : ""}`);
   return lines.join("\n");
 }

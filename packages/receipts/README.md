@@ -231,6 +231,7 @@ src/sdk/index.ts   the interceptor: policy decision, record, wrap(tool fn)
 src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hooks
 src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, tested against the real packages
 src/sidecar.ts     the SDK issuer behind a local HTTP API, for agents in other languages
+src/upstream.ts    attested execution: an upstream signs its result for the receipt; the verifier checks it with the upstream key
 vectors/           conformance vectors: receipts, keys, logs, proofs, and expected verdicts; `bun run vectors` regenerates them
 src/verify.ts      offline verification, the human-readable report, and the audit that a later log extends an earlier one
 src/cli.ts         keygen, grant, gateway, hook, serve, log, verify, audit
@@ -254,6 +255,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - SDK core: policy decision, record, and a generic `wrap(tool, fn)` for any framework whose tools are functions.
 - Claude Code command hook for PreToolUse, PostToolUse, and PostToolUseFailure, with blocking on deny.
 - Claude Agent SDK in-process hooks over the same handler.
+- Attested execution: an upstream that holds a key signs its result for the receipt, the gateway embeds it, and a verifier given the upstream key reports the execution as attested rather than observed. The memory server and the demo upstream sign.
 - HTTP upstreams: the gateway reaches an already-running MCP server over Streamable HTTP with a bearer token from the environment, as well as spawning one over stdio.
 - Optional fact lookups: a lookup that references a call argument the call does not carry is skipped rather than denying, so policy can see the fact a write is about to supersede without refusing writes that supersede nothing.
 - Consumed facts: an upstream declares the facts it served in its result `_meta`, and every later gateway receipt in the session carries those ids as `consumed`, observed, so what the agent had been shown before each call is on the record.
@@ -267,7 +269,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 **Next, in the order it pays off**
 
 1. OpenTelemetry export: emit each receipt as a span with the receipt id and issuer kind as attributes, so existing collectors and dashboards carry them without a new pipeline.
-2. Embed upstream signed responses (Stripe webhook signatures, GitHub delivery signatures) so gateway execution can move from `observed` to `attested`.
+2. Provider-native upstream signatures (Stripe webhook signatures, GitHub delivery signatures) as adapters onto the upstream attestation field.
 3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
 4. Delegation chains for sub-agents.
 5. Receiver-attested receipts for agent-to-agent calls.

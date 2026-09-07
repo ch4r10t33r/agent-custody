@@ -26,6 +26,7 @@ interface Case {
   issuerKeys: string[];
   principalKeys: string[];
   logKeys: string[];
+  upstreamKeys?: string[];
   log: string[] | null;
   expected: { ok: boolean; failing: string[] };
 }
@@ -54,6 +55,7 @@ function addCase(c: Omit<Case, "expected">, opts?: Partial<VerifyOptions>) {
     issuerKeys: c.issuerKeys.map((k) => keyFrom(k)),
     principalKeys: c.principalKeys.map((k) => keyFrom(k)),
     logKeys: c.logKeys.map((k) => keyFrom(k)),
+    ...(c.upstreamKeys ? { upstreamKeys: c.upstreamKeys.map((k) => keyFrom(k)) } : {}),
     ...(logFile ? { logFile } : {}),
     ...opts,
   });
@@ -66,6 +68,7 @@ const keyFrom = (name: string) => publicKeyFromPem(pems[name]!);
 const gfx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-gateway-")));
 key("gateway", gfx.gatewayPub);
 key("principal", gfx.principalPub);
+key("upstream", gfx.upstreamPub);
 const gatewayKey = loadPrivateKey(join(gfx.dir, "keys", "gateway.key"));
 const gw = await createGateway(loadConfig(gfx.configFile));
 const ok = await gw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 50000 }, _meta: { "agent-custody/model": "vector-model" } });
@@ -78,6 +81,8 @@ const G = { issuerKeys: ["gateway"], principalKeys: ["principal"], logKeys: [] a
 
 addCase({ name: "gateway-executed", description: "An in-policy refund through the gateway: delegation attested, facts observed, executed. Every check passes with the log.", bundle: executed, ...G, log: glog });
 addCase({ name: "gateway-denied", description: "An over-limit refund denied by policy. The receipt exists, execution is denied, and every check passes.", bundle: deniedBundle, ...G, log: glog });
+addCase({ name: "gateway-executed-upstream-attested", description: "The executed receipt verified with the upstream's key as well: the upstream signed its result for this receipt, so the execution is attested, not only observed.", bundle: executed, ...G, upstreamKeys: ["upstream"], log: glog });
+addCase({ name: "gateway-executed-upstream-wrong-key", description: "The same receipt with the principal's key offered as the upstream key. The upstream signature check fails; everything else passes.", bundle: executed, ...G, upstreamKeys: ["principal"], log: glog });
 addCase({ name: "gateway-executed-no-log-copy", description: "The same executed receipt verified without a copy of the log: inclusion still proven against the signed tree head, the log-file check simply absent.", bundle: executed, ...G, log: null });
 addCase({ name: "wrong-issuer-key", description: "Verified against the principal's key as if it were the issuer's. The signature check fails first and nothing else is decided.", bundle: executed, issuerKeys: ["principal"], principalKeys: ["principal"], logKeys: [], log: glog });
 addCase({ name: "tampered-payload", description: "One character of the base64 payload changed. The signature no longer verifies.", bundle: { ...executed, envelope: { ...executed.envelope, payload: executed.envelope.payload.replace(/^(.)/, (c) => (c === "A" ? "B" : "A")) } }, ...G, log: glog });

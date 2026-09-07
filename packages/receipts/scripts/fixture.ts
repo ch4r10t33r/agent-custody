@@ -23,6 +23,8 @@ export interface Fixture {
   configFile: string;
   gatewayPub: string;
   principalPub: string;
+  /** the fake upstream signs its results with this key's private half */
+  upstreamPub: string;
   receiptsDir: string;
   logFile: string;
 }
@@ -33,6 +35,7 @@ export function buildFixture(dir: string, ttlMs = 3600_000): Fixture {
   const gateway = writeKeyPair(generateKeyPair(), join(dir, "keys"), "gateway");
   const principalKp = generateKeyPair();
   const principal = writeKeyPair(principalKp, join(dir, "keys"), "principal");
+  const upstream = writeKeyPair(generateKeyPair(), join(dir, "keys"), "upstream");
 
   const now = Date.now();
   const grant = createDelegation(principalKp, {
@@ -48,7 +51,7 @@ export function buildFixture(dir: string, ttlMs = 3600_000): Fixture {
 
   const config = {
     identity: { keyFile: "keys/gateway.key" },
-    upstream: { command: process.execPath, args: ["--import", "tsx", resolve(import.meta.dirname, "fake-stripe.ts")] },
+    upstream: { command: process.execPath, args: ["--import", "tsx", resolve(import.meta.dirname, "fake-stripe.ts"), "--key", upstream.keyFile] },
     grantFile: "grant.json",
     trustedPrincipalKeys: ["keys/principal.pub"],
     policyFile: "policy.cedar",
@@ -58,7 +61,7 @@ export function buildFixture(dir: string, ttlMs = 3600_000): Fixture {
   };
   const configFile = join(dir, "gateway.json");
   writeFileSync(configFile, JSON.stringify(config, null, 2));
-  return { dir, configFile, gatewayPub: gateway.pubFile, principalPub: principal.pubFile, receiptsDir: join(dir, "receipts"), logFile: join(dir, "log.jsonl") };
+  return { dir, configFile, gatewayPub: gateway.pubFile, principalPub: principal.pubFile, upstreamPub: upstream.pubFile, receiptsDir: join(dir, "receipts"), logFile: join(dir, "log.jsonl") };
 }
 
 export interface SdkFixture {

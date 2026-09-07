@@ -22,7 +22,7 @@ const USAGE = `agent-custody <command>
   hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_CUSTODY_CONFIG)
   serve   --config <sdk.json> [--port 8788] [--host 127.0.0.1]   the SDK as a local HTTP API for agents in other languages
   log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
-  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--log <log.jsonl>] [--json]
+  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--upstream-key <pub>] [--log <log.jsonl>] [--json]
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--json]
           checks that the newer receipt's log extends the older one's: nothing between them was rewritten
 `;
@@ -116,6 +116,7 @@ async function main(argv: string[]): Promise<number> {
           "gateway-key": { type: "string", multiple: true },
           "principal-key": { type: "string", multiple: true },
           "log-key": { type: "string", multiple: true },
+          "upstream-key": { type: "string", multiple: true },
           log: { type: "string" },
           json: { type: "boolean", default: false },
         },
@@ -128,6 +129,7 @@ async function main(argv: string[]): Promise<number> {
         issuerKeys: issuerKeyFiles.map(loadPublicKey),
         principalKeys: (values["principal-key"] ?? []).map(loadPublicKey),
         ...(values["log-key"] ? { logKeys: values["log-key"].map(loadPublicKey) } : {}),
+        ...(values["upstream-key"] ? { upstreamKeys: values["upstream-key"].map(loadPublicKey) } : {}),
         ...(values.log ? { logFile: values.log } : {}),
       });
       console.log(values.json ? JSON.stringify(result, null, 2) : formatReport(result));

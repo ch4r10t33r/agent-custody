@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { createDelegation, createGateway, generateKeyPair, loadConfig, loadPublicKey, RECEIPT_META_KEY, verifyBundle, writeKeyPair, type Gateway } from "@agent-custody/receipts";
+import { createDelegation, createGateway, formatReport, generateKeyPair, loadConfig, loadPublicKey, RECEIPT_META_KEY, verifyBundle, writeKeyPair, type Gateway } from "@agent-custody/receipts";
 import { Ledger } from "../src/ledger.ts";
 import { createMemoryServer } from "../src/server.ts";
 import { blastRadius, loadReceipts } from "../src/blast.ts";
@@ -75,6 +75,7 @@ describe("memory server behind the receipts gateway", () => {
   let gw: Gateway;
   let ledgerFile: string;
   let seeded: string;
+  let memoryPub: string;
   let gatewayPub: string;
   let principalPub: string;
   const POLICY = `permit(principal, action == Action::"memory.read", resource);
@@ -95,11 +96,12 @@ permit(principal, action == Action::"memory.forget", resource);
     writeFileSync(join(dir, "grant.json"), JSON.stringify(createDelegation(principalKp, { version: "0.1", principal: "user_456", agent: "support-agent", scopes: ["memory.write", "memory.read", "memory.retract", "memory.history", "memory.confirm", "memory.forget"], issuedAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 3600_000).toISOString() })));
     writeFileSync(join(dir, "policy.cedar"), POLICY);
     ledgerFile = join(dir, "ledger.jsonl");
+    memoryPub = writeKeyPair(generateKeyPair(), join(dir, "keys"), "memory").pubFile;
     // A ledger that already holds a self-reported fact before it is put under the gateway: the quarantine case.
     seeded = new Ledger(ledgerFile).assert({ subject: "acct:99", predicate: "owner", value: "dana", space: "team:support", actor: "sdk-bot" }).fact.factId;
     writeFileSync(join(dir, "gateway.json"), JSON.stringify({
       identity: { keyFile: "keys/gateway.key" },
-      upstream: { command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile] },
+      upstream: { command: process.execPath, args: [join(import.meta.dirname, "..", "src", "cli.ts"), "serve", "--ledger", ledgerFile, "--key", join(dir, "keys", "memory.key")] },
       grantFile: "grant.json",
       trustedPrincipalKeys: ["keys/principal.pub"],
       policyFile: "policy.cedar",
@@ -119,9 +121,12 @@ permit(principal, action == Action::"memory.forget", resource);
     expect(fact.source.receiptId).toBe(String(r._meta?.[RECEIPT_META_KEY]));
     expect(fact.actor).toBe("support-agent");
     expect(fact.provenance).toBe("attested");
-    const v = verifyBundle(receiptOf(r), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)], logFile: join(dir, "log.jsonl") });
+    const v = verifyBundle(receiptOf(r), { issuerKeys: [loadPublicKey(gatewayPub)], principalKeys: [loadPublicKey(principalPub)], logFile: join(dir, "log.jsonl"), upstreamKeys: [loadPublicKey(memoryPub)] });
     expect(v.ok).toBe(true);
     expect(v.statement?.predicate.tool).toEqual({ name: "memory.write", provenance: "observed" });
+    // the memory server signed its result for this receipt: the execution is attested by the memory server's key
+    expect(v.checks.find((c) => c.name === "upstream signature (upstream key)")?.ok).toBe(true);
+    expect(formatReport(v)).toMatch(/execution\s+attested/);
     expect(new Ledger(ledgerFile).asOf({ subject: "acct:42" })[0]?.source.receiptId).toBe(fact.source.receiptId);
   });
 

@@ -17,6 +17,9 @@ hero:
     - theme: alt
       text: Receipt spec
       link: /receipt/v0.2
+    - theme: alt
+      text: Hosted log, early access
+      link: /early-access
 features:
   - title: Receipts for tool calls
     details: A signed, in-toto statement for every call an agent makes, appended to a Merkle transparency log. Verified offline by anyone with the public keys.

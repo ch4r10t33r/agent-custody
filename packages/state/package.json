@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc -p ../receipts/tsconfig.build.json && tsc --noEmit",
     "test": "tsc -p ../receipts/tsconfig.build.json && vitest run"
   },
   "engines": {

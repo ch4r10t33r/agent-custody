@@ -4,7 +4,13 @@ import { Ledger } from "./ledger.ts";
 import { createMemoryServer, serveStdio } from "./server.ts";
 import { blastRadius, formatBlastRadius, loadReceipts } from "./blast.ts";
 import { serveMemoryHttp } from "./http.ts";
-import { loadPrivateKey } from "@agent-custody/receipts";
+import { loadPrivateKey, loadPublicKey } from "@agent-custody/receipts";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { formatReport, runAll, SCENARIOS } from "./evals.ts";
+import { ledgerUnderTest, overwriteStoreUnderTest } from "./evals-ledger.ts";
+import { loadScenarios, signReport, verifyReport } from "./evals-file.ts";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -42,6 +48,10 @@ const USAGE = `agent-custody-memory <command>
                                                    Without --before, the memory server's --retention windows decide. Put this on a timer.
   sweep --ledger <ledger.jsonl> --before <ISO instant> [--space <space>] --reason <text> [--actor <id>] [--forget-key-env NAME] [--no-digest]
                                                    retention on the ledger file alone, for ledgers with no gateway or stores in front of them.
+  eval [--scenarios <file.json>] [--baseline] [--json] [--sign <key> --out <report.json>]
+                                                   runs the memory-mutation scenarios on a fresh ledger; --baseline also scores a naive
+                                                   overwrite store; --sign writes a signed report. Exits 1 if the ledger regresses.
+  eval --verify <report.json> --key <pub>          checks a signed report and prints its scores
   blast --ledger <ledger.jsonl> --receipts <dir> --fact <factId> [--json]
                                                    everything that relied on a fact: later calls, derived beliefs, and whether it was retracted
 `;
@@ -92,6 +102,40 @@ async function main(argv: string[]): Promise<number> {
       console.log(`forgot ${r.forgotten.length} fact(s); ${r.held.length} on hold, kept`);
       for (const f of r.forgotten) console.log(`  ${f.factId}  ${f.digestKind}${f.valueDigest ? ` ${f.valueDigest.slice(0, 12)}` : ""}`);
       return 0;
+    }
+    case "eval": {
+      const { values } = parseArgs({ args: rest, options: { scenarios: { type: "string" }, baseline: { type: "boolean", default: false }, json: { type: "boolean", default: false }, sign: { type: "string" }, out: { type: "string" }, verify: { type: "string" }, key: { type: "string", multiple: true } } });
+      if (values.verify) {
+        if (!values.key?.length) throw new Error("eval --verify needs --key <pub>");
+        const r = verifyReport(JSON.parse(readFileSync(values.verify, "utf8")), values.key.map(loadPublicKey));
+        if (!r.ok) {
+          console.log(`NOT VERIFIED: ${r.error}`);
+          return 1;
+        }
+        console.log(`VERIFIED  signed by ${r.keyid.slice(0, 12)}  system ${r.predicate.system}  ran ${r.predicate.ranAt}  scenarios ${r.predicate.scenarioNames.length} (digest ${r.predicate.scenariosDigest.slice(0, 12)})`);
+        console.log(formatReport(r.predicate.report));
+        return 0;
+      }
+      const scenarios = values.scenarios ? loadScenarios(values.scenarios) : SCENARIOS;
+      const ledger = new Ledger(join(mkdtempSync(join(tmpdir(), "agent-custody-eval-")), "ledger.jsonl"));
+      const report = await runAll(ledgerUnderTest(ledger), scenarios);
+      const baseline = values.baseline ? await runAll(overwriteStoreUnderTest(), scenarios) : null;
+      const regressed = report.totals.correctReads < report.totals.reads || report.scenarios.some((s) => s.failures.length > 0);
+      if (values.json) console.log(JSON.stringify({ ledger: report, baseline }, null, 2));
+      else {
+        console.log("The ledger:");
+        console.log(formatReport(report));
+        if (baseline) {
+          console.log("\nA naive overwrite store:");
+          console.log(formatReport(baseline));
+        }
+      }
+      if (values.sign) {
+        if (!values.out) throw new Error("eval --sign needs --out <report.json>");
+        writeFileSync(values.out, JSON.stringify(signReport("agent-custody-ledger", scenarios, report, loadPrivateKey(values.sign)), null, 2));
+        console.error(`signed report written to ${values.out}`);
+      }
+      return regressed ? 1 : 0;
     }
     case "blast": {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, receipts: { type: "string" }, fact: { type: "string" }, json: { type: "boolean", default: false } } });

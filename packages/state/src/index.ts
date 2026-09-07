@@ -6,6 +6,8 @@ export type { MemoryServerOptions } from "./server.ts";
 export { SCENARIOS, formatReport, runAll, runScenario } from "./evals.ts";
 export type { MemoryUnderTest, Op, Report, Scenario, ScenarioScore } from "./evals.ts";
 export { ledgerUnderTest, overwriteStoreUnderTest } from "./evals-ledger.ts";
+export { EVAL_REPORT_TYPE, ScenarioFileSchema, loadScenarios, signReport, verifyReport } from "./evals-file.ts";
+export type { EvalReportPredicate, ReportCheck, ScenarioFile } from "./evals-file.ts";
 export { factMetadata, factText, mem0Store, zepStore } from "./stores.ts";
 export { blastRadius, formatBlastRadius, loadReceipts } from "./blast.ts";
 export { memoryHttpHandler, serveMemoryHttp } from "./http.ts";

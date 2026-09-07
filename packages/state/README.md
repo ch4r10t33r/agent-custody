@@ -138,6 +138,16 @@ import { Ledger, ledgerUnderTest, runAll, SCENARIOS, formatReport } from "@agent
 console.log(formatReport(await runAll(ledgerUnderTest(new Ledger("./ledger.jsonl")), SCENARIOS)));
 ```
 
+From the shell, on a schedule:
+
+```bash
+agent-custody-memory eval --baseline                                     # built-in scenarios, ledger and a naive store side by side
+agent-custody-memory eval --scenarios incidents.json --sign keys/eval.key --out report.json   # your own incidents, signed report
+agent-custody-memory eval --verify report.json --key keys/eval.pub       # what a reviewer runs
+```
+
+A scenario file is `{ "version": "0.1", "scenarios": [{ "name", "ops": [...] }] }` with the same write, read, and retract ops as the built-ins; every read carries `expect`, null meaning nothing. The file is validated and a bad one names the offending op. The signed report is an in-toto statement over the scores, bound to a digest of the scenarios it ran, in the same envelope format as receipts; `eval --verify` checks the signature and the digest. `eval` exits non-zero when the ledger scores below perfect on the scenarios it was given, so a cron job that runs it fails loudly when a change regresses memory behaviour.
+
 ## The ledger
 
 `src/ledger.ts` is an append-only JSONL log of two kinds of event.
@@ -162,11 +172,12 @@ The ledger refuses to supersede a fact that is unknown, already superseded, or r
 src/ledger.ts   the fact record, the two event kinds, as-of queries, supersession, retraction, JSONL persistence
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
-src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), blast
+src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
 src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
 src/evals-ledger.ts  the ledger and a naive overwrite store behind the harness interface
+src/evals-file.ts    scenario files, validated; signed eval reports and their verification
 src/index.ts    public surface
 examples/       runnable walkthroughs, each ends with OK and is run by the test suite
 test/           one test per question a platform owner asks after a memory incident
@@ -189,6 +200,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 - Policy over provenance: the gateway looks up the fact a write supersedes or a retraction targets, so policy decides on its space, actor, and provenance; a claimed fact can be displaced, an attested org fact cannot.
 - Consumed facts and blast radius: the memory server declares the facts it serves, the gateway records them on every later receipt, and `blast` walks from a fact to every downstream call and derived belief, transitively, with its retraction status.
 - Write-through adapters for Mem0 and Zep: every write lands in the store with custody metadata, the store id is recorded on the fact, retractions reach the store, and failures are ordered so nothing is half-recorded.
+- The eval CLI: built-in or custom scenario files, the naive baseline beside the ledger, a signed report a reviewer verifies, and a non-zero exit on regression, for cron.
 - The memory-mutation eval harness: stale reads, contradictions, blast radius, and correct reads over scripted incidents, scored the same way for the ledger and for anything behind the same interface.
 - Quarantine: facts carry `attested` or `claimed` provenance; claimed facts are hidden from reads by default and a gateway-only `memory.confirm` lifts them, as a recorded event.
 
@@ -196,6 +208,5 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 1. A storage interface for the ledger with SQLite as the first alternative to JSONL, for durability, concurrent readers, and indexed queries at scale; JSONL stays the default and the auditable export. [Issue #1](https://github.com/ch4r10t33r/agent-custody/issues/1).
 2. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
-3. The eval harness as a CLI with customer scenario files and a signed report. [Issue #5](https://github.com/ch4r10t33r/agent-custody/issues/5).
-4. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
+3. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 

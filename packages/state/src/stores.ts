@@ -26,7 +26,7 @@ export function factMetadata(f: Fact): Record<string, unknown> {
 // ---- Mem0 ----
 /** The subset of mem0ai's MemoryClient this adapter uses. */
 export interface Mem0Like {
-  add(messages: { role: string; content: string }[], options?: Record<string, unknown>): Promise<{ id?: string }[]>;
+  add(messages: { role: "user" | "assistant"; content: string }[], options?: Record<string, unknown>): Promise<{ id?: string }[]>;
   delete(memoryId: string): Promise<unknown>;
 }
 

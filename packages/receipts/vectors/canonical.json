@@ -1,0 +1,76 @@
+{
+  "version": "0.2",
+  "note": "canonical JSON: keys sorted, no whitespace, undefined dropped. digest = hex sha256 of the canonical string. keyid = hex sha256 of the SPKI DER public key. DSSE PAE = 'DSSEv1 ' + len(type) + ' ' + type + ' ' + len(payload) + ' ' + payload, signed with Ed25519.",
+  "values": [
+    {
+      "value": {
+        "b": 1,
+        "a": [
+          3,
+          {
+            "z": null,
+            "y": "ÿ"
+          }
+        ]
+      },
+      "canonical": "{\"a\":[3,{\"y\":\"ÿ\",\"z\":null}],\"b\":1}",
+      "digest": "894fec1144463457d74d1eb8599cf2e04a42723765ec1d1aabb77d658d860f2b"
+    },
+    {
+      "value": "plain",
+      "canonical": "\"plain\"",
+      "digest": "945603a8f587786b463c3f94fce115c0fae88fac2728cc96ddf5981cf7f61741"
+    },
+    {
+      "value": 42,
+      "canonical": "42",
+      "digest": "73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049"
+    },
+    {
+      "value": [
+        1,
+        2,
+        3
+      ],
+      "canonical": "[1,2,3]",
+      "digest": "a615eeaee21de5179de080de8c3052c8da901138406ba71c38c032845f7d54f4"
+    },
+    {
+      "value": {
+        "nested": {
+          "deep": {
+            "deeper": true
+          }
+        }
+      },
+      "canonical": "{\"nested\":{\"deep\":{\"deeper\":true}}}",
+      "digest": "d64d85fa17b84e33888c36e22c9543527721099faee1e070943096aa3c9ba4c2"
+    },
+    {
+      "value": {},
+      "canonical": "{}",
+      "digest": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    }
+  ],
+  "keyid": {
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAEb81f6KaNmH1pNR7KbeIUo9DW65Y0Qsfdxqbtnhs7cg=\n-----END PUBLIC KEY-----\n",
+    "keyid": "0ecde3bf114156b895ceb4ea63daa345271e8ee979f47bc69cbf0266bb93f6f5"
+  },
+  "dsse": {
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAEb81f6KaNmH1pNR7KbeIUo9DW65Y0Qsfdxqbtnhs7cg=\n-----END PUBLIC KEY-----\n",
+    "envelope": {
+      "payloadType": "application/vnd.example+json",
+      "payload": "eyJoZWxsbyI6IndvcmxkIn0=",
+      "signatures": [
+        {
+          "keyid": "0ecde3bf114156b895ceb4ea63daa345271e8ee979f47bc69cbf0266bb93f6f5",
+          "sig": "wkH8ufuyC3BJldxmhFUCImAOo38KyQO/uQMITvTjgikPeE9GIv6OwYEFtQnjcBNzY0+MRTn++dGeMwvVKzIBDw=="
+        }
+      ]
+    },
+    "payloadJson": "{\"hello\":\"world\"}",
+    "paeHex": "445353457631203238206170706c69636174696f6e2f766e642e6578616d706c652b6a736f6e203137207b2268656c6c6f223a22776f726c64227d",
+    "paeSha256": "8a321059588971b8abbbfeb3a5c7f629a14fc46d2ecf12895a79483dde78532e",
+    "expected": true
+  }
+}

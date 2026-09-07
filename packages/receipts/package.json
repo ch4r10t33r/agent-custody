@@ -43,13 +43,15 @@
   },
   "files": [
     "dist",
-    "docs"
+    "docs",
+    "vectors"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "demo": "tsx scripts/demo.ts"
+    "demo": "tsx scripts/demo.ts",
+    "vectors": "tsx scripts/vectors.ts"
   },
   "engines": {
     "node": ">=22"

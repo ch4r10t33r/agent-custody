@@ -1,0 +1,65 @@
+# Publishes the packages when a version tag is pushed: v0.1.3 publishes @agent-custody/receipts, @agent-custody/state,
+# and agent-custody on PyPI, all at that version. No tokens: npm and PyPI trust this workflow through OIDC ("trusted
+# publishing"), which each registry must be told about once, in the package's settings, before the first tagged release.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - name: tag must match every package version
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for f in packages/receipts/package.json packages/state/package.json; do
+            pv=$(node -p "require('./$f').version"); [ "$pv" = "$v" ] || { echo "$f is $pv, tag is $v"; exit 1; }
+          done
+          pyv=$(grep -m1 '^version' packages/python/pyproject.toml | sed 's/.*"\(.*\)"/\1/'); [ "$pyv" = "$v" ] || { echo "pyproject is $pyv, tag is $v"; exit 1; }
+      - run: bun run typecheck
+      - run: bun run test
+
+  npm:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - name: pack with bun so workspace versions are rewritten
+        run: |
+          (cd packages/receipts && bun pm pack)
+          (cd packages/state && bun pm pack)
+      - run: npm publish packages/receipts/agent-custody-receipts-*.tgz --access public --provenance
+      - run: npm publish packages/state/agent-custody-state-*.tgz --access public --provenance
+
+  pypi:
+    needs: check
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build
+        working-directory: packages/python
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: packages/python/dist

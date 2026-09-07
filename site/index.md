@@ -12,6 +12,9 @@ hero:
       text: What each piece is for
       link: /guide/pieces
     - theme: alt
+      text: Verify a receipt
+      link: /verify
+    - theme: alt
       text: Receipt spec
       link: /receipt/v0.2
 features:

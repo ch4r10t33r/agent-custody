@@ -1,6 +1,6 @@
 import { defineConfig } from "vitepress";
 import { withMermaid } from "vitepress-plugin-mermaid";
-import { existsSync } from "node:fs";
+import { cpSync, existsSync } from "node:fs";
 import { dirname, posix, relative, resolve } from "node:path";
 
 // The site is generated from the repository's own markdown. Nothing here is a second copy of the docs.
@@ -24,9 +24,10 @@ export default withMermaid(
     title: "agent-custody",
     description: "Chain of custody for AI agents: what an agent did and what it believes, signed, independently verifiable, and revertible.",
     srcDir: "..",
-    srcExclude: ["**/node_modules/**", "**/dist/**", "**/examples-out/**", "**/demo-out/**", "**/.venv/**", "**/target/**", "CLAUDE.md", "packages/receipts/examples/**", "packages/state/examples/**", "packages/python/tests/**", "site/README.md"],
+    srcExclude: ["site/verifier/**", "**/node_modules/**", "**/dist/**", "**/examples-out/**", "**/demo-out/**", "**/.venv/**", "**/target/**", "CLAUDE.md", "packages/receipts/examples/**", "packages/state/examples/**", "packages/python/tests/**", "site/README.md"],
     rewrites: {
       "site/index.md": "index.md",
+      "site/verify.md": "verify.md",
       "site/guide/:page": "guide/:page",
       "site/receipt/:page": "receipt/:page",
       "README.md": "repo.md",
@@ -36,6 +37,11 @@ export default withMermaid(
       "packages/python/README.md": "python/index.md",
     },
     cleanUrls: true,
+    // The conformance vectors are published as files next to the spec, straight from the receipts package.
+    buildEnd(siteConfig) {
+      const src = resolve(__dirname, "..", "..", "packages", "receipts", "vectors");
+      cpSync(src, resolve(siteConfig.outDir, "vectors"), { recursive: true });
+    },
     // Pages live at the repository root, but the site's dependencies live under site/ (Bun installs are isolated).
     vite: { resolve: { alias: [{ find: /^vue$/, replacement: resolve(__dirname, "..", "node_modules", "vue") }, { find: /^vue\/(.*)$/, replacement: resolve(__dirname, "..", "node_modules", "vue") + "/$1" }] } },
     lastUpdated: false,
@@ -46,6 +52,7 @@ export default withMermaid(
         { text: "State", link: "/state/" },
         { text: "Python", link: "/python/" },
         { text: "Spec", link: "/receipt/v0.2" },
+        { text: "Verify", link: "/verify" },
       ],
       sidebar: [
         { text: "Start here", items: [
@@ -62,7 +69,8 @@ export default withMermaid(
         ] },
         { text: "State", items: [{ text: "The fact ledger", link: "/state/" }] },
         { text: "Python", items: [{ text: "The Python client", link: "/python/" }] },
-        { text: "Specification", items: [{ text: "Receipt v0.2", link: "/receipt/v0.2" }] },
+        { text: "Specification", items: [{ text: "Receipt v0.2", link: "/receipt/v0.2" }, { text: "Conformance vectors", link: "/receipt/vectors" }] },
+        { text: "Tools", items: [{ text: "Verify a receipt in the browser", link: "/verify" }] },
       ],
       socialLinks: [{ icon: "github", link: "https://github.com/ch4r10t33r/agent-custody" }, { icon: "npm", link: "https://www.npmjs.com/org/agent-custody" }],
       footer: { message: "Apache-2.0", copyright: "agent-custody" },

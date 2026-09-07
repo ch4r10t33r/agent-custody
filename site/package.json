@@ -6,11 +6,16 @@
   "scripts": {
     "dev": "vitepress dev",
     "build": "vitepress build",
-    "preview": "vitepress preview"
+    "preview": "vitepress preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "mermaid": "^11.4.0",
     "vitepress": "^1.6.0",
-    "vitepress-plugin-mermaid": "^2.0.17"
+    "vitepress-plugin-mermaid": "^2.0.17",
+    "vitest": "^5.0.0",
+    "typescript": "^7.0.2",
+    "@types/node": "^26.4.1"
   }
 }

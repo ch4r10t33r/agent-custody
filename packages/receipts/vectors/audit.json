@@ -1,0 +1,147 @@
+{
+  "version": "0.2",
+  "note": "auditExtends(older, newer, proof, keys): both tree heads must verify against a listed key; the proof is the log's consistency proof between their sizes.",
+  "cases": [
+    {
+      "name": "remote-log-extends",
+      "description": "The tree head from the first remote receipt and the log's later head, with the proof the log served.",
+      "older": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6Ijg3MzM5M2E4ZTQ4ZmFkNzVlMmRkMzY1MzRjNmRjNzUzMTc5YmM0NmEzMTAxNDZjZTI2OGUxNTc2ODZiOGMwZTQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExMFoiLCJ0cmVlU2l6ZSI6MX0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "vydFxb4Z753KUPOXLEFiYnE0nntaoU9xXtBe7IMW8eucYeef+XpGu+4+bXpo/zYZATcx4h+7bMmDd3frqizkBg=="
+          }
+        ]
+      },
+      "newer": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6ImNlYmViNDAzYjNlZWYzYzgwNWVjYzg5OTI2NTM0ZGM0NjkxY2I4OWJlN2I0ZjFjNjE3Njg5MDFkMzIxNDkzYmEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExNFoiLCJ0cmVlU2l6ZSI6Mn0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "iyUBqiJcZd/RaEDXWhhxl34ekqy6tQ9qgsMQjAXlvuHS75aqPLeh0NRtUQB89LS2UMJYihmcSUdg/Z82uORqCQ=="
+          }
+        ]
+      },
+      "proof": [
+        "4869289b5853ed3431c235a1f4e97d1d4205723e622dc71bd836018c62572723"
+      ],
+      "keys": [
+        "log"
+      ],
+      "expected": {
+        "ok": true,
+        "failing": []
+      }
+    },
+    {
+      "name": "remote-log-wrong-order",
+      "description": "The same heads the wrong way round.",
+      "older": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6ImNlYmViNDAzYjNlZWYzYzgwNWVjYzg5OTI2NTM0ZGM0NjkxY2I4OWJlN2I0ZjFjNjE3Njg5MDFkMzIxNDkzYmEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExNFoiLCJ0cmVlU2l6ZSI6Mn0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "iyUBqiJcZd/RaEDXWhhxl34ekqy6tQ9qgsMQjAXlvuHS75aqPLeh0NRtUQB89LS2UMJYihmcSUdg/Z82uORqCQ=="
+          }
+        ]
+      },
+      "newer": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6Ijg3MzM5M2E4ZTQ4ZmFkNzVlMmRkMzY1MzRjNmRjNzUzMTc5YmM0NmEzMTAxNDZjZTI2OGUxNTc2ODZiOGMwZTQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExMFoiLCJ0cmVlU2l6ZSI6MX0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "vydFxb4Z753KUPOXLEFiYnE0nntaoU9xXtBe7IMW8eucYeef+XpGu+4+bXpo/zYZATcx4h+7bMmDd3frqizkBg=="
+          }
+        ]
+      },
+      "proof": [
+        "4869289b5853ed3431c235a1f4e97d1d4205723e622dc71bd836018c62572723"
+      ],
+      "keys": [
+        "log"
+      ],
+      "expected": {
+        "ok": false,
+        "failing": [
+          "older is not larger than newer"
+        ]
+      }
+    },
+    {
+      "name": "remote-log-wrong-key",
+      "description": "Tree heads checked against the app key, which did not sign them.",
+      "older": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6Ijg3MzM5M2E4ZTQ4ZmFkNzVlMmRkMzY1MzRjNmRjNzUzMTc5YmM0NmEzMTAxNDZjZTI2OGUxNTc2ODZiOGMwZTQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExMFoiLCJ0cmVlU2l6ZSI6MX0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "vydFxb4Z753KUPOXLEFiYnE0nntaoU9xXtBe7IMW8eucYeef+XpGu+4+bXpo/zYZATcx4h+7bMmDd3frqizkBg=="
+          }
+        ]
+      },
+      "newer": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6ImNlYmViNDAzYjNlZWYzYzgwNWVjYzg5OTI2NTM0ZGM0NjkxY2I4OWJlN2I0ZjFjNjE3Njg5MDFkMzIxNDkzYmEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExNFoiLCJ0cmVlU2l6ZSI6Mn0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "iyUBqiJcZd/RaEDXWhhxl34ekqy6tQ9qgsMQjAXlvuHS75aqPLeh0NRtUQB89LS2UMJYihmcSUdg/Z82uORqCQ=="
+          }
+        ]
+      },
+      "proof": [
+        "4869289b5853ed3431c235a1f4e97d1d4205723e622dc71bd836018c62572723"
+      ],
+      "keys": [
+        "app"
+      ],
+      "expected": {
+        "ok": false,
+        "failing": [
+          "older tree head signature",
+          "newer tree head signature"
+        ]
+      }
+    },
+    {
+      "name": "remote-log-bad-proof",
+      "description": "A proof with a hash removed.",
+      "older": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6Ijg3MzM5M2E4ZTQ4ZmFkNzVlMmRkMzY1MzRjNmRjNzUzMTc5YmM0NmEzMTAxNDZjZTI2OGUxNTc2ODZiOGMwZTQiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExMFoiLCJ0cmVlU2l6ZSI6MX0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "vydFxb4Z753KUPOXLEFiYnE0nntaoU9xXtBe7IMW8eucYeef+XpGu+4+bXpo/zYZATcx4h+7bMmDd3frqizkBg=="
+          }
+        ]
+      },
+      "newer": {
+        "payloadType": "application/vnd.agent-custody.treehead+json",
+        "payload": "eyJyb290SGFzaCI6ImNlYmViNDAzYjNlZWYzYzgwNWVjYzg5OTI2NTM0ZGM0NjkxY2I4OWJlN2I0ZjFjNjE3Njg5MDFkMzIxNDkzYmEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA5LTA3VDA2OjUyOjUxLjExNFoiLCJ0cmVlU2l6ZSI6Mn0=",
+        "signatures": [
+          {
+            "keyid": "e1ed29255a4bd710006fe9ad333514e71c705608b769029088a818f57bcf080a",
+            "sig": "iyUBqiJcZd/RaEDXWhhxl34ekqy6tQ9qgsMQjAXlvuHS75aqPLeh0NRtUQB89LS2UMJYihmcSUdg/Z82uORqCQ=="
+          }
+        ]
+      },
+      "proof": [],
+      "keys": [
+        "log"
+      ],
+      "expected": {
+        "ok": false,
+        "failing": [
+          "newer log extends older log"
+        ]
+      }
+    }
+  ]
+}

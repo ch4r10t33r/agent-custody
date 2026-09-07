@@ -67,7 +67,12 @@ export function loadPrivateKey(path: string): KeyPair {
 }
 
 export function loadPublicKey(path: string): PublicKeyRef {
-  const publicKey = createPublicKey(readFileSync(path));
+  return publicKeyFromPem(readFileSync(path, "utf8"));
+}
+
+/** A public key from its SPKI PEM text, as found in a .pub file or a conformance vector. */
+export function publicKeyFromPem(pem: string): PublicKeyRef {
+  const publicKey = createPublicKey(pem);
   return { publicKey, keyid: keyidOf(publicKey) };
 }
 

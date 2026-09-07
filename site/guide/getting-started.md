@@ -6,5 +6,5 @@
 
 - Enforce instead of record: put the gateway between the agent and its MCP tools. [The gateway](/receipts/usage)
 - Hook an existing framework, or another language. [The interceptor SDK](/receipts/sdk)
-- Write policies and read what a verified receipt proves. [Policies](/receipts/policies), [Verification](/receipts/verification)
+- Write policies, for tools and for memory, with tested examples. [Policies](/receipts/policies), and what a verified receipt proves: [Verification](/receipts/verification)
 - Put beliefs in the ledger. [State](/state/)

@@ -104,6 +104,69 @@ permit(principal, action, resource)
 when { context.grant.principal == "user_456" };
 ```
 
+## Policies for memory
+
+The memory server in `@agent-custody/state` is an upstream like any other, so its tools are governed by the same policy file with the same request shape. What differs is what is in the context:
+
+| for | `context.args` carries | `context.facts` can carry |
+| --- | --- | --- |
+| `memory.write` | `subject`, `predicate`, `value`, `space`, and optionally `supersedes` and `evidence` | `target`, the fact being superseded, when the gateway is configured to look it up with `memory.get` |
+| `memory.read` | the query, and `includeClaimed` or `requireVerified` when the caller asks for them | |
+| `memory.retract`, `memory.forget`, `memory.hold`, `memory.release` | `factId` and `reason` | `target`, the fact being changed |
+| `memory.sweep` | `before`, `space`, `reason` | |
+| `memory.confirm` | `factId` | |
+
+A looked-up `target` has `space`, `actor`, `provenance` (`claimed`, `attested`, or `verified`), `subject`, `predicate`, `value`, and `retracted`. Fields that would be null are absent, so test with `has`. The lookup config that makes `target` available is in the [state package README](../../state/README.md#the-memory-server).
+
+**Confine an agent to its team's space.** Reads anywhere, writes only to one space.
+
+```cedar
+permit(principal, action == Action::"memory.read", resource);
+permit(principal, action == Action::"memory.write", resource)
+when { context.args.space == "team:support" };
+```
+
+**Keep quarantine closed.** Only a named reviewer may read claimed facts or lift them out of quarantine.
+
+```cedar
+permit(principal, action == Action::"memory.read", resource)
+unless { context.args has includeClaimed && context.args.includeClaimed == true && principal != Agent::"reviewer" };
+permit(principal == Agent::"reviewer", action == Action::"memory.confirm", resource);
+```
+
+**Require evidence for org memory.** A write to the org space must cite a fact the gateway fetched itself; the memory server then checks the value against it and writes it as verified, or refuses.
+
+```cedar
+permit(principal, action == Action::"memory.write", resource)
+when { context.args.space != "org" || context.args has evidence };
+```
+
+**Protect attested org facts from being displaced or retracted.** Needs the `target` lookup. A self-reported org note can be replaced; an attested one cannot.
+
+```cedar
+permit(principal, action in [Action::"memory.write", Action::"memory.retract"], resource);
+forbid(principal, action in [Action::"memory.write", Action::"memory.retract"], resource)
+when { context.facts has target && context.facts.target.space == "org" && context.facts.target.provenance == "attested" };
+```
+
+**Erasure and holds belong to named roles.** Everyone else is denied by default.
+
+```cedar
+permit(principal == Agent::"privacy-officer", action in [Action::"memory.forget", Action::"memory.sweep"], resource);
+permit(principal == Agent::"legal", action in [Action::"memory.hold", Action::"memory.release"], resource);
+```
+
+**A complete policy for a support agent.** The pieces above, together: read anywhere but not into quarantine, write team memory freely, write org memory only with evidence, retract only claimed facts, and no erasure or holds at all.
+
+```cedar
+permit(principal, action == Action::"memory.read", resource)
+unless { context.args has includeClaimed && context.args.includeClaimed == true };
+permit(principal, action == Action::"memory.write", resource)
+when { context.args.space == "team:support" || (context.args.space == "org" && context.args has evidence) };
+permit(principal, action == Action::"memory.retract", resource)
+when { context.facts has target && context.facts.target.provenance == "claimed" };
+```
+
 ## Gotchas
 
 - **Integers only.** `12.50` is not a Cedar value. Send `1250`.

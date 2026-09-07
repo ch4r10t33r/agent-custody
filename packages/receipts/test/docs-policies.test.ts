@@ -18,7 +18,7 @@ const decide = (i: number, r: ReturnType<typeof req>) => evaluate(blocks[i]!, r)
 
 describe("docs/policies.md examples", () => {
   it("contains the expected number of examples", () => {
-    expect(blocks.length).toBe(9);
+    expect(blocks.length).toBe(15);
   });
 
   it("every block parses as a Cedar policy set", () => {
@@ -73,6 +73,47 @@ describe("docs/policies.md examples", () => {
     expect(decide(7, req("stripe.refund", { currency: "USD" }))).toBe("deny");
   });
 
+  it("9: memory confined to a space", () => {
+    expect(decide(9, req("memory.read", { subject: "acct:1" }))).toBe("allow");
+    expect(decide(9, req("memory.write", { subject: "acct:1", predicate: "p", value: 1, space: "team:support" }))).toBe("allow");
+    expect(decide(9, req("memory.write", { subject: "acct:1", predicate: "p", value: 1, space: "org" }))).toBe("deny");
+  });
+  it("10: quarantine stays closed except to the reviewer", () => {
+    expect(decide(10, req("memory.read", { subject: "acct:1" }))).toBe("allow");
+    expect(decide(10, req("memory.read", { subject: "acct:1", includeClaimed: true }))).toBe("deny");
+    expect(decide(10, req("memory.read", { subject: "acct:1", includeClaimed: true }, {}, "reviewer"))).toBe("allow");
+    expect(decide(10, req("memory.confirm", { factId: "f" }))).toBe("deny");
+    expect(decide(10, req("memory.confirm", { factId: "f" }, {}, "reviewer"))).toBe("allow");
+  });
+  it("11: org writes need evidence", () => {
+    expect(decide(11, req("memory.write", { space: "team:support", subject: "s", predicate: "p", value: 1 }))).toBe("allow");
+    expect(decide(11, req("memory.write", { space: "org", subject: "s", predicate: "p", value: 1 }))).toBe("deny");
+    expect(decide(11, req("memory.write", { space: "org", subject: "s", predicate: "p", value: 1, evidence: { fact: "customer" } }))).toBe("allow");
+  });
+  it("12: attested org facts cannot be displaced or retracted; claimed ones can", () => {
+    expect(decide(12, req("memory.write", { space: "org", supersedes: "f" }, { target: { space: "org", provenance: "attested", actor: "finance" } }))).toBe("deny");
+    expect(decide(12, req("memory.write", { space: "org", supersedes: "f" }, { target: { space: "org", provenance: "claimed", actor: "bot" } }))).toBe("allow");
+    expect(decide(12, req("memory.retract", { factId: "f", reason: "x" }, { target: { space: "org", provenance: "attested", actor: "finance" } }))).toBe("deny");
+    expect(decide(12, req("memory.write", { space: "org", subject: "s", predicate: "p", value: 1 }))).toBe("allow");
+  });
+  it("13: erasure and holds only for named roles", () => {
+    expect(decide(13, req("memory.forget", { factId: "f", reason: "r" }))).toBe("deny");
+    expect(decide(13, req("memory.forget", { factId: "f", reason: "r" }, {}, "privacy-officer"))).toBe("allow");
+    expect(decide(13, req("memory.sweep", { before: "2026-01-01T00:00:00Z", reason: "r" }, {}, "privacy-officer"))).toBe("allow");
+    expect(decide(13, req("memory.hold", { factId: "f", reason: "r" }, {}, "legal"))).toBe("allow");
+    expect(decide(13, req("memory.hold", { factId: "f", reason: "r" }, {}, "privacy-officer"))).toBe("deny");
+  });
+  it("14: the complete support-agent policy", () => {
+    expect(decide(14, req("memory.read", { subject: "s" }))).toBe("allow");
+    expect(decide(14, req("memory.read", { subject: "s", includeClaimed: true }))).toBe("deny");
+    expect(decide(14, req("memory.write", { space: "team:support", subject: "s", predicate: "p", value: 1 }))).toBe("allow");
+    expect(decide(14, req("memory.write", { space: "org", subject: "s", predicate: "p", value: 1 }))).toBe("deny");
+    expect(decide(14, req("memory.write", { space: "org", subject: "s", predicate: "p", value: 1, evidence: { fact: "customer", path: "email" } }))).toBe("allow");
+    expect(decide(14, req("memory.retract", { factId: "f", reason: "r" }, { target: { space: "team:support", provenance: "claimed", actor: "bot" } }))).toBe("allow");
+    expect(decide(14, req("memory.retract", { factId: "f", reason: "r" }, { target: { space: "team:support", provenance: "attested", actor: "me" } }))).toBe("deny");
+    expect(decide(14, req("memory.forget", { factId: "f", reason: "r" }))).toBe("deny");
+    expect(decide(14, req("memory.hold", { factId: "f", reason: "r" }))).toBe("deny");
+  });
   it("8: grant is reachable from context", () => {
     expect(decide(8, req("stripe.refund", {}))).toBe("allow");
     expect(evaluate(blocks[8]!, { ...req("stripe.refund", {}), context: { args: {}, facts: {}, grant: { ...grant, principal: "someone-else" } } }).decision).toBe("deny");

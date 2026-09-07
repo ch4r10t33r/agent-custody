@@ -108,7 +108,7 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 
 - Enforce instead of record: put the gateway between the agent and its MCP tools, with a signed delegation grant and a Cedar policy. Denied calls never reach the tool and still get a receipt. [packages/receipts/docs/usage.md](packages/receipts/docs/usage.md)
 - Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
-- Write policies and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
+- Write policies, for tools and for memory, with tested examples, and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
 - Log to a server the operator does not control, so tree heads are signed by a key that is not yours. [verification.md](packages/receipts/docs/verification.md)
 - Verify a receipt in the browser, nothing uploaded, and check a second implementation against the published conformance vectors. [agent-custody.dev/verify](https://agent-custody.dev/verify), [vectors](https://agent-custody.dev/receipt/vectors)
 - Prove a log was never rewritten: keep any receipt's tree head, later audit that the log still extends it. [verification.md](packages/receipts/docs/verification.md)

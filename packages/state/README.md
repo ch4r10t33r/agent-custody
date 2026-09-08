@@ -142,6 +142,8 @@ WHAT NEEDS REVERSAL          2 belief(s) still believed, and 3 later call(s) to 
 
 The first eight lines come from the receipt alone and work without a ledger; the last two are answered from the ledger, and without one they say `unknown without a ledger` rather than pretending nothing depended on the call. `--out action.json --sign keys/pack.key` writes the same answers as one signed action pack with the receipt and every downstream receipt inside it, and `explain --verify action.json --key keys/pack.pub --issuer-key ... --principal-key ...` checks the pack's signature and digest, the receipt, every downstream receipt, and that the written beliefs cite this receipt. Touch one receipt inside and the pack fails. The custody pack below is the same artefact seen from a fact instead of an action.
 
+**The review page.** `agent-custody-memory review --receipts receipts --ledger ledger.sqlite --issuer-key keys/gateway.pub --principal-key keys/principal.pub` serves the same answers as pages on loopback: an index of every receipt with when, tool, outcome, agent, principal, producer, and its verdict, and one page per receipt with the ten answers, the verification report, and the receipt itself to download. `--out <dir>` writes the same as static files for a case file or a shared drive. It runs where the receipts are, because nobody else holds them; it has no login of its own, so expose it only behind one you already have.
+
 ## Write-through to the stores you already use
 
 The ledger is not a retrieval store, and it does not try to be. `src/stores.ts` puts it under the ones teams already run: a fact written through the memory server also lands in every configured store, with its custody metadata (fact id, space, actor, provenance, receipt id), the store's own id is recorded on the fact, and a retraction reaches the store by that id. Certified forget will be built on this: a deletion is only real once it has reached the stores that serve recall. For teams whose recall is a pgvector table, `pgvectorStore` writes the fact's text, its embedding from the function you already use, and its custody metadata as one row keyed by the fact id, and verifies a removal with the same nearest-neighbour query a retrieval call runs.
@@ -214,8 +216,9 @@ src/storage.ts  the store interface and its three stores: JSONL (default, audita
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
 src/explain.ts  one action explained: the ten answers from a receipt and the ledger, and the signed action pack
+src/review.ts   the review page: the explain output as pages, served on loopback or written as files
 src/pack.ts     the custody pack: build, sign, verify, format
-src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, explain, pack, export, blast
+src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, explain, review, pack, export, blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
 src/stores.ts   write-through adapters: Mem0, Zep, and pgvector, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
@@ -235,6 +238,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
 - Forget digests are keyed under a server-held secret, or absent on request, so an erased value cannot be guessed back from the file.
 - Retention windows per space in the server, sweeps that default to them, and a `sweep --via` trigger that runs retention through a gateway as a named principal, on any timer.
+- The review page: the explain output as pages for the reviewer who will not open a terminal, an index of every receipt with its verdict and one page per receipt, served on loopback or written as static files.
 - Explain one action: from a receipt id, who, who authorized it, what was allowed, what the agent saw, what it did, why, the evidence, whether it verifies, what depended on it, and what needs reversal; the same as a signed action pack that carries every downstream receipt.
 - The custody pack: a fact's history with receipts, holds, blast radius, and forget certificate as one signed artefact, verified as a whole.
 - Removal verification: after a retraction, forget, or sweep the server asks each store's search whether the value still surfaces and records verified, stillIndexed, unverified, or failed per store, in the receipt.

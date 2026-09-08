@@ -28,6 +28,7 @@ Suggested reading order is the numbering. Output lands in `examples-out/`, which
 | 16 | consequential tools, committed first | [16-precommit.ts](../examples/16-precommit.ts) | a refund named in `precommit`: the authorization leaf before the receipt leaf, the five authorization checks in the report, and the same call withheld when the log refuses | `src/gateway.ts`, `src/issue.ts`, `src/verify.ts` |
 | 17 | a REST API as an upstream | [17-rest-upstream.ts](../examples/17-rest-upstream.ts) | a stand-in payments API described as two tools, the token from the environment, a refund allowed on the gateway's own lookup and one denied before reaching the API, the receipt verified | `src/rest.ts`, `src/gateway.ts` |
 | 18 | OpenTelemetry export | [18-opentelemetry.ts](../examples/18-opentelemetry.ts) | a stand-in OTLP collector, `otel` in the config, one span per receipt with the receipt id as trace id, the collector going away and the next receipt still issued | `src/otel.ts`, `src/issue.ts` |
+| 19 | Splunk export | [19-splunk.ts](../examples/19-splunk.ts) | a stand-in HTTP Event Collector, `splunk` in the config with the token from the environment, one event per receipt with the receipt id and log position as fields, the collector going away and the next receipt still issued | `src/splunk.ts`, `src/otel.ts` |
 
 ## How policies are defined, in one paragraph
 

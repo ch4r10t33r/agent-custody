@@ -4,6 +4,7 @@
 // the receipt is issued: a collector is not evidence, and an outage there must never cost a receipt.
 // No SDK dependency: OTLP/HTTP with JSON is a stable wire format, and this writes it directly.
 import type { AuthorizationBundle, ReceiptBundle, ReceiptPredicate } from "./receipt.ts";
+import { splunkExporter, type SplunkConfig } from "./splunk.ts";
 
 export interface OtelConfig {
   /** the collector's OTLP/HTTP base, e.g. http://localhost:4318; spans go to <url>/v1/traces */
@@ -111,7 +112,17 @@ export function otlpExporter(cfg: OtelConfig, opts: OtlpOptions = {}): ReceiptEx
   };
 }
 
-/** The exporter a config asks for, or undefined. */
-export function openExporter(cfg: { otel?: OtelConfig | undefined }): ReceiptExporter | undefined {
-  return cfg.otel ? otlpExporter(cfg.otel) : undefined;
+/** The exporters a config asks for, as one; undefined when it asks for none. Each is told independently, so one failing never silences another. */
+export function openExporter(cfg: { otel?: OtelConfig | undefined; splunk?: SplunkConfig | undefined }): ReceiptExporter | undefined {
+  const all: ReceiptExporter[] = [];
+  if (cfg.otel) all.push(otlpExporter(cfg.otel));
+  if (cfg.splunk) all.push(splunkExporter(cfg.splunk));
+  if (all.length === 0) return undefined;
+  if (all.length === 1) return all[0];
+  return {
+    where: all.map((e) => e.where).join(", "),
+    async exported(p, bundle) {
+      await Promise.all(all.map((e) => e.exported(p, bundle)));
+    },
+  };
 }

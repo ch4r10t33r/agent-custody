@@ -15,6 +15,8 @@ export { blastRadius, formatBlastRadius, loadReceipts } from "./blast.ts";
 export { memoryHttpHandler, serveMemoryHttp } from "./http.ts";
 export { PACK_TYPE, buildPack, formatPack, signPack, verifyPack } from "./pack.ts";
 export { ACTION_PACK_TYPE, buildActionPack, decodeStatement, formatExplain, signActionPack, verifyActionPack } from "./explain.ts";
+export { listReceipts, renderIndex, renderReceipt, reviewHandler, serveReview, writeReview } from "./review.ts";
+export type { ReceiptRow, ReviewOptions, RunningReview } from "./review.ts";
 export type { ActionPack, ActionPackCheck, ActionPackVerification, ReceiptKeys } from "./explain.ts";
 export type { CustodyPack, PackCheck, PackVerification } from "./pack.ts";
 export type { MemoryHttpOptions, RunningMemoryServer } from "./http.ts";

@@ -7,6 +7,7 @@ const LogSchema = z.object({ url: z.string().url(), tokenEnv: z.string().min(1).
 const oneLog = { message: "exactly one of logFile or log is required" };
 /** Optional OpenTelemetry export: every receipt also becomes a span at this OTLP/HTTP collector, after it is issued. Never on the evidence path. */
 const OtelSchema = z.object({ url: z.string().url(), headersEnv: z.record(z.string(), z.string().min(1)).optional(), serviceName: z.string().min(1).optional() });
+const SplunkSchema = z.object({ url: z.string().url(), tokenEnv: z.string().min(1), index: z.string().min(1).optional(), source: z.string().min(1).optional(), sourcetype: z.string().min(1).optional(), host: z.string().min(1).optional() });
 const hasOneLog = (c: { logFile?: string | undefined; log?: unknown }) => (c.logFile ? 1 : 0) + (c.log ? 1 : 0) === 1;
 
 /** One REST endpoint offered to the agent as a tool. `{name}` segments in the path come from the call's arguments; the rest go to the query on GET and DELETE, or to a JSON body otherwise. */
@@ -74,6 +75,7 @@ export const GatewayConfigSchema = z.object({
   logFile: z.string().optional(),
   log: LogSchema.optional(),
   otel: OtelSchema.optional(),
+  splunk: SplunkSchema.optional(),
 }).refine(hasOneLog, oneLog).refine((c) => (c.upstream ? 1 : 0) + (c.upstreams ? 1 : 0) === 1, { message: "exactly one of upstream or upstreams is required" });
 export type GatewayConfig = z.infer<typeof GatewayConfigSchema>;
 export type FactConfig = z.infer<typeof FactSchema>;
@@ -105,6 +107,7 @@ export const SdkConfigSchema = z.object({
   logFile: z.string().optional(),
   log: LogSchema.optional(),
   otel: OtelSchema.optional(),
+  splunk: SplunkSchema.optional(),
   /** free-text label of the host framework, e.g. "claude-code", "openai-agents" */
   framework: z.string().optional(),
 }).refine(hasOneLog, oneLog);

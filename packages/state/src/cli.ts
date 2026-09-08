@@ -13,6 +13,7 @@ import { ledgerUnderTest, overwriteStoreUnderTest } from "./evals-ledger.ts";
 import { loadScenarios, signReport, verifyReport } from "./evals-file.ts";
 import { buildPack, formatPack, signPack, verifyPack } from "./pack.ts";
 import { buildActionPack, formatExplain, signActionPack, verifyActionPack } from "./explain.ts";
+import { serveReview, writeReview } from "./review.ts";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -68,6 +69,11 @@ const USAGE = `agent-custody-memory <command>
   explain ... --out <action.json> --sign <key>     the same as one signed action pack, every downstream receipt inside
   explain --verify <action.json> --key <pub> [--issuer-key <pub>] [--principal-key <pub>] [--log-key <pub>]
                                                    checks the pack, the receipt inside it, and every downstream receipt
+  review --receipts <dir> [--ledger <ledger>] [--issuer-key <pub>] [--principal-key <pub>] [--log-key <pub>] [--log-id <id>] [--port 8791] [--host 127.0.0.1] [--title <text>]
+                                                   the explain output as pages, for the reviewer who will not open a terminal: an index of every
+                                                   receipt with its verdict, one page per receipt with the ten answers and the verification report.
+                                                   Serves on loopback; put it behind your own login if you expose it.
+  review ... --out <dir>                           the same as static files, for a case file or a shared drive
   export --ledger <ledger.sqlite|postgres://…> --out <ledger.jsonl>  the auditable JSONL of any ledger, one event per line; also the feed for a warehouse
   blast --ledger <ledger.jsonl> --receipts <dir> --fact <factId> [--json]
                                                    everything that relied on a fact: later calls, derived beliefs, and whether it was retracted
@@ -209,6 +215,25 @@ async function main(argv: string[]): Promise<number> {
       if (values.json) console.log(JSON.stringify({ pack, verification }, null, 2));
       else console.log(formatExplain(pack, verification, !!ledger));
       return verification && !verification.ok ? 1 : pack.missingReceipts.length ? 1 : 0;
+    }
+    case "review": {
+      const { values } = parseArgs({ args: rest, options: { receipts: { type: "string" }, ledger: { type: "string" }, "issuer-key": { type: "string", multiple: true }, "principal-key": { type: "string", multiple: true }, "log-key": { type: "string", multiple: true }, "log-id": { type: "string" }, port: { type: "string", default: "8791" }, host: { type: "string", default: "127.0.0.1" }, title: { type: "string" }, out: { type: "string" } } });
+      if (!values.receipts) throw new Error("review needs --receipts");
+      const keys = values["issuer-key"]?.length ? { issuerKeys: values["issuer-key"].map(loadPublicKey), principalKeys: (values["principal-key"] ?? []).map(loadPublicKey), ...(values["log-key"]?.length ? { logKeys: values["log-key"].map(loadPublicKey) } : {}), ...(values["log-id"] ? { logId: values["log-id"] } : {}) } : undefined;
+      const ledger = values.ledger ? new Ledger(values.ledger) : undefined;
+      const o = { receiptsDir: values.receipts, ...(ledger ? { ledger } : {}), ...(keys ? { keys } : {}), ...(values.title ? { title: values.title } : {}) };
+      if (values.out) {
+        const r = await writeReview(o, values.out);
+        console.log(`wrote ${r.receipts} receipt page(s) and the index to ${values.out}`);
+        await ledger?.close();
+        return 0;
+      }
+      const running = await serveReview(o, { port: Number(values.port), host: values.host });
+      console.error(`agent-custody-memory review: ${running.url} receipts=${values.receipts}${ledger ? ` ledger=${values.ledger}` : ""}${keys ? " verifying" : " not verifying (no keys given)"}`);
+      await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+      await running.close();
+      await ledger?.close();
+      return 0;
     }
     case "export": {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, out: { type: "string" } } });

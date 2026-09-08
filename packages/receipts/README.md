@@ -59,7 +59,7 @@ flowchart LR
     R[("receipt bundles<br/>receipts/*.json")]
     L[("Merkle log<br/>local file, or a remote log<br/>run by someone else")]
     V["Verifier<br/>auditor, counterparty, CI job"]
-    O["Observability<br/>OTel, LangSmith, Arize"]
+    O["Observability<br/>OTel, Splunk, LangSmith, Arize"]
 
     P -- "signed delegation grant" --> G
     A -- "MCP tools/call" --> G
@@ -242,6 +242,7 @@ src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hook
 src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, tested against the real packages
 src/sidecar.ts     the SDK issuer behind a local HTTP API, for agents in other languages
 src/otel.ts        OpenTelemetry export: one OTLP/HTTP span per receipt, after the receipt, no SDK dependency
+src/splunk.ts      Splunk export: one HTTP Event Collector event per receipt, token from the environment, beside or instead of otel
 src/rest.ts        the REST connector: an HTTP API described as tools, standing where an MCP upstream stands
 src/upstream.ts    attested execution: an upstream signs its result for the receipt; the verifier checks it with the upstream key
 vectors/           conformance vectors: receipts, keys, logs, proofs, and expected verdicts; `bun run vectors` regenerates them
@@ -269,7 +270,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - Claude Code command hook for PreToolUse, PostToolUse, and PostToolUseFailure, with blocking on deny.
 - Claude Agent SDK in-process hooks over the same handler.
 - Provider-native deliveries: an upstream wrapping Stripe or GitHub attaches the signed webhook or delivery for the call; a verifier with the shared secret checks the HMAC, the timestamp, and the binding to the result, and reports the execution as attested by shared secret.
-- Logarithmic appends: the Merkle log caches complete subtrees, so issuing a receipt costs the same at the millionth leaf as at the first; measured at 0.15 ms per receipt and about half a millisecond per gateway call including policy, a fact lookup, and the upstream signature.
+- Logarithmic appends: the Merkle log caches complete subtrees, so issuing a receipt costs the same at the millionth leaf as at the first; measured at 0.15 ms per receipt and about half a millisecond per gateway call including policy, a fact lookup, and the upstream signature. A remote log adds one network round trip plus about five milliseconds of server work per call, two for a pre-committed call; the [deployment guide](https://agent-custody.dev/guide/deployment) has the measurements against the live log.
 - Retention on the log: `prune` replaces leaves older than a cutoff with their hashes and removes their bundles, so proofs still verify and the content is gone.
 - Several upstreams under one gateway and one grant, each tool owned by exactly one, with the receipt naming which served the call; consumed facts flow across them.
 - Attested execution: an upstream that holds a key signs its result for the receipt, the gateway embeds it, and a verifier given the upstream key reports the execution as attested rather than observed. The memory server and the demo upstream sign.
@@ -289,6 +290,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - The log over Postgres: `log --db-env`, leaves as hashes in one table keyed by tenant, one writer per tenant by advisory lock, tenants and hashed tokens in tables managed by `log-admin`, rate limits and a body cap, retries in the sink, and `import` for an existing file log. Phase 2 of [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - A log for someone else: `hashOnly` sends leaf hashes so the log never holds a receipt; the reference server runs several tenant logs at `/t/<tenant>/` with their own tokens and ids; tree heads name their log and the verifier checks it with `--log-id`. Phase 1 of the hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - OpenTelemetry export: with `otel` in either config, every receipt is also one span at the collector the team already runs, trace id equal to the receipt id, attributes for tool, agent, principal, status, decision, and log position; after the receipt, best effort, never on the evidence path.
+- Splunk export: with `splunk` in either config, every receipt is also one event at the HTTP Event Collector, with the receipt id, tool, agent, principal, status, decision, and log position as searchable fields and the token from the environment; the same best-effort rule.
 - The REST connector: a plain HTTP API described as tools in the gateway config, credentials from the environment, so an agent's direct API calls become receipted, policy-checked tool calls through the gateway.
 - Pre-commit authorization for consequential tools: named in `precommit`, a call is signed and logged before it is forwarded, withheld if the log will not take it, and its receipt carries the committed authorization with proof that it precedes the execution.
 

@@ -2,6 +2,15 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.6 — 2026-09-09
+
+- **Receipts:** `docs/compliance.md`, the mapping from each artefact (receipt, authorization, denial, remote log, checkpoint, witness, ledger event, forget record, custody pack, explain output) to the SOC 2 criteria, ISO 27001 Annex A controls, EU AI Act articles, and UK GDPR articles it is evidence for, and what no artefact claims.
+- **Receipts:** Splunk export. `splunk: { url, tokenEnv, index?, source?, sourcetype?, host? }` in either config sends every receipt as one event to a Splunk HTTP Event Collector, the token from the environment, with the receipt id, tool, agent, principal, status, decision, policy digest, and log position as plain fields; beside or instead of `otel`, each exporter told independently, after the receipt and never on its path. Tutorial 19.
+- **Receipts:** the deployment guide states what a remote log costs per call, measured against the live log: about five milliseconds of server work plus the network round trip, twice for a pre-committed call.
+- **State:** `agent-custody-memory review`, the explain output as pages for the reviewer who will not open a terminal: an index of every receipt in a directory with when, tool, outcome, agent, principal, producer, and its verdict against the keys given, and one page per receipt with the ten answers, the verification report, and the bundle to download. Served on loopback with no login of its own, or written as static files with `--out` for a case file.
+- **State:** `pgvectorStore(client, { embed, dimensions, table })`, write-through to a pgvector table with the fact id as the row key and custody metadata beside the embedding; removal is verified by the same nearest-neighbour query recall would run. Tested against the pgvector image in Docker. The server now assigns the fact id before the stores are written, so every store sees the real id.
+- **Python:** `agent_custody.crewai.wrap_tools(client, tools)`, one `CustodyTool` per CrewAI tool, same name, description, and schema, every run decided, executed, and recorded through the sidecar; a denied call never runs and the crew sees the denial as the tool's result. Extra `crewai`. The memory client now works with mcp 1.x and 2.x and reports a refused token as one plain `MemoryError`.
+
 ## 0.5.5 — 2026-09-08
 
 - **Receipts:** monitoring. `agent-custody log-check` is the outside probe: it verifies a log's head against its published keys, that the latest checkpoint verifies and keeps up with the head, that the head extends the checkpoint, and, with a witness, that the witness has countersigned, keeps up, and has raised no alarm; it exits 1 on any failure. The `monitor` workflow runs it against log.agent-custody.dev every ten minutes from GitHub's machines and its badge is the status page. `GET /health` is the liveness check.

@@ -4,6 +4,7 @@ export type { AuthorizationBundle, AuthorizationPredicate, AuthorizationStatemen
 export type { GatewayOptions } from "./gateway.ts";
 export { buildRequest, restUpstream } from "./rest.ts";
 export { openExporter, otlpExporter, spanFor } from "./otel.ts";
+export { hecEvent, splunkExporter } from "./splunk.ts";
 export { fileBackend, importLogFile, PostgresLog, PostgresTenancy, RateLimiter } from "./log-store.ts";
 export { connectSigner, fetchLogKeys, localSigner, serveSigner, signerHandler } from "./signer.ts";
 export type { KeyDocument, RemoteSignerOptions, RetiredKey, RunningSigner, Signer, SignerServerOptions } from "./signer.ts";
@@ -18,6 +19,7 @@ export type { AdminOptions } from "./log-admin.ts";
 export type { Checkpoint, CheckpointStore } from "./checkpoints.ts";
 export type { AppendResult, LogBackend, PostgresLike, PostgresLogOptions, RateLimitOptions, Tenant, TokenRecord } from "./log-store.ts";
 export type { OtelConfig, OtlpOptions, ReceiptExporter } from "./otel.ts";
+export type { SplunkConfig, SplunkOptions } from "./splunk.ts";
 export type { IssuerOptions } from "./issue.ts";
 export type { RestOptions, UpstreamClient } from "./rest.ts";
 export * from "./config.ts";

@@ -41,7 +41,21 @@ If agent code calls an HTTP API directly, outside MCP and outside a wrapped func
 
 ## Observability you already have
 
-Receipts are not a dashboard. With `otel` in a gateway or SDK config, each receipt is also exported as one span to the OTLP collector the team already runs, Datadog, Grafana, Splunk, or whatever sits behind it, with the receipt id as the trace id. Nothing is replaced: the traces the agent framework already emits stay as they are, and the receipt span sits beside them, pointing at the evidence. The export runs after the receipt and never blocks or fails it.
+Receipts are not a dashboard. With `otel` in a gateway or SDK config, each receipt is also exported as one span to the OTLP collector the team already runs, Datadog, Grafana, or whatever sits behind it, with the receipt id as the trace id. With `splunk` in the same config, each receipt is one event at a Splunk HTTP Event Collector, the token read from the environment, with the receipt id, tool, agent, principal, status, decision, and log position as plain fields for the searches the security team already writes. Both can be on at once. Nothing is replaced: the traces the agent framework already emits stay as they are, and the receipt sits beside them, pointing at the evidence. Exports run after the receipt and never block or fail it.
+
+## What a remote log costs per call
+
+A remote log puts one HTTP round trip on the path of every call, and two on a call named in `precommit`: the authorization append before the upstream is called, and the receipt append after it returns. The request is small, a leaf hash and a bearer token, so the cost is network distance plus the log's own work. Measured on 2026-09-09 against the log at log.agent-custody.dev, a Hetzner machine in Helsinki running the shipped image with Postgres and the separate signer:
+
+| Where measured | What | Median | p90 |
+| --- | --- | --- | --- |
+| On the log's own host, loopback | hash-only append, Postgres, remote signer | 5.4 ms | 7.3 ms |
+| On the log's own host, loopback | hash-only append, Postgres, in-process signer | 3.3 ms | 4.3 ms |
+| On the log's own host, loopback | tree-head read | 4.3 ms | 5.4 ms |
+| A client 160 ms away (network round trip by ping) | any request, connection reused | 170 ms | 190 ms |
+| The same client, new TLS connection | first request of a process | 500 ms | 550 ms |
+
+So a call costs the network round trip plus about five milliseconds, and a pre-committed call costs twice that. From the same region as the log that is a few tens of milliseconds per call; from another continent it is the numbers above. The gateway keeps its connection open, so the TLS handshake is paid once per process, not per call. A local log file appends in well under a millisecond, which is why the default is local and the remote log is recommended once a receipt has an audience outside the team. A log that answers 429 or a server error is retried three times with backoff starting at 200 ms, so a log outage costs a pre-committed call about 1.4 seconds before it is withheld. The script that produced the append numbers ran fifty appends into a throwaway database on the same Postgres and is the `httpLog` client the gateway itself uses.
 
 ## What you are trusting, by setup
 

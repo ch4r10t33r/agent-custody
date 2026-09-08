@@ -2,6 +2,13 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.4.0 — 2026-09-08
+
+- **Receipts:** a log for someone else. `"hashOnly": true` in the `log` config sends only the leaf hash, so a remote log commits to a receipt without ever holding it; the receipts stay with the issuer and the verifier is unchanged. The reference server accepts `{leaf}` or `{leafHash}`, serves several tenant logs at `/t/<tenant>/` from a `--tenants` file with their own tokens and ids, and writes `--log-id` into every tree head. `verify --log-id` and `audit --log-id` check that the tree heads name the expected log. Phase 1 of the hosted log, issue #6.
+- **Deploy:** the log server as a container, `ghcr.io/ch4r10t33r/agent-custody-log`, built for amd64 and arm64 by a workflow on every `v*` tag; a docker compose file for one VM with a Caddy TLS profile; Kubernetes manifests on the same contract; `AGENT_CUSTODY_LOG_ID` and `AGENT_CUSTODY_LOG_TENANTS` in it.
+- **Site:** the landing page is a quarter of its former length and says what the default install proves and what it does not; a trust-by-setup table; the hosted log stated as not yet built; certified forget defined by what it reaches; the gateway's bypasses listed.
+- **Python:** unchanged; released in step.
+
 ## 0.3.0 — 2026-09-08
 
 - **Receipts:** pre-commit authorization for consequential tools. Name them in `precommit` (or `*`) and the gateway signs an authorization statement and appends it to the log before forwarding the call; if the log will not take it the call is withheld, nothing goes upstream, and the receipt records `allow` beside `withheld`. The receipt embeds the committed authorization with its inclusion proof, and the verifier adds five checks that it is the issuer's, names this call, is in the log, and precedes the receipt. Mirrored in the browser verifier; three new conformance vectors; tutorial 16. Evidence now precedes the side effect for the calls where that matters.

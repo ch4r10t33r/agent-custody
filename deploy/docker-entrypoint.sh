@@ -13,6 +13,8 @@ log_id_args=""
 [ -n "${AGENT_CUSTODY_LOG_TENANTS:-}" ] && log_id_args="$log_id_args --tenants $AGENT_CUSTODY_LOG_TENANTS"
 # With DATABASE_URL the logs, tenants, and tokens live in Postgres; the file is not used.
 [ -n "${DATABASE_URL:-}" ] && log_id_args="$log_id_args --db-env DATABASE_URL"
+# TRUST_PROXY=1 when a reverse proxy you run (the compose Caddy) is the only way in: limits are then per real client.
+[ "${TRUST_PROXY:-0}" = "1" ] && log_id_args="$log_id_args --trust-proxy"
 # ADMIN_TOKEN turns on the operator's page at /admin; the public URLs fill the welcome sheet in.
 if [ -n "${ADMIN_TOKEN:-}" ]; then
   log_id_args="$log_id_args --admin-token-env ADMIN_TOKEN"

@@ -7,6 +7,7 @@
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { RateLimiter, type PostgresTenancy } from "./log-store.ts";
+import { clientAddress } from "./log-sink.ts";
 
 export interface AdminOptions {
   tenancy: PostgresTenancy;
@@ -18,6 +19,8 @@ export interface AdminOptions {
   checkpointsUrl?: string;
   /** the current signing keyid, for the sheet */
   keyid?: string;
+  /** key the failure throttle by X-Forwarded-For's first address; only behind a proxy you run */
+  trustProxy?: boolean;
 }
 
 const same = (a: string, b: string) => {
@@ -85,7 +88,7 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
       res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
       res.end(JSON.stringify(body));
     };
-    const addr = req.socket.remoteAddress ?? "?";
+    const addr = clientAddress(req, opts.trustProxy);
     const given = presented(req);
     if (given === null || !same(given, opts.token)) {
       if (!failures.take(`admin:${addr}`)) return json(429, { error: "too many attempts; wait a minute" }, { "retry-after": "60" }), true;

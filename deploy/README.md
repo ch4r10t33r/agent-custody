@@ -23,6 +23,7 @@ Operators who log here should set `"hashOnly": true` in their `log` config, so t
 | `DATABASE_URL` | with it, leaves, tenants, tokens, and checkpoints live in Postgres and the file is not used; the compose file sets it | unset |
 | `ROLE` | `signer` runs the signer instead of the log | `log` |
 | `AGENT_CUSTODY_SIGNER_URL`, `SIGNER_TOKEN` | the log signs through this signer with this shared secret instead of holding a key; the compose file sets them | unset |
+| `TRUST_PROXY` | `1` when a reverse proxy you run is the only way in, so per-address limits key on `X-Forwarded-For`; the compose file sets it for Caddy | unset |
 | `ADMIN_TOKEN` | turns on the operator's page at `/admin` and its API, behind this token; `LOG_HOST` and `CHECKPOINTS_HOST` fill the welcome sheet | unset |
 | `AGENT_CUSTODY_CHECKPOINT_DIR`, `AGENT_CUSTODY_CHECKPOINT_EVERY` | where and how often signed checkpoints are written; the compose file serves the directory from `CHECKPOINTS_HOST` | unset, 300 |
 

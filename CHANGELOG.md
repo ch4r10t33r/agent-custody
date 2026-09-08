@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.3 — 2026-09-08
+
+- **Receipts:** `log --trust-proxy`. Behind a reverse proxy every request arrives from the proxy's address, so the per-address limits, the admin failure throttle above all, were shared by everyone and one client's wrong attempts could lock the page for all. With the flag, and `TRUST_PROXY=1` in the container, limits key on the first `X-Forwarded-For` address; off by default, since the header is otherwise the client's to forge. The compose file sets it because Caddy is the only way in.
+- **Python:** unchanged; released in step.
+
 ## 0.5.2 — 2026-09-08
 
 - **Receipts:** the admin page itself is gated. Everything under `/admin`, the page included, needs the admin token, presented by the browser's own prompt as HTTP Basic or by an API client as a bearer; wrong attempts from one address are throttled. The page stores nothing. In 0.5.1 the page shell was served without the token while every request it made required it.

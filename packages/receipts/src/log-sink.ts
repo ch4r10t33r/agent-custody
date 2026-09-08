@@ -144,6 +144,22 @@ export interface LogServerOptions {
   checkpoints?: CheckpointStore;
   /** the operator's admin API and page under /admin, behind its own token; only with a Postgres tenancy */
   admin?: AdminOptions;
+  /**
+   * Behind a reverse proxy every request arrives from the proxy's address, so per-address limits would be shared by
+   * everyone. With this on, the first address in X-Forwarded-For is the client. Only set it when a proxy you run
+   * is the only way to reach this server, since the header is otherwise the client's to forge.
+   */
+  trustProxy?: boolean;
+}
+
+/** The address a limit is keyed by: the socket's, or the proxy's forwarded one when the proxy is trusted. */
+export function clientAddress(req: IncomingMessage, trustProxy = false): string {
+  if (trustProxy) {
+    const xff = req.headers["x-forwarded-for"];
+    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.socket.remoteAddress ?? "?";
 }
 
 /** One log as the handler sees it, whatever stands behind it. */
@@ -275,7 +291,7 @@ export class CheckpointPublisher {
 export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | Signer, opts: LogServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const resolver = typeof source === "string" ? fileResolver(source, opts) : source;
   const signer: Signer = "privateKey" in keyOrSigner ? localSigner(keyOrSigner) : keyOrSigner;
-  const admin = opts.admin ? adminRoutes({ ...opts.admin, keyid: opts.admin.keyid ?? signer.keyid }) : null;
+  const admin = opts.admin ? adminRoutes({ ...opts.admin, keyid: opts.admin.keyid ?? signer.keyid, trustProxy: opts.trustProxy ?? opts.admin.trustProxy }) : null;
   const limiter = new RateLimiter(opts.rateLimit);
   const maxBody = opts.maxBodyBytes ?? 65_536;
   const bearer = (req: IncomingMessage): string | null => {
@@ -312,7 +328,7 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       if (req.method === "POST" && url.pathname.endsWith("/append")) {
         const token = bearer(req);
         if (!(await which.authorize(token))) return json(401, { error: "unauthorized" });
-        const limitKey = token ? createHash("sha256").update(token).digest("hex").slice(0, 16) : `addr:${req.socket.remoteAddress ?? "?"}`;
+        const limitKey = token ? createHash("sha256").update(token).digest("hex").slice(0, 16) : `addr:${clientAddress(req, opts.trustProxy)}`;
         if (!limiter.take(limitKey)) return json(429, { error: "too many appends; retry shortly" }, { "retry-after": "1" });
         let body = "";
         for await (const chunk of req) {

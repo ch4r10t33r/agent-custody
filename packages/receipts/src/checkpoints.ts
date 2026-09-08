@@ -87,13 +87,25 @@ export function postgresCheckpoints(client: PostgresLike, prefix = "log_"): Chec
   };
 }
 
-/** Writes every checkpoint to each store: the directory the checkpoints host serves and the database the API lists from. */
+/**
+ * Writes every checkpoint to each store: the directory the checkpoints host serves and the database the API lists
+ * from. `latest` is the store that is furthest behind, so a store that missed a write (a directory that was not yet
+ * writable, say) is caught up on the next publication; saves are idempotent in every store.
+ */
 export function bothCheckpoints(...stores: CheckpointStore[]): CheckpointStore {
   return {
     async save(c) {
       for (const s of stores) await s.save(c);
     },
     list: (t, since) => stores[0]!.list(t, since),
-    latest: (t) => stores[0]!.latest(t),
+    async latest(t) {
+      let behind: Checkpoint | undefined;
+      for (const s of stores) {
+        const l = await s.latest(t);
+        if (l === null) return null;
+        if (behind === undefined || l.treeSize < behind.treeSize) behind = l;
+      }
+      return behind ?? null;
+    },
   };
 }

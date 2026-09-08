@@ -150,6 +150,15 @@ describe("checkpoints", () => {
         expect(listed.checkpoints).toHaveLength(1);
         expect(listed.checkpoints[0]!.rootHash).toBe(await (await resolver.resolve(null))!.backend.root(1));
         expect(await store.latest("default")).toMatchObject({ treeSize: 1, logId: "pg-log" });
+        // a second store that missed the write is caught up on the next publication, because `latest` follows the store furthest behind
+        const { bothCheckpoints, dirCheckpoints } = await import("../src/checkpoints.ts");
+        const lagging = dirCheckpoints(mkdtempSync(join(tmpdir(), "lagging-")));
+        const both = bothCheckpoints(store, lagging);
+        expect(await both.latest("default")).toBeNull();
+        const again = new CheckpointPublisher(resolver, signer, both, 60_000);
+        expect((await again.publishOnce()).map((c) => c.treeSize)).toEqual([1]);
+        expect((await lagging.latest("default"))?.treeSize).toBe(1);
+        expect(await again.publishOnce()).toEqual([]);
       } finally {
         await log.close();
       }

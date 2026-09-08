@@ -74,6 +74,10 @@ kubectl -n agent-custody logs deploy/agent-custody-log | grep -A3 "public key"
 
 One replica, `Recreate` strategy, a `ReadWriteOnce` volume: the file log has one writer, and this keeps it that way. When the Postgres-backed store lands (#6, phase 2), the deployment gains a `DATABASE_URL` and the volume holds only the key.
 
+## Monitoring and metering
+
+`.github/workflows/monitor.yml` runs `agent-custody log-check` against the log every ten minutes from GitHub's machines, which are not ours, and a failing run notifies the repository's watchers; the workflow badge is the status page. The same probe runs from any cron: `agent-custody log-check --log-url https://log.example.com/ --checkpoints-url https://checkpoints.example.com/ --tenant default --max-lag 900`, exit code 1 on trouble. `GET /health` is the liveness check for a load balancer or the container. Usage per tenant per month is on the admin page and at `/admin/usage.csv?month=YYYY-MM` for invoicing.
+
 ## The witness, on someone else's machine
 
 `deploy/witness/` is a separate compose stack: the same image with `ROLE=witness`, and a Caddy serving what it signs. It belongs on a machine and under an account that the log's operator does not control; run on the log's own machine it proves nothing. It needs the log's API URL, the checkpoints URL, and the tenants to watch, generates its own key on first start, and publishes that key at `/.well-known/agent-custody-witness.json` on its host. Every five minutes it fetches each watched log's latest checkpoint, proves it extends the last head it signed with the log's own consistency proof, and countersigns it; a checkpoint that does not extend, or a second history at the same size, gets an `ALARM.json` on the host instead of a signature. Verifiers add `--witness-url https://witness.example.org/` to `audit` and the newer head must then carry the witness's signature. `audit --older` and `--newer` accept checkpoint files from either host as well as receipt bundles.

@@ -1,0 +1,23 @@
+# The outside monitor for the hosted log. Every ten minutes, from GitHub's machines rather than ours, the probe
+# verifies the log's head against its published keys, that checkpoints keep up with the head, and that the head
+# extends them. A failing run is the alert: GitHub notifies the repository's watchers. Add --witness-url once a
+# witness runs for this log. The badge from this workflow is the status page.
+name: monitor
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npx -y @agent-custody/receipts@latest log-check --log-url https://log.agent-custody.dev/ --checkpoints-url https://checkpoints.agent-custody.dev/ --tenant default --tenant agent-custody --max-lag 900

@@ -68,6 +68,8 @@ export function welcomeSheet(o: { tenant: string; logId: string; publicUrl: stri
  *   GET  /admin/tenants/:id/tokens                [{ label, tokenHash, createdAt, revokedAt }]
  *   POST /admin/tenants/:id/tokens { label }      { token, tokenHash, welcome }   token shown once
  *   POST /admin/tenants/:id/tokens/:prefix/revoke { revoked }
+ *   GET  /admin/usage?month=YYYY-MM              { month, tenants: [{ id, logId, appends, totalLeaves, liveTokens, disabled }] }
+ *   GET  /admin/usage.csv?month=YYYY-MM          the same as CSV, for an invoice
  */
 export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> {
   // Five wrong tokens from one address, then one more a minute: enough to stop guessing, not enough to lock out a typo.
@@ -111,7 +113,15 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
     try {
       const t = opts.tenancy;
       const parts = url.pathname.split("/").filter(Boolean); // ["admin", ...]
-      if (req.method === "GET" && parts.length === 2 && parts[1] === "info") {
+      const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+      if (req.method === "GET" && parts.length === 2 && parts[1] === "usage") {
+        json(200, await t.usage(month));
+      } else if (req.method === "GET" && parts.length === 2 && parts[1] === "usage.csv") {
+        const u = await t.usage(month);
+        const csv = ["month,tenant,log_id,appends,total_leaves,live_tokens,disabled", ...u.tenants.map((x) => [u.month, x.id, x.logId, x.appends, x.totalLeaves, x.liveTokens, x.disabled].join(","))].join("\n") + "\n";
+        res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="agent-custody-usage-${u.month}.csv"`, "cache-control": "no-store" });
+        res.end(csv);
+      } else if (req.method === "GET" && parts.length === 2 && parts[1] === "info") {
         json(200, { publicUrl: opts.publicUrl ?? null, checkpointsUrl: opts.checkpointsUrl ?? null, keyid: opts.keyid ?? null });
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "tenants") {
         const tenants = await t.listTenants();
@@ -196,6 +206,9 @@ const ADMIN_PAGE = `<!doctype html>
       <button class="quiet" id="copyTok">Copy token</button> <button class="quiet" id="copySheet">Copy welcome sheet</button>
       <pre id="sheet"></pre>
     </div>
+    <h2>Usage</h2>
+    <div class="row"><label>month<input id="month" type="month"></label><button class="quiet" id="loadUsage">Show</button><a id="csv" class="quiet" href="#" style="align-self:center">Download CSV</a></div>
+    <table><thead><tr><th>tenant</th><th>log id</th><th>appends this month</th><th>leaves in total</th><th>live tokens</th></tr></thead><tbody id="usage"></tbody></table>
     <h2>Tokens of a tenant</h2>
     <div class="row"><label>tenant<input id="ltid" placeholder="acme" autocomplete="off"></label><button class="quiet" id="listTokens">List</button></div>
     <table><thead><tr><th>label</th><th>hash</th><th>created</th><th>state</th><th></th></tr></thead><tbody id="tokens"></tbody></table>
@@ -228,6 +241,7 @@ const ADMIN_PAGE = `<!doctype html>
       const info = await api("GET", "/admin/info");
       $("where").textContent = (info.publicUrl || location.origin) + " · keyid " + (info.keyid ? info.keyid.slice(0, 12) : "?") + (info.checkpointsUrl ? " · checkpoints at " + info.checkpointsUrl : "");
       await loadTenants();
+      await loadUsage();
     } catch (e) { say(e.message, "err"); }
   };
   $("addTenant").onclick = async () => { try { const t = await api("POST", "/admin/tenants", { id: $("tid").value.trim(), logId: $("lid").value.trim() }); say("tenant " + t.id + " created; reached at /t/" + t.id + "/", "ok"); $("ttid").value = t.id; await loadTenants(); } catch (e) { say(e.message, "err"); } };
@@ -242,6 +256,14 @@ const ADMIN_PAGE = `<!doctype html>
   $("copyTok").onclick = () => navigator.clipboard.writeText($("tokval").textContent).then(() => say("token copied", "ok"));
   $("copySheet").onclick = () => navigator.clipboard.writeText($("sheet").textContent).then(() => say("welcome sheet copied", "ok"));
   $("listTokens").onclick = () => loadTokens($("ltid").value.trim()).catch((e) => say(e.message, "err"));
+  const loadUsage = async () => {
+    const month = $("month").value || new Date().toISOString().slice(0, 7);
+    const u = await api("GET", "/admin/usage?month=" + encodeURIComponent(month));
+    $("csv").href = "/admin/usage.csv?month=" + encodeURIComponent(month);
+    $("usage").innerHTML = u.tenants.map((t) => "<tr><td><code>" + esc(t.id) + "</code>" + (t.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td><code>" + esc(t.logId) + "</code></td><td>" + t.appends + "</td><td>" + t.totalLeaves + "</td><td>" + t.liveTokens + "</td></tr>").join("") || "<tr><td colspan=5 class=muted>no tenants</td></tr>";
+  };
+  $("loadUsage").onclick = () => loadUsage().catch((e) => say(e.message, "err"));
+  $("month").value = new Date().toISOString().slice(0, 7);
   document.addEventListener("click", async (e) => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.disable && confirm("Disable tenant " + b.dataset.disable + "? Its paths answer 404 within ten seconds.")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(b.dataset.disable) + "/disable"); await loadTenants(); say("disabled " + b.dataset.disable, "ok"); } catch (err) { say(err.message, "err"); } }

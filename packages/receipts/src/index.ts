@@ -10,6 +10,8 @@ export type { KeyDocument, RemoteSignerOptions, RetiredKey, RunningSigner, Signe
 export { bothCheckpoints, dirCheckpoints, postgresCheckpoints } from "./checkpoints.ts";
 export { adminRoutes, welcomeSheet } from "./log-admin.ts";
 export { fetchWitnessKeys, Witness } from "./witness.ts";
+export { checkLog, formatLogCheck } from "./log-check.ts";
+export type { LogCheck, LogCheckOptions, LogCheckResult } from "./log-check.ts";
 export type { WitnessOptions, WitnessOutcome, WitnessedCheckpoint } from "./witness.ts";
 export type { AuditOptions } from "./verify.ts";
 export type { AdminOptions } from "./log-admin.ts";

@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.5 — 2026-09-08
+
+- **Receipts:** monitoring. `agent-custody log-check` is the outside probe: it verifies a log's head against its published keys, that the latest checkpoint verifies and keeps up with the head, that the head extends the checkpoint, and, with a witness, that the witness has countersigned, keeps up, and has raised no alarm; it exits 1 on any failure. The `monitor` workflow runs it against log.agent-custody.dev every ten minutes from GitHub's machines and its badge is the status page. `GET /health` is the liveness check.
+- **Receipts:** metering. Appends per tenant per month, leaves in total, and live tokens, on the admin page and as `/admin/usage.csv?month=YYYY-MM`.
+- **Python:** unchanged; released in step.
+
 ## 0.5.4 — 2026-09-08
 
 - **Receipts:** the witness. `agent-custody witness` runs on a machine the log's operator does not control, fetches each watched log's latest published checkpoint, verifies it against the log's published keys, proves with the log's own consistency proof that it extends the last head the witness signed, and countersigns it, DSSE allowing several signatures on one envelope; a rewritten history, a second history at the same size, or a checkpoint signed by an unpublished key gets an alarm file instead. It publishes its key at `/.well-known/agent-custody-witness.json`. `audit --witness-url` or `--witness-key` requires the witness's signature on the newer head, and `--older`/`--newer` accept checkpoint files from either host. Mirrored in the browser verifier. Phase 6 of issue #6: the code; running it needs a second operator.

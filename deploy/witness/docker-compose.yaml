@@ -10,7 +10,7 @@ name: agent-custody-witness
 
 services:
   witness:
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.4}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.5}
     restart: unless-stopped
     environment:
       ROLE: witness

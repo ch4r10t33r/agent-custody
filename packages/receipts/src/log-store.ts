@@ -318,6 +318,28 @@ export class PostgresTenancy {
     return rows.length;
   }
 
+  /**
+   * Appends per tenant for one month, YYYY-MM in UTC, plus each tenant's total leaves and live tokens: the numbers
+   * any pricing rests on. One query on the leaves table, grouped; tenants with no appends that month show zero.
+   */
+  async usage(month: string): Promise<{ month: string; tenants: { id: string; logId: string; appends: number; totalLeaves: number; liveTokens: number; disabled: boolean }[] }> {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("month must be YYYY-MM");
+    await this.init();
+    const start = `${month}-01T00:00:00Z`;
+    const [y, m] = month.split("-").map(Number) as [number, number];
+    const end = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01T00:00:00Z`;
+    const p = this.prefix;
+    const rows = (await this.client.query(
+      `SELECT t.id, t.log_id, t.disabled_at,
+              (SELECT COUNT(*) FROM ${p}leaves l WHERE l.tenant_id = t.id AND l.appended_at >= $1::timestamptz AND l.appended_at < $2::timestamptz) AS appends,
+              (SELECT COUNT(*) FROM ${p}leaves l WHERE l.tenant_id = t.id) AS total,
+              (SELECT COUNT(*) FROM ${p}tokens k WHERE k.tenant_id = t.id AND k.revoked_at IS NULL) AS live
+       FROM ${p}tenants t ORDER BY t.created_at`,
+      [start, end],
+    )).rows as Record<string, unknown>[];
+    return { month, tenants: rows.map((r) => ({ id: String(r.id), logId: String(r.log_id), appends: Number(r.appends), totalLeaves: Number(r.total), liveTokens: Number(r.live), disabled: !!r.disabled_at })) };
+  }
+
   async listTokens(tenantId: string): Promise<TokenRecord[]> {
     await this.init();
     return ((await this.client.query(`SELECT tenant_id, label, token_hash, created_at, revoked_at FROM ${this.prefix}tokens WHERE tenant_id = $1 ORDER BY created_at`, [tenantId])).rows as Record<string, unknown>[]).map((r) => ({ tenantId: String(r.tenant_id), label: String(r.label), tokenHash: String(r.token_hash), createdAt: new Date(r.created_at as string).toISOString(), revokedAt: r.revoked_at ? new Date(r.revoked_at as string).toISOString() : null }));

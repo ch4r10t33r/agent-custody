@@ -305,6 +305,16 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
     };
     const url = new URL(req.url ?? "/", "http://localhost");
     if (admin && (await admin(req, res, url))) return;
+    if (req.method === "GET" && url.pathname === "/health") {
+      // Liveness for a load balancer or a container: the signer answers and the default log answers. No secrets, no sizes.
+      try {
+        const doc = await signer.keys();
+        const root = await resolver.resolve(null);
+        return json(root ? 200 : 503, { ok: !!root, keyid: doc.keys[0]?.keyid ?? null, checkpoints: !!opts.checkpoints }, { "cache-control": "no-store" });
+      } catch (e) {
+        return json(503, { ok: false, error: e instanceof Error ? e.message : String(e) });
+      }
+    }
     if (req.method === "GET" && url.pathname === "/.well-known/agent-custody-log.json") {
       try {
         const doc = await signer.keys();

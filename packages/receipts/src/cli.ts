@@ -11,6 +11,7 @@ import { importLogFile, PostgresTenancy, type PostgresLike } from "./log-store.t
 import { bothCheckpoints, dirCheckpoints, postgresCheckpoints, type CheckpointStore } from "./checkpoints.ts";
 import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey, type Signer } from "./signer.ts";
 import { fetchWitnessKeys, Witness } from "./witness.ts";
+import { checkLog, formatLogCheck } from "./log-check.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
 import { createRequire } from "node:module";
@@ -51,6 +52,10 @@ const USAGE = `agent-custody <command>
   log     ... --db-env NAME --admin-token-env NAME [--public-url <https://log.example.com/>] [--checkpoints-url <https://checkpoints.example.com/>]
                                                  the operator's admin page at /admin and its API, behind the admin token: tenants, tokens shown once,
                                                  the welcome sheet; the public URLs fill the sheet in
+  log-check --log-url <url> [--checkpoints-url <url>] [--witness-url <url>] [--tenant <name>]... [--max-lag <seconds>] [--json]
+                                                 the outside monitor: verifies the head against the published keys, that checkpoints keep up
+                                                 with the head and the head extends them, and that the witness countersigns and raises no
+                                                 alarm; exits 1 on any failure. Run it from cron or a scheduled workflow elsewhere.
   witness --key <witness.key> --log-url <url> --checkpoints-url <url> --out <dir> [--tenant <name>]... [--every <seconds>] [--once]
                                                  a second signer, run by someone who is not the log's operator: fetches the log's latest
                                                  checkpoint per watched log, proves it extends the last one it signed, and countersigns it
@@ -161,6 +166,13 @@ async function main(argv: string[]): Promise<number> {
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       await running.close();
       return 0;
+    }
+    case "log-check": {
+      const { values } = parseArgs({ args: rest, options: { "log-url": { type: "string" }, "checkpoints-url": { type: "string" }, "witness-url": { type: "string" }, tenant: { type: "string", multiple: true }, "max-lag": { type: "string", default: "900" }, json: { type: "boolean", default: false } } });
+      if (!values["log-url"]) throw new Error("log-check needs --log-url");
+      const r = await checkLog({ logUrl: values["log-url"], ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}), ...(values["witness-url"] ? { witnessUrl: values["witness-url"] } : {}), tenants: values.tenant?.length ? values.tenant : ["default"], maxLagMs: Number(values["max-lag"]) * 1000 });
+      console.log(values.json ? JSON.stringify(r, null, 2) : formatLogCheck(r));
+      return r.ok ? 0 : 1;
     }
     case "witness": {
       const { values } = parseArgs({ args: rest, options: { key: { type: "string" }, "log-url": { type: "string" }, "checkpoints-url": { type: "string" }, out: { type: "string" }, tenant: { type: "string", multiple: true }, every: { type: "string", default: "300" }, once: { type: "boolean", default: false } } });

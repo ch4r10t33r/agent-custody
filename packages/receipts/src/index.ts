@@ -8,6 +8,8 @@ export { fileBackend, importLogFile, PostgresLog, PostgresTenancy, RateLimiter }
 export { connectSigner, fetchLogKeys, localSigner, serveSigner, signerHandler } from "./signer.ts";
 export type { KeyDocument, RemoteSignerOptions, RetiredKey, RunningSigner, Signer, SignerServerOptions } from "./signer.ts";
 export { bothCheckpoints, dirCheckpoints, postgresCheckpoints } from "./checkpoints.ts";
+export { adminRoutes, welcomeSheet } from "./log-admin.ts";
+export type { AdminOptions } from "./log-admin.ts";
 export type { Checkpoint, CheckpointStore } from "./checkpoints.ts";
 export type { AppendResult, LogBackend, PostgresLike, PostgresLogOptions, RateLimitOptions, Tenant, TokenRecord } from "./log-store.ts";
 export type { OtelConfig, OtlpOptions, ReceiptExporter } from "./otel.ts";

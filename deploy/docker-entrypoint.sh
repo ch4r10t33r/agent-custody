@@ -13,6 +13,12 @@ log_id_args=""
 [ -n "${AGENT_CUSTODY_LOG_TENANTS:-}" ] && log_id_args="$log_id_args --tenants $AGENT_CUSTODY_LOG_TENANTS"
 # With DATABASE_URL the logs, tenants, and tokens live in Postgres; the file is not used.
 [ -n "${DATABASE_URL:-}" ] && log_id_args="$log_id_args --db-env DATABASE_URL"
+# ADMIN_TOKEN turns on the operator's page at /admin; the public URLs fill the welcome sheet in.
+if [ -n "${ADMIN_TOKEN:-}" ]; then
+  log_id_args="$log_id_args --admin-token-env ADMIN_TOKEN"
+  [ -n "${LOG_HOST:-}" ] && log_id_args="$log_id_args --public-url https://$LOG_HOST/"
+  [ -n "${CHECKPOINTS_HOST:-}" ] && log_id_args="$log_id_args --checkpoints-url https://$CHECKPOINTS_HOST/"
+fi
 # Checkpoints go to this directory (served by the checkpoints host) every AGENT_CUSTODY_CHECKPOINT_EVERY seconds.
 [ -n "${AGENT_CUSTODY_CHECKPOINT_DIR:-}" ] && log_id_args="$log_id_args --checkpoint-dir $AGENT_CUSTODY_CHECKPOINT_DIR --checkpoint-every ${AGENT_CUSTODY_CHECKPOINT_EVERY:-300}"
 # ROLE=signer runs the signer instead of the log; the log then signs through AGENT_CUSTODY_SIGNER_URL.

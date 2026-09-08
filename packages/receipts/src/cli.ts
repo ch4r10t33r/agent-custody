@@ -11,6 +11,7 @@ import { importLogFile, PostgresTenancy, type PostgresLike } from "./log-store.t
 import { bothCheckpoints, dirCheckpoints, postgresCheckpoints, type CheckpointStore } from "./checkpoints.ts";
 import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey, type Signer } from "./signer.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
+import type { AdminOptions } from "./log-admin.ts";
 import { createRequire } from "node:module";
 import { pruneLog } from "./retention.ts";
 import { serveSidecar } from "./sidecar.ts";
@@ -45,6 +46,9 @@ const USAGE = `agent-custody <command>
                                                  sign with a key in this process, or through a signer process that holds it; publish a signed
                                                  checkpoint per log that has grown, every 300 s by default, to the directory (and, with a
                                                  database, to its heads table); serve the key document at /.well-known/agent-custody-log.json
+  log     ... --db-env NAME --admin-token-env NAME [--public-url <https://log.example.com/>] [--checkpoints-url <https://checkpoints.example.com/>]
+                                                 the operator's admin page at /admin and its API, behind the admin token: tenants, tokens shown once,
+                                                 the welcome sheet; the public URLs fill the sheet in
   signer  --key <log.key> --port 8790 [--host 127.0.0.1] [--token-env NAME] [--retired-key <pub>]...
                                                  the one process that holds the log's key: POST /sign, GET /keys
   log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id>
@@ -207,7 +211,7 @@ async function main(argv: string[]): Promise<number> {
     case "log": {
       const { values } = parseArgs({
         args: rest,
-        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, "log-id": { type: "string" }, tenants: { type: "string" }, "db-env": { type: "string" }, "signer-url": { type: "string" }, "signer-token-env": { type: "string" }, "retired-key": { type: "string", multiple: true }, "checkpoint-dir": { type: "string" }, "checkpoint-every": { type: "string", default: "300" } },
+        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, "log-id": { type: "string" }, tenants: { type: "string" }, "db-env": { type: "string" }, "signer-url": { type: "string" }, "signer-token-env": { type: "string" }, "retired-key": { type: "string", multiple: true }, "checkpoint-dir": { type: "string" }, "checkpoint-every": { type: "string", default: "300" }, "admin-token-env": { type: "string" }, "public-url": { type: "string" }, "checkpoints-url": { type: "string" } },
       });
       if (!values.key === !values["signer-url"]) throw new Error("log needs exactly one of --key or --signer-url");
       const token = values["token-env"] ? process.env[values["token-env"]] : undefined;
@@ -225,6 +229,7 @@ async function main(argv: string[]): Promise<number> {
       let resolver: LogResolver;
       let checkpoints: CheckpointStore | undefined = values["checkpoint-dir"] ? dirCheckpoints(values["checkpoint-dir"]) : undefined;
       let where: string;
+      let admin: AdminOptions | undefined;
       if (values["db-env"]) {
         // Postgres: the file is not used; tenants, tokens, leaves, and checkpoints live in the database.
         const client = openPostgres(values["db-env"]);
@@ -234,18 +239,24 @@ async function main(argv: string[]): Promise<number> {
         resolver = postgresResolver(tenancy, { defaultTenant: "default", ...(token ? { staticTokens: [token] } : {}) });
         const table = postgresCheckpoints(client);
         checkpoints = checkpoints ? bothCheckpoints(table, checkpoints) : table;
+        if (values["admin-token-env"]) {
+          const adminToken = process.env[values["admin-token-env"]];
+          if (!adminToken) throw new Error(`log: environment variable ${values["admin-token-env"]} is not set`);
+          admin = { tenancy, token: adminToken, ...(values["public-url"] ? { publicUrl: values["public-url"] } : {}), ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}) };
+        }
         where = `store=postgres default-log=${(await tenancy.tenant("default"))?.logId} ${token ? "environment token accepted for the default log; " : ""}tokens from the database`;
       } else {
+        if (values["admin-token-env"]) throw new Error("the admin page needs --db-env; tenants live in the database");
         if (!values.file) throw new Error("log needs --file, or --db-env");
         // --tenants names a JSON file { "<tenant>": { "file": "...", "tokenEnv": "NAME", "logId": "..." } }; each is reached at /t/<tenant>/.
         const tenants = values.tenants ? loadTenants(values.tenants) : undefined;
         resolver = fileResolver(values.file, { ...(token ? { tokens: [token] } : {}), ...(values["log-id"] ? { logId: values["log-id"] } : {}), ...(tenants ? { tenants } : {}) });
         where = `file=${values.file}${values["log-id"] ? ` log=${values["log-id"]}` : ""} ${token ? "bearer token required" : "open, anyone may append"}${tenants ? ` tenants=${Object.keys(tenants).join(",")}` : ""}`;
       }
-      const running = await serveLog(resolver, signer, { port: Number(values.port), host: values.host, ...(checkpoints ? { checkpoints } : {}) });
+      const running = await serveLog(resolver, signer, { port: Number(values.port), host: values.host, ...(checkpoints ? { checkpoints } : {}), ...(admin ? { admin } : {}) });
       const publisher = checkpoints ? new CheckpointPublisher(resolver, signer, checkpoints, everyMs) : null;
       publisher?.start();
-      console.error(`agent-custody log: ${running.url} keyid=${signer.keyid} ${values["signer-url"] ? `signer=${values["signer-url"]} ` : ""}${where}${checkpoints ? ` checkpoints every ${values["checkpoint-every"]}s${values["checkpoint-dir"] ? ` to ${values["checkpoint-dir"]}` : ""}` : ""}`);
+      console.error(`agent-custody log: ${running.url} keyid=${signer.keyid} ${values["signer-url"] ? `signer=${values["signer-url"]} ` : ""}${where}${checkpoints ? ` checkpoints every ${values["checkpoint-every"]}s${values["checkpoint-dir"] ? ` to ${values["checkpoint-dir"]}` : ""}` : ""}${admin ? " admin page at /admin" : ""}`);
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       publisher?.stop();
       await running.close();

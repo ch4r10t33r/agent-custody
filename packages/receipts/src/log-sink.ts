@@ -12,6 +12,7 @@ import { leafHash, MerkleLog, type InclusionProof } from "./log.ts";
 import { fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
 import { localSigner, type Signer } from "./signer.ts";
 import type { Checkpoint, CheckpointStore } from "./checkpoints.ts";
+import { adminRoutes, type AdminOptions } from "./log-admin.ts";
 import { TREEHEAD_TYPE, type TreeHead } from "./receipt.ts";
 
 export interface LogAppend {
@@ -141,6 +142,8 @@ export interface LogServerOptions {
   maxBodyBytes?: number;
   /** where published checkpoints go and are listed from; without one, /checkpoints answers with none */
   checkpoints?: CheckpointStore;
+  /** the operator's admin API and page under /admin, behind its own token; only with a Postgres tenancy */
+  admin?: AdminOptions;
 }
 
 /** One log as the handler sees it, whatever stands behind it. */
@@ -272,6 +275,7 @@ export class CheckpointPublisher {
 export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | Signer, opts: LogServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const resolver = typeof source === "string" ? fileResolver(source, opts) : source;
   const signer: Signer = "privateKey" in keyOrSigner ? localSigner(keyOrSigner) : keyOrSigner;
+  const admin = opts.admin ? adminRoutes({ ...opts.admin, keyid: opts.admin.keyid ?? signer.keyid }) : null;
   const limiter = new RateLimiter(opts.rateLimit);
   const maxBody = opts.maxBodyBytes ?? 65_536;
   const bearer = (req: IncomingMessage): string | null => {
@@ -284,6 +288,7 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       res.end(JSON.stringify(body));
     };
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (admin && (await admin(req, res, url))) return;
     if (req.method === "GET" && url.pathname === "/.well-known/agent-custody-log.json") {
       try {
         const doc = await signer.keys();

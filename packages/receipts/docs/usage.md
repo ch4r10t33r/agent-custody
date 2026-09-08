@@ -80,6 +80,25 @@ when {
 
 `upstream` is spawned by the gateway exactly as an MCP host would spawn it. `env` is passed through, which is where upstream credentials go. The agent never sees them. Several upstreams sit behind one gateway and one grant with `"upstreams": [{ "name": "memory", "command": ..., "args": [...] }, { "name": "payments", "url": ... }]` in place of `upstream`. Each tool name must be offered by exactly one of them, checked at startup; the receipt's `tool.upstream` says which served the call, and consumed facts flow across them, so a refund made after a memory read carries the facts the agent had been shown. An upstream that is already running is reached instead with `"upstream": { "url": "https://memory.internal/mcp", "tokenEnv": "MEMORY_TOKEN" }`, over Streamable HTTP with a bearer token from the environment; the shared memory server in `@agent-custody/state` is the usual case.
 
+An upstream need not be an MCP server. A plain HTTP API is described as tools:
+
+```json
+  "upstream": {
+    "rest": {
+      "baseUrl": "https://api.stripe.com",
+      "headerEnv": { "authorization": "STRIPE_BEARER" },
+      "tools": [
+        { "name": "customer.lookup", "method": "GET", "path": "/v1/customers/{customer_id}",
+          "inputSchema": { "type": "object", "properties": { "customer_id": { "type": "string" } }, "required": ["customer_id"] } },
+        { "name": "stripe.refund", "method": "POST", "path": "/v1/refunds", "description": "Refund a customer, amount in minor units",
+          "inputSchema": { "type": "object", "properties": { "customer_id": { "type": "string" }, "amount": { "type": "integer" } }, "required": ["customer_id", "amount"] } }
+      ]
+    }
+  }
+```
+
+`{name}` segments in `path` are filled from the call's arguments; the remaining arguments go to the query string on GET and DELETE and to a JSON body otherwise, or `query` names the ones that go to the query and `body: "none"` sends no body. `headers` are sent as written; `headerEnv` maps a header to an environment variable read once at startup, so the credential is never in the file and never reaches the agent, and a missing variable fails at startup. The response body is the tool result, JSON kept as JSON, and a non-2xx status is a failed execution with the API's answer in the receipt. Everything else is unchanged: the tools appear in the grant's scopes, `facts` may name a REST tool for a lookup, `precommit` applies, and each call has a receipt. `rest` can be one of several `upstreams` beside MCP servers. This is how an agent's direct HTTP calls come under custody: they become tool calls through the gateway. Tutorial 17 runs one against a stand-in API.
+
 `logFile` is the local Merkle log, with tree heads signed by the gateway's own key. To log to a server the operator does not control, replace it with `log`:
 
 ```json

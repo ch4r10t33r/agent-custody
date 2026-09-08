@@ -1,4 +1,4 @@
-// The MCP gateway: sits between an agent and one upstream MCP server, enforces scope + Cedar policy,
+// The MCP gateway: sits between an agent and its upstreams, MCP servers or REST APIs, enforces scope + Cedar policy,
 // and emits a signed, logged receipt for every tool call, allowed or denied.
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -14,6 +14,7 @@ import { delegationValidAt, verifyDelegation, type Delegation } from "./delegati
 import { createIssuer } from "./issue.ts";
 import { openLog, type LogSink } from "./log-sink.ts";
 import { upstreamEvidenceOf } from "./upstream.ts";
+import { restUpstream, type UpstreamClient } from "./rest.ts";
 import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
 import type { AuthorizationBundle, FactRecord, ReceiptPredicate } from "./receipt.ts";
 
@@ -95,17 +96,21 @@ export async function createGateway(cfg: GatewayConfig, options: GatewayOptions 
   // One gateway, one grant, one session, and as many upstreams as the agent's job needs. Each tool name belongs to
   // exactly one upstream, decided at startup, so a receipt's tool is unambiguous and consumed facts flow across them.
   const upstreamConfigs: { name: string; cfg: UpstreamConfig }[] = cfg.upstreams ? cfg.upstreams.map((u) => ({ name: u.name, cfg: u })) : [{ name: "upstream", cfg: cfg.upstream! }];
-  const upstreams = new Map<string, Client>();
+  const upstreams = new Map<string, UpstreamClient>();
   const owner = new Map<string, string>();
   const advertised: Tool[] = [];
   for (const { name, cfg: u } of upstreamConfigs) {
-    const client = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
-    if ("url" in u) {
+    let client: UpstreamClient;
+    if ("rest" in u) {
+      client = restUpstream(name, u.rest);
+    } else if ("url" in u) {
+      client = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
       const token = u.tokenEnv ? process.env[u.tokenEnv] : undefined;
       if (u.tokenEnv && !token) throw new Error(`upstream ${name}: environment variable ${u.tokenEnv} is not set`);
-      await client.connect(new StreamableHTTPClientTransport(new URL(u.url), token ? { requestInit: { headers: { authorization: `Bearer ${token}` } } } : {}));
+      await (client as Client).connect(new StreamableHTTPClientTransport(new URL(u.url), token ? { requestInit: { headers: { authorization: `Bearer ${token}` } } } : {}));
     } else {
-      await client.connect(new StdioClientTransport({ command: u.command, args: u.args, env: u.env, stderr: "inherit" }));
+      client = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
+      await (client as Client).connect(new StdioClientTransport({ command: u.command, args: u.args, env: u.env, stderr: "inherit" }));
     }
     upstreams.set(name, client);
     const { tools } = await client.listTools();

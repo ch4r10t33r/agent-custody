@@ -28,7 +28,7 @@ The memory server is not for logging. It is the belief ledger's interface, expos
 
 ## Where interception stops
 
-If agent code calls an HTTP API directly, outside MCP and outside a wrapped function, nothing here sees it. The general answer is an egress proxy that issues receipts for arbitrary HTTP calls, the same design as the gateway one protocol lower. It is not built and not on the roadmap until a design partner's agents mostly call REST APIs directly.
+If agent code calls an HTTP API directly, outside MCP and outside a wrapped function, nothing here sees it. The answer built for that is the REST connector: describe the API's endpoints as tools in the gateway config, with the credential read from the environment, and the agent calls them through the gateway instead of holding the API key itself. Scope, policy on the gateway's own lookups, pre-commit, and receipts then apply to REST calls exactly as to MCP calls, and a REST upstream sits beside MCP upstreams behind one grant. What remains outside is code that keeps its own credentials and calls out on its own; taking those away from the agent is a deployment decision, not a feature. A transparent egress proxy that intercepts arbitrary HTTP is not built and not planned until a design partner needs it.
 
 ## Sizing
 

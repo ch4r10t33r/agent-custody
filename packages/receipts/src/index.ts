@@ -2,6 +2,8 @@
 export { AUTHORIZATION_PREDICATE_TYPE, buildAuthorizationStatement } from "./receipt.ts";
 export type { AuthorizationBundle, AuthorizationPredicate, AuthorizationStatement } from "./receipt.ts";
 export type { GatewayOptions } from "./gateway.ts";
+export { buildRequest, restUpstream } from "./rest.ts";
+export type { RestOptions, UpstreamClient } from "./rest.ts";
 export * from "./config.ts";
 export * from "./crypto.ts";
 export * from "./delegation.ts";

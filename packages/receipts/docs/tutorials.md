@@ -26,6 +26,7 @@ Suggested reading order is the numbering. Output lands in `examples-out/`, which
 | 14 | proving history was not rewritten | [14-audit-history.ts](../examples/14-audit-history.ts) | three receipts and a kept tree head, a consistency proof that passes, the operator rewriting one leaf and appending a fourth call, the audit failing while the fourth receipt still verifies alone | `src/log.ts`, `src/verify.ts` |
 | 15 | agents in other languages | [15-sidecar.ts](../examples/15-sidecar.ts) | the sidecar on a free port, a client written as a Python or Go program would write it: decide, run, record; a denial recorded without running the tool; both receipts verified | `src/sidecar.ts` |
 | 16 | consequential tools, committed first | [16-precommit.ts](../examples/16-precommit.ts) | a refund named in `precommit`: the authorization leaf before the receipt leaf, the five authorization checks in the report, and the same call withheld when the log refuses | `src/gateway.ts`, `src/issue.ts`, `src/verify.ts` |
+| 17 | a REST API as an upstream | [17-rest-upstream.ts](../examples/17-rest-upstream.ts) | a stand-in payments API described as two tools, the token from the environment, a refund allowed on the gateway's own lookup and one denied before reaching the API, the receipt verified | `src/rest.ts`, `src/gateway.ts` |
 
 ## How policies are defined, in one paragraph
 

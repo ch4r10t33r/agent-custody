@@ -7,9 +7,36 @@ const LogSchema = z.object({ url: z.string().url(), tokenEnv: z.string().min(1).
 const oneLog = { message: "exactly one of logFile or log is required" };
 const hasOneLog = (c: { logFile?: string | undefined; log?: unknown }) => (c.logFile ? 1 : 0) + (c.log ? 1 : 0) === 1;
 
+/** One REST endpoint offered to the agent as a tool. `{name}` segments in the path come from the call's arguments; the rest go to the query on GET and DELETE, or to a JSON body otherwise. */
+const RestToolSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional(),
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).default("GET"),
+  path: z.string().min(1),
+  /** argument names sent as query parameters, when the default placement is not wanted */
+  query: z.array(z.string().min(1)).optional(),
+  /** "none" sends no body even on POST */
+  body: z.enum(["json", "none"]).default("json"),
+  /** the JSON Schema the agent sees; default accepts any object */
+  inputSchema: z.record(z.string(), z.unknown()).default({ type: "object" }),
+});
+export type RestToolConfig = z.infer<typeof RestToolSchema>;
+
+/** A plain HTTP API as an upstream: no MCP server needed. Secrets come from the environment through headerEnv, never from the file or the agent. */
+const RestUpstreamSchema = z.object({
+  baseUrl: z.string().url(),
+  headers: z.record(z.string(), z.string()).optional(),
+  /** header name to environment variable, e.g. { "authorization": "STRIPE_BEARER" }; a missing variable fails at startup */
+  headerEnv: z.record(z.string(), z.string().min(1)).optional(),
+  timeoutMs: z.number().int().positive().default(30_000),
+  tools: z.array(RestToolSchema).min(1),
+});
+export type RestUpstreamConfig = z.infer<typeof RestUpstreamSchema>;
+
 const UpstreamSchema = z.union([
   z.object({ command: z.string(), args: z.array(z.string()).default([]), env: z.record(z.string(), z.string()).optional() }),
   z.object({ url: z.string().url(), tokenEnv: z.string().min(1).optional() }),
+  z.object({ rest: RestUpstreamSchema }),
 ]);
 export type UpstreamConfig = z.infer<typeof UpstreamSchema>;
 
@@ -28,7 +55,7 @@ const FactSchema = z.object({
 
 export const GatewayConfigSchema = z.object({
   identity: z.object({ keyFile: z.string() }),
-  /** the upstream MCP server: a process to spawn over stdio, or a URL to reach over Streamable HTTP with an optional bearer token from the environment */
+  /** the upstream: an MCP server to spawn over stdio, an MCP URL to reach over Streamable HTTP with an optional bearer token from the environment, or a REST API described as tools */
   upstream: UpstreamSchema.optional(),
   /** several upstreams behind one gateway and one grant; each tool name must belong to exactly one of them */
   upstreams: z.array(UpstreamSchema.and(z.object({ name: z.string().min(1) }))).min(1).optional(),

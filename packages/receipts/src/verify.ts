@@ -3,7 +3,7 @@ import { canonicalize, digestOf, dsseVerify, type Envelope, type PublicKeyRef } 
 import { delegationValidAt, verifyDelegation } from "./delegation.ts";
 import { leafHash, MerkleLog, verifyConsistency, verifyInclusion } from "./log.ts";
 import { checkProvider, checkUpstream, contentDigest, isProviderAttestation, type ProviderSecrets } from "./upstream.ts";
-import { RECEIPT_PREDICATE_TYPE, RECEIPT_TYPE, TREEHEAD_TYPE, type ReceiptBundle, type ReceiptStatement, type TreeHead } from "./receipt.ts";
+import { AUTHORIZATION_PREDICATE_TYPE, RECEIPT_PREDICATE_TYPE, RECEIPT_TYPE, TREEHEAD_TYPE, type AuthorizationStatement, type ReceiptBundle, type ReceiptStatement, type TreeHead } from "./receipt.ts";
 
 export interface Check {
   name: string;
@@ -95,6 +95,29 @@ export function verifyBundle(bundle: ReceiptBundle, opts: VerifyOptions): Verify
   }
 
   const logKeys = opts.logKeys ?? [];
+  if (p.authorization) {
+    // The gateway says it committed this call to the log before forwarding it. Check that the committed statement is
+    // the issuer's, describes this very call, sits in the log, and sits there before the receipt does.
+    const a = p.authorization;
+    const asig = dsseVerify(a.envelope, opts.issuerKeys);
+    const ast = asig.ok ? (asig.payload as AuthorizationStatement) : null;
+    const typed = !!ast && a.envelope.payloadType === RECEIPT_TYPE && ast.predicateType === AUTHORIZATION_PREDICATE_TYPE;
+    add("authorization signature (issuer key)", asig.ok && typed && asig.keyid === sig.keyid, asig.ok ? (typed ? `keyid ${short(asig.keyid)}` : "not an authorization statement") : asig.error);
+    if (ast && typed) {
+      const ap = ast.predicate;
+      const same = ap.receiptId === p.receiptId && ap.tool.name === p.tool.name && ap.request.argsDigest === p.request.argsDigest && ap.agent.id === p.agent.id && ap.principal.id === p.principal.id && ap.policy?.decision === "allow";
+      add("authorization names this call", same, same ? `${ap.tool.name} for receipt ${short(ap.receiptId)}` : "committed for a different receipt, tool, arguments, agent, or decision");
+      const ath = dsseVerify(a.treeHead, [...logKeys, ...opts.issuerKeys]);
+      add("authorization tree head signature", ath.ok && a.treeHead.payloadType === TREEHEAD_TYPE, ath.ok ? `keyid ${short(ath.keyid)}` : ath.error);
+      if (ath.ok) {
+        const ahead = ath.payload as TreeHead;
+        const included = ahead.treeSize === a.inclusion.treeSize && verifyInclusion(leafHash(canonicalize(a.envelope)), a.inclusion, ahead.rootHash);
+        add("authorization log inclusion proof", included, `leaf ${a.inclusion.leafIndex} of ${a.inclusion.treeSize}`);
+        const before = a.inclusion.leafIndex < bundle.inclusion.leafIndex && a.inclusion.treeSize <= bundle.inclusion.treeSize;
+        add("authorization logged before execution", before, `authorization leaf ${a.inclusion.leafIndex}, receipt leaf ${bundle.inclusion.leafIndex}`);
+      }
+    }
+  }
   const th = dsseVerify(bundle.treeHead, [...logKeys, ...opts.issuerKeys]);
   const byLog = th.ok && logKeys.some((k) => k.keyid === th.keyid);
   add("tree head signature", th.ok && bundle.treeHead.payloadType === TREEHEAD_TYPE, th.ok ? `${byLog ? "log key" : "issuer key"} ${short(th.keyid)}` : th.error);
@@ -175,6 +198,10 @@ export function formatReport(r: VerifyResult): string {
   if (p.policy) row("policy", p.policy.provenance, `${p.policy.decision} [${p.policy.reasons.join(",")}] policy ${short(p.policy.policyDigest)}`);
   else row("policy", "-", "(none evaluated)");
   if (p.consumed) row("consumed", p.consumed.provenance, p.consumed.factIds.length === 0 ? "(no facts shown before this call)" : p.consumed.factIds);
+  if (p.authorization) {
+    const committed = r.checks.filter((c) => c.name.startsWith("authorization ")).every((c) => c.ok);
+    row("authorization", "observed", committed ? `committed to the log as leaf ${p.authorization.inclusion.leafIndex}, before the call was forwarded` : "carried, but its checks FAILED");
+  } else if (p.execution.status === "withheld") row("authorization", "observed", "the log would not commit it; the call was not forwarded");
   const upstreamCheck = r.checks.find((c) => c.name === "upstream signature (upstream key)" || c.name === "upstream signature (provider secret)");
   const hasUpstream = (p.execution.status === "executed" || p.execution.status === "failed") && !!p.execution.upstream;
   const byProvider = hasUpstream && isProviderAttestation((p.execution as { upstream?: unknown }).upstream);

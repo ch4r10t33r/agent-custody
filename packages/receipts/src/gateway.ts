@@ -12,10 +12,10 @@ import type { FactConfig, GatewayConfig, UpstreamConfig } from "./config.ts";
 import { digestOf, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto.ts";
 import { delegationValidAt, verifyDelegation, type Delegation } from "./delegation.ts";
 import { createIssuer } from "./issue.ts";
-import { openLog } from "./log-sink.ts";
+import { openLog, type LogSink } from "./log-sink.ts";
 import { upstreamEvidenceOf } from "./upstream.ts";
 import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
-import type { FactRecord, ReceiptPredicate } from "./receipt.ts";
+import type { AuthorizationBundle, FactRecord, ReceiptPredicate } from "./receipt.ts";
 
 export const GATEWAY_VERSION = "0.1.0";
 export const RECEIPT_META_KEY = "agent-custody/receipt";
@@ -71,7 +71,12 @@ function extractValue(result: CallToolResult): unknown {
   }
 }
 
-export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
+export interface GatewayOptions {
+  /** the log to append to, in place of the one the config names; for embedding and tests */
+  log?: LogSink;
+}
+
+export async function createGateway(cfg: GatewayConfig, options: GatewayOptions = {}): Promise<Gateway> {
   const gatewayKey = loadPrivateKey(cfg.identity.keyFile);
   const trusted = cfg.trustedPrincipalKeys.map(loadPublicKey);
   const grantEnvelope = JSON.parse(readFileSync(cfg.grantFile, "utf8")) as Envelope;
@@ -83,7 +88,9 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
 
   const policyText = readFileSync(cfg.policyFile, "utf8");
   const pDigest = policyDigest(policyText);
-  const issuer = createIssuer(gatewayKey, cfg.receiptsDir, openLog(cfg, gatewayKey));
+  const issuer = createIssuer(gatewayKey, cfg.receiptsDir, options.log ?? openLog(cfg, gatewayKey));
+  const precommit = new Set(cfg.precommit);
+  const consequential = (tool: string) => precommit.has("*") || precommit.has(tool);
 
   // One gateway, one grant, one session, and as many upstreams as the agent's job needs. Each tool name belongs to
   // exactly one upstream, decided at startup, so a receipt's tool is unambiguous and consumed facts flow across them.
@@ -152,7 +159,8 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
 
     let facts: Record<string, FactRecord> = {};
     let policy: PolicyDecision;
-    let execution: ReceiptPredicate["execution"];
+    let execution: ReceiptPredicate["execution"] | undefined;
+    let authorization: AuthorizationBundle | undefined;
 
     if (!delegation.scopes.includes(tool)) {
       policy = { decision: "deny", reasons: [], errors: [`tool "${tool}" is not in the delegation scopes`], policyDigest: pDigest };
@@ -170,7 +178,32 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
       }
     }
 
-    if (policy.decision === "allow") {
+    const head = {
+      receiptId,
+      timestamp,
+      issuer: { kind: "gateway" as const, keyid: issuer.keyid, version: GATEWAY_VERSION },
+      principal: { id: delegation.principal, keyid: principalKeyid, provenance: "attested" as const },
+      agent: { id: delegation.agent, provenance: "attested" as const },
+      delegation: { envelope: grantEnvelope, provenance: "attested" as const },
+      tool: { name: tool, provenance: "observed" as const, ...(owner.has(tool) && upstreamConfigs.length > 1 ? { upstream: owner.get(tool)! } : {}) },
+      request: { args, argsDigest: digestOf(args), provenance: "claimed" as const },
+      facts,
+      consumed: { factIds: consumedNow, provenance: "observed" as const },
+    };
+
+    if (policy.decision === "allow" && consequential(tool)) {
+      // A consequential call is committed to the log before it goes out, so that evidence of the side effect exists
+      // before the side effect does. If the log will not take the authorization, the call is not forwarded.
+      try {
+        authorization = await issuer.authorize({ ...head, policy: { ...policy, provenance: "observed" } });
+      } catch (e) {
+        execution = { status: "withheld", reason: `the log did not commit the authorization, so the call was not forwarded: ${String(e instanceof Error ? e.message : e)}`, provenance: "observed" };
+      }
+    }
+
+    if (execution) {
+      // withheld: nothing was forwarded
+    } else if (policy.decision === "allow") {
       try {
         // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
         // state, such as the memory server, cites the receipt as the source of what it stores.
@@ -187,19 +220,11 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
     }
 
     await issuer.issue({
-      receiptId,
-      timestamp,
-      issuer: { kind: "gateway", keyid: issuer.keyid, version: GATEWAY_VERSION },
-      principal: { id: delegation.principal, keyid: principalKeyid, provenance: "attested" },
-      agent: { id: delegation.agent, provenance: "attested" },
-      delegation: { envelope: grantEnvelope, provenance: "attested" },
+      ...head,
       session: { id: null, toolUseId: null, provenance: "claimed" },
       model: { id: typeof modelClaim === "string" ? modelClaim : null, provenance: "claimed" },
-      tool: { name: tool, provenance: "observed", ...(owner.has(tool) && upstreamConfigs.length > 1 ? { upstream: owner.get(tool)! } : {}) },
-      request: { args, argsDigest: digestOf(args), provenance: "claimed" },
-      facts,
-      consumed: { factIds: consumedNow, provenance: "observed" },
       policy: { ...policy, provenance: "observed" },
+      ...(authorization ? { authorization } : {}),
       execution,
     });
 
@@ -210,6 +235,8 @@ export async function createGateway(cfg: GatewayConfig): Promise<Gateway> {
         return refuse(`Denied by policy: ${execution.reason}`);
       case "error":
         return refuse(`Upstream error: ${execution.error}`);
+      case "withheld":
+        return refuse(`Not executed: ${execution.reason}`);
       default: {
         const result = execution.result as CallToolResult;
         return { ...result, _meta: { ...result._meta, ...meta } };

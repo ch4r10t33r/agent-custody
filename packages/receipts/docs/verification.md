@@ -77,12 +77,17 @@ execution       observed    executed
 | request args digest | the args in the predicate hash to the digest in the subject | edited arguments |
 | policy decision consistent with execution | allow went with executed or failed; deny went with denied. Skipped when no policy was evaluated | an issuer that executed after a deny |
 | no policy errors on an allow | an allow was not produced while Cedar reported errors | broken fail-closed behaviour |
+| authorization signature (issuer key) | pre-commit receipts only: the embedded authorization statement was signed by the same issuer key as the receipt | an authorization from another gateway, or none the issuer signed |
+| authorization names this call | the committed authorization names this receipt id, tool, argument digest, agent, and principal, and recorded an allow | an authorization spliced in from a different call |
+| authorization tree head signature | the authorization's own tree head is signed by a trusted log or issuer key | a fabricated log position for the authorization |
+| authorization log inclusion proof | the authorization statement is a leaf of that tree | an authorization that was never logged |
+| authorization logged before execution | the authorization's leaf precedes the receipt's leaf, at a tree size no larger than the receipt's | evidence written after the side effect, dressed up as before |
 | tree head signature | the tree head was signed by a trusted issuer key | forged log position |
 | tree head matches inclusion proof size | the proof and the tree head describe the same tree | mismatched bundle parts |
 | log inclusion proof | this exact envelope is a leaf of the tree with that root | receipt never logged, or logged then changed |
 | log file root matches tree head | recomputing the root from your copy of the log at that size gives the same value | your log copy and the issuer's history diverge: deletion, reordering, or edit |
 
-Gateway receipts run seventeen checks, eighteen with a log file. SDK receipts run fewer, because there is no delegation to check, and the report says so on the `principal is claimed` line.
+Gateway receipts run seventeen checks, eighteen with a log file, and five more when the tool was committed before it ran (`precommit` in the gateway config). SDK receipts run fewer, because there is no delegation to check, and the report says so on the `principal is claimed` line.
 
 ## What a verified receipt lets you conclude
 
@@ -95,6 +100,7 @@ For an SDK receipt the statement is shorter: a process holding the application k
 A gateway receipt does **not** support:
 
 - that Stripe really executed the refund. The upstream result is `observed`, not signed by Stripe. That is the first roadmap item.
+- that the side effect exists because the receipt does, unless the receipt carries an authorization. Without one, the call was forwarded first and logged second. With one, the five `authorization` checks establish that the gateway had committed the call to the log before it went out, and a `withheld` execution establishes that it never went out.
 - that the arguments were correct. They are `claimed`: they are what the agent asked for, which is what a receipt should record.
 - that the model named in `model` produced the call. No hosted provider signs model identity.
 - that the gateway operator is honest. The operator holds the gateway key. Against a dishonest operator you need a log copy taken out of their control, or a signer they do not control. See the threat model table in the README.

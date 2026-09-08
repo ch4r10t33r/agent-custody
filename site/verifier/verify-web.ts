@@ -12,6 +12,7 @@ const PREDICATE_TYPE = "https://agent-custody.dev/receipt/v0.2";
 const TREEHEAD_TYPE = "application/vnd.agent-custody.treehead+json";
 const DELEGATION_TYPE = "application/vnd.agent-custody.delegation+json";
 const UPSTREAM_TYPE = "application/vnd.agent-custody.upstream+json";
+const AUTHORIZATION_TYPE = "https://agent-custody.dev/authorization/v0.1";
 const subtle = () => globalThis.crypto.subtle;
 
 type Bytes = Uint8Array<ArrayBuffer>;
@@ -187,6 +188,27 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
     add("no policy errors on an allow", !(p.policy.decision === "allow" && p.policy.errors.length > 0));
   }
   const logKeys = opts.logKeys ?? [];
+  if (p.authorization) {
+    const a = p.authorization;
+    const asig = await dsseVerify(a.envelope, opts.issuerKeys);
+    const ast = asig.ok ? asig.payload : null;
+    const typed = !!ast && a.envelope.payloadType === RECEIPT_TYPE && ast.predicateType === AUTHORIZATION_TYPE;
+    add("authorization signature (issuer key)", asig.ok && typed && asig.keyid === sig.keyid, asig.ok ? (typed ? `keyid ${short(asig.keyid)}` : "not an authorization statement") : asig.error);
+    if (ast && typed) {
+      const ap = ast.predicate;
+      const same = ap.receiptId === p.receiptId && ap.tool?.name === p.tool.name && ap.request?.argsDigest === p.request.argsDigest && ap.agent?.id === p.agent.id && ap.principal?.id === p.principal.id && ap.policy?.decision === "allow";
+      add("authorization names this call", same, same ? `${ap.tool.name} for receipt ${short(ap.receiptId)}` : "committed for a different receipt, tool, arguments, agent, or decision");
+      const ath = await dsseVerify(a.treeHead, [...logKeys, ...opts.issuerKeys]);
+      add("authorization tree head signature", ath.ok && a.treeHead.payloadType === TREEHEAD_TYPE, ath.ok ? `keyid ${short(ath.keyid)}` : ath.error);
+      if (ath.ok) {
+        const ahead = ath.payload;
+        const included = ahead.treeSize === a.inclusion.treeSize && (await verifyInclusion(await leafHash(canonicalize(a.envelope)), a.inclusion, ahead.rootHash));
+        add("authorization log inclusion proof", included, `leaf ${a.inclusion.leafIndex} of ${a.inclusion.treeSize}`);
+        const before = a.inclusion.leafIndex < bundle.inclusion.leafIndex && a.inclusion.treeSize <= bundle.inclusion.treeSize;
+        add("authorization logged before execution", before, `authorization leaf ${a.inclusion.leafIndex}, receipt leaf ${bundle.inclusion.leafIndex}`);
+      }
+    }
+  }
   const th = await dsseVerify(bundle.treeHead, [...logKeys, ...opts.issuerKeys]);
   const byLog = th.ok && logKeys.some((k) => k.keyid === th.keyid);
   treeHeadSigner = th.ok ? (byLog ? "log key" : "issuer key") : null;

@@ -72,6 +72,7 @@ when {
       "forTools": ["stripe.refund"]
     }
   ],
+  "precommit": ["stripe.refund"],
   "receiptsDir": "receipts",
   "logFile": "log.jsonl"
 }
@@ -85,9 +86,11 @@ when {
   "log": { "url": "https://log.example.com/", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN" }
 ```
 
-Exactly one of the two. The bearer token comes from the named environment variable, never from the file, and a missing variable fails at startup. With a remote log the tree head in each receipt is signed by the log's key, and a verifier must be given that key with `--log-key`. If the log refuses a leaf, the receipt is not issued and the call returns an error to the agent; for an executed call the upstream action has already happened by then, which is the honest outcome, since a receipt that was never logged must not be handed out. The reference log server is `node src/cli.ts log --file log.jsonl --key keys/log.key --port 8787 --token-env AGENT_CUSTODY_LOG_TOKEN`. It serves `POST /append` (token required when one is configured), `GET /root?size=N`, `GET /consistency?old=M&new=N`, and `GET /head`; [verification.md](verification.md) says what each proves.
+Exactly one of the two. The bearer token comes from the named environment variable, never from the file, and a missing variable fails at startup. With a remote log the tree head in each receipt is signed by the log's key, and a verifier must be given that key with `--log-key`. If the log refuses a leaf, the receipt is not issued and the call returns an error to the agent. For an ordinary call the upstream action has already happened by then, and the error says so; a receipt that was never logged must not be handed out. For a tool named in `precommit` the order is reversed, below, and the action never happens. The reference log server is `node src/cli.ts log --file log.jsonl --key keys/log.key --port 8787 --token-env AGENT_CUSTODY_LOG_TOKEN`. It serves `POST /append` (token required when one is configured), `GET /root?size=N`, `GET /consistency?old=M&new=N`, and `GET /head`; [verification.md](verification.md) says what each proves.
 
 `facts` tells the gateway which upstream tool to call before evaluating policy for a given tool. `$args.<key>` copies a value from the intercepted call. The result appears in Cedar as `context.facts.<name>` and in the receipt with its own digest, labelled `observed`. If a fact lookup fails, the call is denied and the receipt says why. A lookup with `"optional": true` is skipped when a `$args.<key>` it needs is absent from the call, and the fact is then simply not present, which a policy tests with `context.facts has <name>`; this is how a policy sees the fact a `memory.write` is about to supersede without denying every write that supersedes nothing.
+
+`precommit` names the consequential tools, or `["*"]` for all of them. For every other tool the gateway forwards the call and then records it, so if the log is unreachable at that moment the side effect exists before its evidence does. For a tool in `precommit` the gateway first signs an authorization statement, everything the receipt will say except the outcome, and appends it to the log. Only if the log took it does the call go upstream. The receipt then embeds that authorization with its own inclusion proof, and a verifier checks that it names this call and sits in the log before the receipt does. If the log will not take it, the call is not forwarded, the agent is told `Not executed`, and the receipt records `execution.status: "withheld"` with the policy's `allow` beside it. The authorization is also written on its own as `receipts/<receiptId>.authorization.json`, which is the evidence that survives if the gateway dies between forwarding and the receipt. Use it for money, for anything irreversible, and for anything a counterparty could later dispute; the cost is one extra log append per call.
 
 **5. Run the gateway.** It speaks MCP on stdin/stdout and logs to stderr only.
 
@@ -203,5 +206,6 @@ The upstream can answer in kind. A result whose `_meta` carries `agent-custody/f
 - **Money is integer minor units.** Cedar has no floating point. A float in `args` that a policy touches is an evaluation error, which is a deny.
 - **The gateway key is the trust root for receipts.** Keep it out of the agent's reach. The upstream credentials in `upstream.env` are likewise never exposed to the agent.
 - **Rotate keys by adding, not replacing.** The verifier accepts a list of gateway keys and principal keys and matches by keyid, so old receipts stay verifiable.
+- **Evidence before the side effect, for the calls that matter.** Without `precommit`, a call is forwarded and then logged, and a log outage at that moment leaves an executed action with no receipt (the agent gets an error saying so). With `precommit`, the authorization is logged first and the call is withheld if that fails. The receipt of a withheld call shows `allow` next to `withheld`, so an auditor can tell a log outage from a denial.
 - **The log is append-only by convention, not enforcement.** Copy it somewhere the operator cannot rewrite, on a schedule. The receipts' tree heads let an auditor check that the copy matches.
 - **stdout is the MCP channel.** Anything the gateway prints goes to stderr. Do not add `console.log` to gateway code paths.

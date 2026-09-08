@@ -36,6 +36,11 @@ export const GatewayConfigSchema = z.object({
   trustedPrincipalKeys: z.array(z.string()).min(1),
   policyFile: z.string(),
   facts: z.array(FactSchema).default([]),
+  /**
+   * Consequential tools, by name or "*" for all: before forwarding one of these, the gateway commits a signed
+   * authorization to the log and refuses the call if the log will not take it. Evidence then precedes the side effect.
+   */
+  precommit: z.array(z.string().min(1)).default([]),
   receiptsDir: z.string(),
   logFile: z.string().optional(),
   log: LogSchema.optional(),

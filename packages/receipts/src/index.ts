@@ -1,4 +1,7 @@
 // Public surface of @agent-custody/receipts. Framework adapters live on subpaths, ./sdk/<framework>, because they import optional peers.
+export { AUTHORIZATION_PREDICATE_TYPE, buildAuthorizationStatement } from "./receipt.ts";
+export type { AuthorizationBundle, AuthorizationPredicate, AuthorizationStatement } from "./receipt.ts";
+export type { GatewayOptions } from "./gateway.ts";
 export * from "./config.ts";
 export * from "./crypto.ts";
 export * from "./delegation.ts";

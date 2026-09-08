@@ -95,6 +95,28 @@ addCase({ name: "resigned-args-digest", description: "Request args edited withou
 addCase({ name: "inclusion-proof-wrong-index", description: "The inclusion proof's leaf index changed. The tree head still verifies; the proof does not.", bundle: { ...executed, inclusion: { ...executed.inclusion, leafIndex: executed.inclusion.leafIndex + 1 } }, ...G, log: glog });
 addCase({ name: "log-copy-from-another-log", description: "Verified against a copy of a different log. Everything passes except the recomputed root.", bundle: executed, ...G, log: ["not-the-same-leaf"] });
 
+// ---- a consequential tool: the authorization is committed to the log before the call is forwarded ----
+const cfx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-precommit-")));
+{
+  const cfg = JSON.parse(readFileSync(cfx.configFile, "utf8"));
+  cfg.precommit = ["stripe.refund"];
+  writeFileSync(cfx.configFile, JSON.stringify(cfg));
+}
+key("gateway-3", cfx.gatewayPub);
+key("principal-3", cfx.principalPub);
+const cgatewayKey = loadPrivateKey(join(cfx.dir, "keys", "gateway.key"));
+const cgw = await createGateway(loadConfig(cfx.configFile));
+const cok = await cgw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 7500 } });
+const cok2 = await cgw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 7600 } });
+await cgw.close();
+const committed = bundleFile(cfx.receiptsDir, String(cok._meta?.[RECEIPT_META_KEY]));
+const committed2 = bundleFile(cfx.receiptsDir, String(cok2._meta?.[RECEIPT_META_KEY]));
+const clog = logLines(cfx.logFile);
+const C = { issuerKeys: ["gateway-3"], principalKeys: ["principal-3"], logKeys: [] as string[] };
+addCase({ name: "gateway-precommit-executed", description: "A consequential refund: the gateway committed a signed authorization to the log before forwarding the call, and the receipt embeds it. The five authorization checks pass, and the authorization leaf precedes the receipt leaf.", bundle: committed, ...C, log: clog });
+addCase({ name: "gateway-precommit-spliced", description: "The second refund's receipt carrying the first refund's authorization, re-signed with the gateway key. The authorization verifies as a statement but does not name this call; the re-signed receipt also loses its own inclusion.", bundle: resigned(committed2, cgatewayKey, (st) => { st.predicate.authorization = decode(committed).predicate.authorization; }), ...C, log: clog });
+addCase({ name: "gateway-precommit-reordered", description: "The authorization's inclusion proof replaced by the receipt's own, so it claims a leaf after the execution. The proof fails and so does the order check.", bundle: resigned(committed, cgatewayKey, (st) => { st.predicate.authorization = { ...st.predicate.authorization!, inclusion: committed.inclusion, treeHead: committed.treeHead }; }), ...C, log: clog });
+
 // ---- a provider-native delivery: the fake Stripe attaches the webhook it would send, signed with the shared secret ----
 const pfx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-provider-")));
 {

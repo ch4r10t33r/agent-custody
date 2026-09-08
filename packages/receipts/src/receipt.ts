@@ -6,6 +6,8 @@ import type { UpstreamEvidence } from "./upstream.ts";
 
 export const RECEIPT_TYPE = "application/vnd.in-toto+json";
 export const RECEIPT_PREDICATE_TYPE = "https://agent-custody.dev/receipt/v0.2";
+/** The statement a gateway commits to the log before forwarding a consequential call; the receipt for that call embeds it. */
+export const AUTHORIZATION_PREDICATE_TYPE = "https://agent-custody.dev/authorization/v0.1";
 export const TREEHEAD_TYPE = "application/vnd.agent-custody.treehead+json";
 
 /**
@@ -54,6 +56,13 @@ export interface ReceiptPredicate {
   consumed?: { factIds: string[]; provenance: "observed" };
   /** null when the issuer evaluated no policy. */
   policy: (PolicyDecision & { provenance: Provenance }) | null;
+  /**
+   * Present when the tool is one the gateway treats as consequential: the authorization statement it committed to the
+   * log before forwarding the call, with that leaf's inclusion proof and tree head. A verifier checks that it names
+   * this receipt, this tool, and these arguments, and that its leaf precedes the receipt's. Without it, evidence of a
+   * side effect exists only after the side effect.
+   */
+  authorization?: AuthorizationBundle;
   execution:
     | {
         status: "executed" | "failed";
@@ -64,7 +73,35 @@ export interface ReceiptPredicate {
         upstream?: UpstreamEvidence;
       }
     | { status: "denied"; reason: string; provenance: Provenance }
-    | { status: "error"; error: string; provenance: Provenance };
+    | { status: "error"; error: string; provenance: Provenance }
+    /** the policy allowed the call but the gateway did not forward it, because the log would not commit the authorization first */
+    | { status: "withheld"; reason: string; provenance: Provenance };
+}
+
+/** What the gateway commits before a consequential call goes out: everything the receipt will say, except the outcome. */
+export type AuthorizationPredicate = Pick<ReceiptPredicate, "receiptId" | "timestamp" | "issuer" | "principal" | "agent" | "delegation" | "tool" | "request" | "facts" | "consumed" | "policy">;
+
+export interface AuthorizationStatement {
+  _type: "https://in-toto.io/Statement/v1";
+  subject: { name: string; digest: { sha256: string } }[];
+  predicateType: typeof AUTHORIZATION_PREDICATE_TYPE;
+  predicate: AuthorizationPredicate;
+}
+
+/** The committed authorization: the same three parts as a receipt bundle. Written to `receipts/<receiptId>.authorization.json` and embedded in the receipt. */
+export interface AuthorizationBundle {
+  envelope: Envelope; // signed AuthorizationStatement
+  treeHead: Envelope;
+  inclusion: InclusionProof;
+}
+
+export function buildAuthorizationStatement(p: AuthorizationPredicate): AuthorizationStatement {
+  return {
+    _type: "https://in-toto.io/Statement/v1",
+    subject: [{ name: `tool-call:${p.tool.name}:${p.receiptId}`, digest: { sha256: p.request.argsDigest } }],
+    predicateType: AUTHORIZATION_PREDICATE_TYPE,
+    predicate: p,
+  };
 }
 
 export interface ReceiptStatement {

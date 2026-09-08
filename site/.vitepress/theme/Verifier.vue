@@ -18,7 +18,7 @@ const error = ref("");
 const busy = ref(false);
 const supported = typeof globalThis.crypto?.subtle?.importKey === "function";
 
-const samples = computed(() => (vectors.cases as any[]).filter((c) => ["gateway-executed", "gateway-executed-upstream-attested", "gateway-executed-stripe-webhook", "gateway-denied", "sdk-executed", "remote-log-with-log-key"].includes(c.name)));
+const samples = computed(() => (vectors.cases as any[]).filter((c) => ["gateway-executed", "gateway-precommit-executed", "gateway-executed-upstream-attested", "gateway-executed-stripe-webhook", "gateway-denied", "sdk-executed", "remote-log-with-log-key"].includes(c.name)));
 
 function load(c: any) {
   const pem = (names: string[]) => names.map((n) => (vectors.keys as any)[n].publicKeyPem).join("\n");

@@ -9,7 +9,7 @@ Two producers, one receipt format, one verifier.
 
 Anyone holding the public keys can verify a receipt offline. The agent is not trusted. The layer around it is, and the receipt says exactly how far that trust extends, starting with who issued it.
 
-- [Tutorials](docs/tutorials.md): fifteen runnable examples, one per aspect of the code, all executed by the test suite
+- [Tutorials](docs/tutorials.md): sixteen runnable examples, one per aspect of the code, all executed by the test suite
 - [Usage guide](docs/usage.md): gateway setup, wiring into Claude Desktop, Claude Code, or your own agent loop
 - [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, adapters for the OpenAI Agents SDK, Vercel AI SDK and LangChain, and wrapping tool functions in anything else
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
@@ -170,7 +170,7 @@ Every field carries a provenance label. This is the design decision that matters
 bun install                              # from the repository root, once for the workspace
 cd packages/receipts
 node scripts/demo.ts                     # gateway: keys, grant, policy, four tool calls, verification, a tampering attempt; then the SDK wrapping the same tool
-node examples/01-keys-and-signing.ts     # first of fifteen step-by-step examples, see docs/tutorials.md
+node examples/01-keys-and-signing.ts     # first of sixteen step-by-step examples, see docs/tutorials.md
 bun run test                             # this package; `bun run test` at the root runs every package
 ```
 
@@ -208,7 +208,8 @@ const refund = issuer.wrap("stripe.refund", async (args: { amount: number }) => 
 | the principal really delegated this scope to this agent | anyone with the principal's key | operator, agent | grant signed by principal key, checked for scope and validity window | done |
 | the policy decision was made against this exact policy | anyone | operator swapping policies | sha256 of policy text in the receipt | done |
 | facts the policy relied on were not asserted by the agent | anyone reading the receipt | agent | facts fetched by the gateway, recorded with their own digests, labelled `observed` | done |
-| the upstream system actually executed the action | third party | operator | needs the upstream's own signed response embedded verbatim | **not done**, depends on the tool provider |
+| the side effect was committed to the log before it happened | anyone with a log copy | operator, log outage | for tools in `precommit`, a signed authorization logged first, embedded in the receipt with its leaf position, checked to precede the receipt | done |
+| the upstream system actually executed the action | anyone with the upstream's key or the provider's secret | operator | the upstream signs its result for the receipt, or the provider's own delivery signature (Stripe, GitHub) is embedded and checked | done, for upstreams that sign |
 | the operator itself cannot mint a false receipt | regulator, counterparty | operator | needs a TEE-hosted signer or a federated log | **not done** |
 | which model produced the call | anyone | operator | no hosted provider signs model identity | **not possible today**, labelled `claimed` |
 | an SDK receipt reflects what the tool really did | anyone | agent's own process | none; the SDK shares a process with the agent | **by design not claimed**; issuer kind `sdk` says so |
@@ -224,8 +225,8 @@ src/log.ts         Merkle log: append, root, inclusion and consistency proofs, v
 src/log-sink.ts    where leaves go: the local file, or a remote log over HTTP; plus the reference log server
 src/policy.ts      Cedar evaluation wrapper, fail-closed
 src/delegation.ts  signed delegation grants
-src/receipt.ts     receipt statement types and provenance labels
-src/issue.ts       sign, log, and write a receipt; shared by both producers
+src/receipt.ts     receipt and authorization statement types and provenance labels
+src/issue.ts       sign, log, and write a receipt, or commit an authorization first; shared by both producers
 src/gateway.ts     the MCP proxy: scope check, facts, policy, forward, receipt
 src/sdk/index.ts   the interceptor: policy decision, record, wrap(tool fn)
 src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hooks
@@ -239,7 +240,7 @@ src/retention.ts   pruning the log: leaves become their hashes, bundles are remo
 src/index.ts       the package's public surface; adapters are exported on ./sdk/<framework> subpaths
 tsconfig.build.json  emits dist/ (JavaScript plus declarations) for consumers; the repo itself runs the .ts directly
 scripts/           fake Stripe upstream (signs its results with --key), a second fake upstream, fixture builders for gateway and SDK, demo
-examples/          fifteen runnable tutorials, plus examples/languages/: Python, Go, Java, and Rust clients of the sidecar, run by the test suite, one per aspect; each is run by the test suite
+examples/          sixteen runnable tutorials, plus examples/languages/: Python, Go, Java, and Rust clients of the sidecar, run by the test suite, one per aspect; each is run by the test suite
 test/              unit tests per module, end-to-end gateway test, SDK and hook tests,
                    adapter tests against the real packages, and a test that runs every policy in docs/policies.md
 docs/              tutorials, usage (gateway), sdk, policies, verification
@@ -270,6 +271,8 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - Consistency proofs between tree heads (RFC 9162), served by the log and checked by the `audit` command, so an auditor holding an old tree head can prove nothing before it was rewritten.
 - Remote log: the issuer can append to a log run by someone else over HTTP, whose key then signs the tree heads, so a verifier learns the receipt was in a log the operator could not rewrite. Includes the reference log server, bearer-token auth, and a root endpoint for auditors.
 - Framework adapters, each tested against the real package with a scripted model and no network: OpenAI Agents SDK (`wrapTools` enforces, `observeRunner` records from lifecycle events), Vercel AI SDK (`wrapTools` over a real `generateText` loop), LangChain (`ReceiptCallbackHandler` records, `issuer.wrap` enforces).
+
+- Pre-commit authorization for consequential tools: named in `precommit`, a call is signed and logged before it is forwarded, withheld if the log will not take it, and its receipt carries the committed authorization with proof that it precedes the execution.
 
 **Next, in the order it pays off**
 

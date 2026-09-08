@@ -145,3 +145,85 @@ describe("gateway", () => {
     expect(failing(verifyBundle(bundle, { ...opts, logFile: otherLog }))).toEqual(["log file root matches tree head"]);
   }, 30_000);
 });
+
+describe("pre-commit authorization for consequential tools", () => {
+  const withheldLog = (inner: import("../src/log-sink.ts").LogSink, refuseAuthorizations: boolean): import("../src/log-sink.ts").LogSink => ({
+    kind: inner.kind,
+    where: inner.where,
+    async append(leaf) {
+      const st = JSON.parse(Buffer.from((JSON.parse(leaf) as { payload: string }).payload, "base64").toString()) as { predicateType: string };
+      if (refuseAuthorizations && st.predicateType.includes("/authorization/")) throw new Error("log is read-only for this tenant");
+      return inner.append(leaf);
+    },
+  });
+
+  it("commits a signed authorization to the log before forwarding, embeds it in the receipt, and the verifier proves the order", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-custody-precommit-"));
+    const f = buildFixture(dir);
+    const cfg = JSON.parse(readFileSync(f.configFile, "utf8"));
+    cfg.precommit = ["stripe.refund"];
+    writeFileSync(f.configFile, JSON.stringify(cfg));
+    const g = await createGateway(loadConfig(f.configFile));
+    try {
+      const res = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 2500 } });
+      expect(res.isError).toBeFalsy();
+      const id = String(res._meta?.[RECEIPT_META_KEY]);
+      const bundle = JSON.parse(readFileSync(join(f.receiptsDir, `${id}.json`), "utf8")) as ReceiptBundle;
+      const p = decode(bundle).predicate;
+      expect(p.execution.status).toBe("executed");
+      expect(p.authorization).toBeDefined();
+      // the authorization is its own file too, for the case where the process dies between forwarding and the receipt
+      const onDisk = JSON.parse(readFileSync(join(f.receiptsDir, `${id}.authorization.json`), "utf8"));
+      expect(onDisk.envelope).toEqual(p.authorization!.envelope);
+      // it precedes the receipt in the log: the lookup leaf, then the authorization, then the receipt
+      expect(p.authorization!.inclusion.leafIndex).toBeLessThan(bundle.inclusion.leafIndex);
+      const o = { issuerKeys: [loadPublicKey(f.gatewayPub)], principalKeys: [loadPublicKey(f.principalPub)], logFile: f.logFile };
+      const r = verifyBundle(bundle, o);
+      expect(failing(r)).toEqual([]);
+      expect(r.checks.map((c) => c.name)).toEqual(expect.arrayContaining(["authorization signature (issuer key)", "authorization names this call", "authorization tree head signature", "authorization log inclusion proof", "authorization logged before execution"]));
+      expect(formatReport(r)).toMatch(/authorization\s+observed\s+committed to the log as leaf \d+, before the call was forwarded/);
+      // a lookup is not consequential: its receipt carries no authorization
+      const look = await g.handleCall({ name: "customer.lookup", arguments: { customer_id: "cust_123" } });
+      expect(decode(JSON.parse(readFileSync(join(f.receiptsDir, `${String(look._meta?.[RECEIPT_META_KEY])}.json`), "utf8"))).predicate.authorization).toBeUndefined();
+      // an authorization spliced from another receipt fails the binding check
+      const other = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 2600 } });
+      const otherBundle = JSON.parse(readFileSync(join(f.receiptsDir, `${String(other._meta?.[RECEIPT_META_KEY])}.json`), "utf8")) as ReceiptBundle;
+      const st = decode(otherBundle);
+      st.predicate.authorization = p.authorization;
+      const { dsseSign, loadPrivateKey } = await import("../src/crypto.ts");
+      const { RECEIPT_TYPE } = await import("../src/receipt.ts");
+      const spliced = { ...otherBundle, envelope: dsseSign(RECEIPT_TYPE, st, loadPrivateKey(join(dir, "keys", "gateway.key"))) };
+      // re-signing also changes the leaf, so the receipt's own inclusion fails, as it does for every resigned vector
+      expect(failing(verifyBundle(spliced, o))).toEqual(["authorization names this call", "log inclusion proof"]);
+    } finally {
+      await g.close();
+    }
+  });
+
+  it("when the log will not commit the authorization, the call is withheld: nothing is forwarded and the receipt says so", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "agent-custody-withheld-"));
+    const f = buildFixture(dir);
+    const cfg = JSON.parse(readFileSync(f.configFile, "utf8"));
+    cfg.precommit = ["*"];
+    writeFileSync(f.configFile, JSON.stringify(cfg));
+    const { fileLog } = await import("../src/log-sink.ts");
+    const { loadPrivateKey } = await import("../src/crypto.ts");
+    const g = await createGateway(loadConfig(f.configFile), { log: withheldLog(fileLog(f.logFile, loadPrivateKey(join(dir, "keys", "gateway.key"))), true) });
+    try {
+      const res = await g.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 2500 } });
+      expect(res.isError).toBe(true);
+      expect((res.content[0] as any).text).toMatch(/Not executed: the log did not commit the authorization, so the call was not forwarded: log is read-only/);
+      const bundle = JSON.parse(readFileSync(join(f.receiptsDir, `${String(res._meta?.[RECEIPT_META_KEY])}.json`), "utf8")) as ReceiptBundle;
+      const p = decode(bundle).predicate;
+      expect(p.policy?.decision).toBe("allow");
+      expect(p.execution.status).toBe("withheld");
+      expect(p.authorization).toBeUndefined();
+      const r = verifyBundle(bundle, { issuerKeys: [loadPublicKey(f.gatewayPub)], principalKeys: [loadPublicKey(f.principalPub)], logFile: f.logFile });
+      expect(failing(r)).toEqual([]);
+      expect(formatReport(r)).toMatch(/authorization\s+observed\s+the log would not commit it; the call was not forwarded/);
+      expect(formatReport(r)).toMatch(/execution\s+observed\s+withheld/);
+    } finally {
+      await g.close();
+    }
+  });
+});

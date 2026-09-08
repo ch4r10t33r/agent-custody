@@ -2,9 +2,9 @@
 # file-backed, with the signing key on a volume. The service names, environment variables, and volumes are the
 # same contract the Kubernetes manifests in deploy/k8s use, so a deployment moves between them without a rewrite.
 #
-#   docker compose up -d                       the log on port 8787, private (put it behind your own TLS or VPN)
-#   docker compose --profile public up -d      the log behind Caddy with automatic TLS on LOG_HOST
-#   docker compose --profile phase2 up -d      also the Postgres the tenanted service will use (issue #6, phase 2)
+#   docker compose up -d                       the log and its Postgres on port 8787, private (behind your own TLS or VPN)
+#   docker compose --profile public up -d      the same behind Caddy with automatic TLS on LOG_HOST
+#   docker compose --profile file up -d        the file-backed log alone, no Postgres, for a single-tenant second machine
 #
 # Copy .env.example to .env first.
 
@@ -12,6 +12,9 @@ name: agent-custody
 
 services:
   log:
+    depends_on:
+      postgres:
+        condition: service_healthy
     build:
       context: .
       args:
@@ -24,6 +27,8 @@ services:
       AGENT_CUSTODY_LOG_KEY: /data/keys/log.key
       AGENT_CUSTODY_LOG_PORT: "8787"
       AGENT_CUSTODY_LOG_ID: ${AGENT_CUSTODY_LOG_ID:-}
+      # tenants, tokens, and leaves in Postgres; the volume keeps the signing key and the pre-import file log
+      DATABASE_URL: postgres://custody:${POSTGRES_PASSWORD:-}@postgres:5432/custody_log
     volumes:
       - logdata:/data
     ports:
@@ -57,16 +62,13 @@ services:
       - caddy_config:/config
 
   postgres:
-    # Not used by the log server yet. It is the store the tenanted service (issue #6, phase 2) writes leaves and
-    # signed heads to; declared here so the volume, credentials, and backups are in place before that lands.
-    profiles: ["phase2"]
+    # The store for leaves (as hashes), tenants, and hashed tokens; one writer per tenant is enforced inside it.
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: custody_log
       POSTGRES_USER: custody
-      # required only with --profile phase2; Postgres refuses to start with an empty password
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (openssl rand -hex 24)}"
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
@@ -76,6 +78,22 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
+
+  log-file:
+    # The file-backed reference server alone: one tenant, no Postgres. What deploy/ was before phase 2.
+    profiles: ["file"]
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.4.0}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AGENT_CUSTODY_LOG_FILE: /data/log.jsonl
+      AGENT_CUSTODY_LOG_KEY: /data/keys/log.key
+      AGENT_CUSTODY_LOG_PORT: "8787"
+      AGENT_CUSTODY_LOG_ID: ${AGENT_CUSTODY_LOG_ID:-}
+    volumes:
+      - logdata:/data
+    ports:
+      - "127.0.0.1:8787:8787"
 
 volumes:
   logdata:

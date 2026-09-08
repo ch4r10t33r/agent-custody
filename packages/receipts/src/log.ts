@@ -34,7 +34,7 @@ function split(n: number): number {
  * once its leaves exist, so those are cached; everything else is recomputed from at most log(n) cached parts. That
  * makes appends, roots, and proofs O(log n) instead of O(n), which is what keeps a long session's receipts cheap.
  */
-class SubtreeCache {
+export class SubtreeCache {
   private readonly perfect = new Map<string, Buffer>();
   private readonly leaves: Buffer[];
   constructor(leaves: Buffer[]) {

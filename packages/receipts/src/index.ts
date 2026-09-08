@@ -4,6 +4,8 @@ export type { AuthorizationBundle, AuthorizationPredicate, AuthorizationStatemen
 export type { GatewayOptions } from "./gateway.ts";
 export { buildRequest, restUpstream } from "./rest.ts";
 export { openExporter, otlpExporter, spanFor } from "./otel.ts";
+export { fileBackend, importLogFile, PostgresLog, PostgresTenancy, RateLimiter } from "./log-store.ts";
+export type { AppendResult, LogBackend, PostgresLike, PostgresLogOptions, RateLimitOptions, Tenant, TokenRecord } from "./log-store.ts";
 export type { OtelConfig, OtlpOptions, ReceiptExporter } from "./otel.ts";
 export type { IssuerOptions } from "./issue.ts";
 export type { RestOptions, UpstreamClient } from "./rest.ts";

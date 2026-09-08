@@ -7,7 +7,9 @@ import { timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { dsseSign, type Envelope, type KeyPair } from "./crypto.ts";
+import { createHash } from "node:crypto";
 import { leafHash, MerkleLog, type InclusionProof } from "./log.ts";
+import { fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
 import { TREEHEAD_TYPE, type TreeHead } from "./receipt.ts";
 
 export interface LogAppend {
@@ -23,10 +25,14 @@ export interface LogSink {
   append(leaf: string): Promise<LogAppend>;
 }
 
-function appendSigned(log: MerkleLog, key: KeyPair, leaf: { leaf: string } | { leafHash: string }, logId?: string): LogAppend {
-  const e = "leaf" in leaf ? log.append(leaf.leaf) : log.appendHash(leaf.leafHash);
+function signedHead(e: { treeSize: number; rootHash: string }, key: KeyPair, logId?: string): Envelope {
   const head: TreeHead = { treeSize: e.treeSize, rootHash: e.rootHash, timestamp: new Date().toISOString(), ...(logId ? { log: logId } : {}) };
-  return { inclusion: { leafIndex: e.leafIndex, treeSize: e.treeSize, hashes: e.hashes }, treeHead: dsseSign(TREEHEAD_TYPE, head, key) };
+  return dsseSign(TREEHEAD_TYPE, head, key);
+}
+
+async function appendSigned(log: LogBackend, key: KeyPair, leaf: { leaf: string } | { leafHash: string }, logId?: string): Promise<LogAppend> {
+  const e = "leaf" in leaf ? await log.append(leaf.leaf) : await log.appendHash(leaf.leafHash);
+  return { inclusion: { leafIndex: e.leafIndex, treeSize: e.treeSize, hashes: e.hashes }, treeHead: signedHead(e, key, logId) };
 }
 
 /** A local JSONL Merkle log. Tree heads are signed with the given key, normally the issuer's own. */
@@ -36,7 +42,8 @@ export function fileLog(file: string, key: KeyPair): LogSink {
     kind: "file",
     where: file,
     async append(leaf) {
-      return appendSigned(log, key, { leaf });
+      const e = log.append(leaf);
+      return { inclusion: { leafIndex: e.leafIndex, treeSize: e.treeSize, hashes: e.hashes }, treeHead: signedHead(e, key) };
     },
   };
 }
@@ -46,26 +53,50 @@ export interface HttpLogOptions {
   token?: string;
   /** send only the leaf hash; the log then commits to the receipt without ever holding it. Use it for any log run by someone else. */
   hashOnly?: boolean;
+  /** attempts on 429 and 5xx; default 3 */
+  retries?: number;
   fetch?: typeof fetch;
 }
 
-/** A log reached over HTTP: POST <url>/append with {leaf}, expecting a LogAppend back. */
+/**
+ * A log reached over HTTP: POST <url>/append with {leaf} or {leafHash}, expecting a LogAppend back. A 429 or a 5xx
+ * is retried a few times with backoff, honouring Retry-After; anything else, or the last failure, is the caller's.
+ */
 export function httpLog(url: string, opts: HttpLogOptions = {}): LogSink {
   const f = opts.fetch ?? fetch;
   const base = url.endsWith("/") ? url : `${url}/`;
+  const attempts = opts.retries ?? 3;
   return {
     kind: "http",
     where: url,
     async append(leaf) {
-      const res = await f(new URL("append", base), {
-        method: "POST",
-        headers: { "content-type": "application/json", ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}) },
-        body: JSON.stringify(opts.hashOnly ? { leafHash: leafHash(leaf).toString("hex") } : { leaf }),
-      });
-      if (!res.ok) throw new Error(`log ${url} refused the append: ${res.status} ${(await res.text()).slice(0, 200)}`);
-      const body = (await res.json()) as Partial<LogAppend>;
-      if (!body.inclusion || !body.treeHead) throw new Error(`log ${url} returned a malformed append result`);
-      return body as LogAppend;
+      let last = "";
+      for (let i = 0; i < attempts; i++) {
+        let res: Response;
+        try {
+          res = await f(new URL("append", base), {
+            method: "POST",
+            headers: { "content-type": "application/json", ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}) },
+            body: JSON.stringify(opts.hashOnly ? { leafHash: leafHash(leaf).toString("hex") } : { leaf }),
+          });
+        } catch (e) {
+          last = `log ${url} unreachable: ${e instanceof Error ? e.message : String(e)}`;
+          if (i + 1 < attempts) await new Promise((r) => setTimeout(r, 200 * 2 ** i));
+          continue;
+        }
+        if (res.ok) {
+          const body = (await res.json()) as Partial<LogAppend>;
+          if (!body.inclusion || !body.treeHead) throw new Error(`log ${url} returned a malformed append result`);
+          return body as LogAppend;
+        }
+        last = `log ${url} refused the append: ${res.status} ${(await res.text()).slice(0, 200)}`;
+        if (res.status !== 429 && res.status < 500) break;
+        if (i + 1 < attempts) {
+          const after = Number(res.headers.get("retry-after"));
+          await new Promise((r) => setTimeout(r, Number.isFinite(after) && after > 0 ? Math.min(after, 5) * 1000 : 200 * 2 ** i));
+        }
+      }
+      throw new Error(last);
     },
   };
 }
@@ -97,12 +128,61 @@ export interface LogServerOptions {
    * runs it from a small JSON file.
    */
   tenants?: Record<string, { file: string; tokens?: string[]; logId?: string }>;
+  /** appends per token (or per address without one); default 50 a second, burst 100 */
+  rateLimit?: RateLimitOptions;
+  /** largest append body accepted, in bytes; default 65536 */
+  maxBodyBytes?: number;
 }
 
-interface TenantLog {
-  log: MerkleLog;
-  tokens: string[];
+/** One log as the handler sees it, whatever stands behind it. */
+export interface ResolvedLog {
+  backend: LogBackend;
   logId: string | undefined;
+  authorize(token: string | null): Promise<boolean>;
+}
+
+/** Turns the tenant in a path, or null for the root paths, into a log. */
+export interface LogResolver {
+  resolve(tenant: string | null): Promise<ResolvedLog | null>;
+}
+
+const tokenMatches = (tokens: string[], token: string | null): boolean => {
+  if (tokens.length === 0) return true;
+  if (!token) return false;
+  const given = Buffer.from(token);
+  return tokens.some((t) => {
+    const want = Buffer.from(t);
+    return want.length === given.length && timingSafeEqual(want, given);
+  });
+};
+
+/** The reference server's logs: one file for the root paths and, optionally, a file per tenant from the options. */
+export function fileResolver(file: string, opts: LogServerOptions = {}): LogResolver {
+  const root: ResolvedLog = { backend: fileBackend(file), logId: opts.logId, authorize: async (t) => tokenMatches(opts.tokens ?? [], t) };
+  const tenants = new Map<string, ResolvedLog>();
+  for (const [name, t] of Object.entries(opts.tenants ?? {})) tenants.set(name, { backend: fileBackend(t.file), logId: t.logId ?? name, authorize: async (tok) => tokenMatches(t.tokens ?? [], tok) });
+  return { async resolve(tenant) { return tenant === null ? root : (tenants.get(tenant) ?? null); } };
+}
+
+/**
+ * Logs in Postgres: every tenant from the tenants table, each with its own log and tokens; the root paths serve the
+ * tenant named `defaultTenant`, which also accepts `staticTokens` so a server can keep its environment token.
+ */
+export function postgresResolver(tenancy: PostgresTenancy, opts: { defaultTenant?: string; staticTokens?: string[] } = {}): LogResolver {
+  const def = opts.defaultTenant ?? "default";
+  return {
+    async resolve(tenant) {
+      const id = tenant ?? def;
+      const t = await tenancy.tenant(id);
+      if (!t || t.disabledAt) return null;
+      const backend = await tenancy.log(id);
+      return {
+        backend,
+        logId: t.logId,
+        authorize: async (tok) => (tenant === null && (opts.staticTokens?.length ?? 0) > 0 && tokenMatches(opts.staticTokens!, tok)) || (await tenancy.authorize(id, tok)),
+      };
+    },
+  };
 }
 
 /**
@@ -112,63 +192,73 @@ interface TenantLog {
  *   GET  /consistency?old=M&new=N -> {oldSize, newSize, hashes}, proof that the log at N extends the log at M
  *   GET  /head             -> {treeHead}, the current tree head signed with the log's key
  */
-export function logHandler(file: string, key: KeyPair, opts: LogServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
-  const root: TenantLog = { log: new MerkleLog(file), tokens: opts.tokens ?? [], logId: opts.logId };
-  const tenants = new Map<string, TenantLog>();
-  for (const [name, t] of Object.entries(opts.tenants ?? {})) tenants.set(name, { log: new MerkleLog(t.file), tokens: t.tokens ?? [], logId: t.logId ?? name });
-  const authorized = (req: IncomingMessage, tokens: string[]): boolean => {
-    if (tokens.length === 0) return true;
+export function logHandler(source: string | LogResolver, key: KeyPair, opts: LogServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+  const resolver = typeof source === "string" ? fileResolver(source, opts) : source;
+  const limiter = new RateLimiter(opts.rateLimit);
+  const maxBody = opts.maxBodyBytes ?? 65_536;
+  const bearer = (req: IncomingMessage): string | null => {
     const h = req.headers.authorization ?? "";
-    const given = Buffer.from(h.startsWith("Bearer ") ? h.slice(7) : "");
-    return tokens.some((t) => {
-      const want = Buffer.from(t);
-      return want.length === given.length && timingSafeEqual(want, given);
-    });
+    return h.startsWith("Bearer ") && h.length > 7 ? h.slice(7) : null;
   };
   return async (req, res) => {
-    const json = (status: number, body: unknown) => {
-      res.writeHead(status, { "content-type": "application/json" });
+    const json = (status: number, body: unknown, headers: Record<string, string> = {}) => {
+      res.writeHead(status, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
     const url = new URL(req.url ?? "/", "http://localhost");
     // /t/<tenant>/<op> reaches that tenant's log; anything else is the default log.
     const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head)$/.exec(url.pathname);
-    const which = m ? tenants.get(m[1]!) : root;
+    let which: ResolvedLog | null;
+    try {
+      which = await resolver.resolve(m ? m[1]! : null);
+    } catch (e) {
+      return json(503, { error: `log unavailable: ${e instanceof Error ? e.message : String(e)}` });
+    }
     if (!which) return json(404, { error: "unknown log" });
-    const { log, tokens, logId } = which;
-    if (req.method === "POST" && url.pathname.endsWith("/append")) {
-      if (!authorized(req, tokens)) return json(401, { error: "unauthorized" });
-      let body = "";
-      for await (const chunk of req) body += chunk;
-      let parsed: { leaf?: unknown; leafHash?: unknown };
-      try {
-        parsed = JSON.parse(body) as { leaf?: unknown; leafHash?: unknown };
-      } catch {
-        return json(400, { error: "body must be JSON {leaf} or {leafHash}" });
+    const { backend: log, logId } = which;
+    try {
+      if (req.method === "POST" && url.pathname.endsWith("/append")) {
+        const token = bearer(req);
+        if (!(await which.authorize(token))) return json(401, { error: "unauthorized" });
+        const limitKey = token ? createHash("sha256").update(token).digest("hex").slice(0, 16) : `addr:${req.socket.remoteAddress ?? "?"}`;
+        if (!limiter.take(limitKey)) return json(429, { error: "too many appends; retry shortly" }, { "retry-after": "1" });
+        let body = "";
+        for await (const chunk of req) {
+          body += chunk;
+          if (body.length > maxBody) return json(413, { error: `append body larger than ${maxBody} bytes` });
+        }
+        let parsed: { leaf?: unknown; leafHash?: unknown };
+        try {
+          parsed = JSON.parse(body) as { leaf?: unknown; leafHash?: unknown };
+        } catch {
+          return json(400, { error: "body must be JSON {leaf} or {leafHash}" });
+        }
+        if (typeof parsed.leafHash === "string") {
+          if (!/^[0-9a-f]{64}$/.test(parsed.leafHash)) return json(400, { error: "leafHash must be 64 lowercase hex characters" });
+          return json(200, await appendSigned(log, key, { leafHash: parsed.leafHash }, logId));
+        }
+        if (typeof parsed.leaf !== "string" || parsed.leaf.length === 0) return json(400, { error: "leaf must be a non-empty string, or send leafHash" });
+        return json(200, await appendSigned(log, key, { leaf: parsed.leaf }, logId));
       }
-      if (typeof parsed.leafHash === "string") {
-        if (!/^[0-9a-f]{64}$/.test(parsed.leafHash)) return json(400, { error: "leafHash must be 64 lowercase hex characters" });
-        return json(200, appendSigned(log, key, { leafHash: parsed.leafHash }, logId));
+      const current = await log.size();
+      if (req.method === "GET" && url.pathname.endsWith("/root")) {
+        const size = url.searchParams.has("size") ? Number(url.searchParams.get("size")) : current;
+        if (!Number.isInteger(size) || size < 0 || size > current) return json(400, { error: `size must be an integer in 0..${current}` });
+        return json(200, { treeSize: size, rootHash: await log.root(size) });
       }
-      if (typeof parsed.leaf !== "string" || parsed.leaf.length === 0) return json(400, { error: "leaf must be a non-empty string, or send leafHash" });
-      return json(200, appendSigned(log, key, { leaf: parsed.leaf }, logId));
+      if (req.method === "GET" && url.pathname.endsWith("/consistency")) {
+        const oldSize = Number(url.searchParams.get("old"));
+        const newSize = url.searchParams.has("new") ? Number(url.searchParams.get("new")) : current;
+        if (![oldSize, newSize].every(Number.isInteger) || oldSize < 0 || oldSize > newSize || newSize > current) return json(400, { error: `old and new must be integers with 0 <= old <= new <= ${current}` });
+        return json(200, { oldSize, newSize, hashes: await log.consistencyProof(oldSize, newSize) });
+      }
+      if (req.method === "GET" && url.pathname.endsWith("/head")) {
+        return json(200, { treeHead: signedHead({ treeSize: current, rootHash: await log.root(current) }, key, logId) });
+      }
+      return json(404, { error: "not found" });
+    } catch (e) {
+      return json(500, { error: e instanceof Error ? e.message : String(e) });
     }
-    if (req.method === "GET" && url.pathname.endsWith("/root")) {
-      const size = url.searchParams.has("size") ? Number(url.searchParams.get("size")) : log.size;
-      if (!Number.isInteger(size) || size < 0 || size > log.size) return json(400, { error: `size must be an integer in 0..${log.size}` });
-      return json(200, { treeSize: size, rootHash: log.root(size) });
-    }
-    if (req.method === "GET" && url.pathname.endsWith("/consistency")) {
-      const oldSize = Number(url.searchParams.get("old"));
-      const newSize = url.searchParams.has("new") ? Number(url.searchParams.get("new")) : log.size;
-      if (![oldSize, newSize].every(Number.isInteger) || oldSize < 0 || oldSize > newSize || newSize > log.size) return json(400, { error: `old and new must be integers with 0 <= old <= new <= ${log.size}` });
-      return json(200, { oldSize, newSize, hashes: log.consistencyProof(oldSize, newSize) });
-    }
-    if (req.method === "GET" && url.pathname.endsWith("/head")) {
-      const head: TreeHead = { treeSize: log.size, rootHash: log.root(), timestamp: new Date().toISOString(), ...(logId ? { log: logId } : {}) };
-      return json(200, { treeHead: dsseSign(TREEHEAD_TYPE, head, key) });
-    }
-    return json(404, { error: "not found" });
   };
 }
 
@@ -178,10 +268,11 @@ export interface RunningLog {
 }
 
 /** Starts the reference log server. Port 0 picks a free port. */
-export function serveLog(file: string, key: KeyPair, opts: LogServerOptions & { port: number; host?: string }): Promise<RunningLog> {
+export function serveLog(source: string | LogResolver, key: KeyPair, opts: LogServerOptions & { port: number; host?: string }): Promise<RunningLog> {
   const host = opts.host ?? "127.0.0.1";
+  const handler = logHandler(source, key, opts);
   const server = createServer((req, res) => {
-    void logHandler(file, key, opts)(req, res);
+    void handler(req, res);
   });
   return new Promise((resolve) => {
     server.listen(opts.port, host, () => {

@@ -19,7 +19,8 @@ Operators who log here should set `"hashOnly": true` in their `log` config, so t
 | `AGENT_CUSTODY_LOG_PORT` | listen port inside the container | `8787` |
 | `AGENT_CUSTODY_LOG_TOKEN` | bearer token required on append; without it the log accepts appends from anyone who can reach it | unset |
 | `AGENT_CUSTODY_LOG_ID` | the id written into every tree head, checked by verifiers with `--log-id`; use the public host | unset |
-| `AGENT_CUSTODY_LOG_TENANTS` | path to a tenants file inside the container, for several logs at `/t/<tenant>/` with their own tokens and ids | unset |
+| `AGENT_CUSTODY_LOG_TENANTS` | path to a tenants file inside the container, for several file logs at `/t/<tenant>/` | unset |
+| `DATABASE_URL` | with it, leaves, tenants, and tokens live in Postgres and the file is not used; the compose file sets it | unset |
 
 The volume at `/data` is the whole state: the log and the key. Back it up; a lost key means every tree head it signed is still verifiable, but new heads will be signed by a different key, which verifiers must be told about.
 
@@ -47,7 +48,9 @@ The operator's side is one config line, with the token in their environment:
 
 Verifiers add `--log-key log.pub --log-id log.example.com` and, to prove history was not rewritten between two receipts, `agent-custody audit` against `GET /consistency`.
 
-**Backups.** The volume is small; a nightly `docker run --rm -v agent-custody_logdata:/data -v /backup:/backup alpine tar czf /backup/log-$(date +%F).tgz /data` in cron, plus the provider's volume snapshots, is enough. Keep at least one signed tree head somewhere the VM cannot touch; that is what an auditor compares against.
+**Tenants.** `docker compose exec log agent-custody log-admin --db-env DATABASE_URL tenant add acme --log-id acme-eu`, then `token add acme --label support-fleet`; the token prints once. The tenant appends at `https://log.example.com/t/acme/` and verifies with `--log-id acme-eu`. A file log from before Postgres comes in with `log-admin --db-env DATABASE_URL import --file /data/log.jsonl`, which adds its hashes to the default tenant and is safe to run twice.
+
+**Backups.** The volume is small; a nightly `docker run --rm -v agent-custody_logdata:/data -v /backup:/backup alpine tar czf /backup/log-$(date +%F).tgz /data` in cron for the key, and `docker compose exec postgres pg_dump -U custody custody_log | gzip > /backup/db-$(date +%F).sql.gz` for the leaves, tenants, and tokens, plus the provider's volume snapshots, is enough. Keep at least one signed tree head somewhere the VM cannot touch; that is what an auditor compares against.
 
 **Upgrades.** Bump `AGENT_CUSTODY_VERSION` in `.env`, then `docker compose build --pull && docker compose --profile public up -d`. The log format and the endpoints are stable within a major version.
 
@@ -79,7 +82,7 @@ Migration is a volume copy and a DNS change because the design keeps the state i
 | phase | what lands in the packages | what changes in this directory |
 | --- | --- | --- |
 | 1 | hash-only appends, tenant-scoped paths, `log` id in tree heads | done: `AGENT_CUSTODY_LOG_ID` and `AGENT_CUSTODY_LOG_TENANTS` in the contract |
-| 2 | Postgres store, tokens table, rate limits | the `phase2` profile becomes the default; `DATABASE_URL` in the contract |
+| 2 | Postgres store, tokens table, rate limits | done: Postgres is in the default profile; `DATABASE_URL` in the contract; `--profile file` keeps the old single-file server |
 | 3 | signer process, well-known keys, checkpoint publisher | two more services: `signer`, `publisher`; a bucket for checkpoints |
 | 4 | | this is the deployment |
 | 6 | witness | a second, separately operated deployment of the signer |

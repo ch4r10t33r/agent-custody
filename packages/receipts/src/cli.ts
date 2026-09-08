@@ -6,7 +6,9 @@ import { loadConfig, loadSdkConfig } from "./config.ts";
 import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./crypto.ts";
 import { createDelegation } from "./delegation.ts";
 import { createGateway, serveStdio } from "./gateway.ts";
-import { serveLog } from "./log-sink.ts";
+import { postgresResolver, serveLog } from "./log-sink.ts";
+import { importLogFile, PostgresTenancy, type PostgresLike } from "./log-store.ts";
+import { createRequire } from "node:module";
 import { pruneLog } from "./retention.ts";
 import { serveSidecar } from "./sidecar.ts";
 import type { ReceiptBundle, TreeHead } from "./receipt.ts";
@@ -34,9 +36,27 @@ const USAGE = `agent-custody <command>
           retention on the receipt log: replaces older leaves with their hashes, so proofs still verify and the content is gone
   log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
   verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--log-id <id>] [--upstream-key <pub>] [--stripe-secret-env NAME] [--github-secret-env NAME] [--log <log.jsonl>] [--json]
+  log     ... --db-env NAME                     the same server over Postgres: tenants and tokens from the database, one writer per tenant,
+                                                 root paths serve the tenant "default" (created with --log-id). Needs the pg package.
+  log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id>
+  log-admin --db-env NAME token add <tenant> --label <text> | token list <tenant> | token revoke <tenant> <hash-prefix>
+  log-admin --db-env NAME import --file <log.jsonl> [--tenant default]      copies a file log into the database as hashes
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--log-id <id>] [--json]
           checks that the newer receipt's log extends the older one's: nothing between them was rewritten
 `;
+
+/** A pg Pool from the URL in an environment variable. pg is an optional peer: it is loaded only here, and its absence says what to install. */
+function openPostgres(envName: string): PostgresLike {
+  const url = process.env[envName];
+  if (!url) throw new Error(`environment variable ${envName} is not set`);
+  let Pool: new (o: { connectionString: string }) => PostgresLike;
+  try {
+    ({ Pool } = createRequire(import.meta.url)("pg") as { Pool: typeof Pool });
+  } catch {
+    throw new Error("a Postgres log needs the pg package: npm install pg");
+  }
+  return new Pool({ connectionString: url });
+}
 
 /** The tenants file for `log --tenants`: paths relative to the file, tokens from the environment, ids default to the tenant name. */
 function loadTenants(path: string): Record<string, { file: string; tokens?: string[]; logId?: string }> {
@@ -116,6 +136,39 @@ async function main(argv: string[]): Promise<number> {
       await running.close();
       return 0;
     }
+    case "log-admin": {
+      const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { "db-env": { type: "string" }, "log-id": { type: "string" }, label: { type: "string" }, file: { type: "string" }, tenant: { type: "string", default: "default" } } });
+      if (!values["db-env"]) throw new Error("log-admin needs --db-env NAME");
+      const tenancy = new PostgresTenancy(openPostgres(values["db-env"]));
+      const [what, verb, ...args] = positionals;
+      if (what === "tenant" && verb === "add" && args[0]) {
+        const t = await tenancy.addTenant(args[0], values["log-id"] ?? args[0]);
+        console.log(`tenant ${t.id} log=${t.logId} reached at /t/${t.id}/`);
+      } else if (what === "tenant" && verb === "list") {
+        for (const t of await tenancy.listTenants()) console.log(`${t.id.padEnd(24)} log=${t.logId.padEnd(28)} created ${t.createdAt}${t.disabledAt ? `  DISABLED ${t.disabledAt}` : ""}`);
+      } else if (what === "tenant" && verb === "disable" && args[0]) {
+        await tenancy.disableTenant(args[0]);
+        console.log(`tenant ${args[0]} disabled`);
+      } else if (what === "token" && verb === "add" && args[0]) {
+        if (!values.label) throw new Error("token add needs --label");
+        const { token, tokenHash } = await tenancy.addToken(args[0], values.label);
+        console.error(`token for ${args[0]} (${values.label}); shown once, stored as hash ${tokenHash.slice(0, 12)}…:`);
+        console.log(token);
+      } else if (what === "token" && verb === "list" && args[0]) {
+        for (const t of await tenancy.listTokens(args[0])) console.log(`${t.tokenHash.slice(0, 12)}  ${t.label.padEnd(24)} created ${t.createdAt}${t.revokedAt ? `  REVOKED ${t.revokedAt}` : ""}`);
+      } else if (what === "token" && verb === "revoke" && args[0] && args[1]) {
+        console.log(`revoked ${await tenancy.revokeToken(args[0], args[1])} token(s)`);
+      } else if (what === "import") {
+        if (!values.file) throw new Error("import needs --file <log.jsonl>");
+        if (!(await tenancy.tenant(values.tenant))) throw new Error(`unknown tenant ${values.tenant}; add it first`);
+        const r = await importLogFile(values.file, await tenancy.log(values.tenant));
+        console.log(`imported ${r.added} leaf hash(es) into ${values.tenant}; the log now has ${r.total}`);
+      } else {
+        console.error(USAGE);
+        return 2;
+      }
+      return 0;
+    }
     case "prune": {
       const { values } = parseArgs({ args: rest, options: { log: { type: "string" }, before: { type: "string" }, receipts: { type: "string" } } });
       if (!values.log || !values.before) throw new Error("prune needs --log and --before");
@@ -127,9 +180,24 @@ async function main(argv: string[]): Promise<number> {
     case "log": {
       const { values } = parseArgs({
         args: rest,
-        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, "log-id": { type: "string" }, tenants: { type: "string" } },
+        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, "log-id": { type: "string" }, tenants: { type: "string" }, "db-env": { type: "string" } },
       });
-      if (!values.file || !values.key) throw new Error("log needs --file and --key");
+      if (!values.key) throw new Error("log needs --key");
+      if (values["db-env"]) {
+        // Postgres: the file is not used; tenants, tokens, and leaves live in the database.
+        const token = values["token-env"] ? process.env[values["token-env"]] : undefined;
+        if (values["token-env"] && !token) throw new Error(`log: environment variable ${values["token-env"]} is not set`);
+        const key = loadPrivateKey(values.key);
+        const tenancy = new PostgresTenancy(openPostgres(values["db-env"]));
+        const defaultId = values["log-id"] ?? "default";
+        if (!(await tenancy.tenant("default"))) await tenancy.addTenant("default", defaultId);
+        const running = await serveLog(postgresResolver(tenancy, { defaultTenant: "default", ...(token ? { staticTokens: [token] } : {}) }), key, { port: Number(values.port), host: values.host });
+        console.error(`agent-custody log: ${running.url} keyid=${key.keyid} store=postgres default-log=${(await tenancy.tenant("default"))?.logId} ${token ? "environment token accepted for the default log; " : ""}tokens from the database`);
+        await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+        await running.close();
+        return 0;
+      }
+      if (!values.file) throw new Error("log needs --file, or --db-env");
       const token = values["token-env"] ? process.env[values["token-env"]] : undefined;
       if (values["token-env"] && !token) throw new Error(`log: environment variable ${values["token-env"]} is not set`);
       const key = loadPrivateKey(values.key);

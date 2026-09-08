@@ -11,6 +11,8 @@ set -eu
 log_id_args=""
 [ -n "${AGENT_CUSTODY_LOG_ID:-}" ] && log_id_args="--log-id $AGENT_CUSTODY_LOG_ID"
 [ -n "${AGENT_CUSTODY_LOG_TENANTS:-}" ] && log_id_args="$log_id_args --tenants $AGENT_CUSTODY_LOG_TENANTS"
+# With DATABASE_URL the logs, tenants, and tokens live in Postgres; the file is not used.
+[ -n "${DATABASE_URL:-}" ] && log_id_args="$log_id_args --db-env DATABASE_URL"
 
 key_dir=$(dirname "$AGENT_CUSTODY_LOG_KEY")
 key_name=$(basename "$AGENT_CUSTODY_LOG_KEY" .key)

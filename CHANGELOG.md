@@ -2,6 +2,14 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.1 — 2026-09-08
+
+- **Receipts:** the operator's admin page. `/admin` on a Postgres-backed log server, behind `--admin-token-env`: tenants listed and created, a token minted and shown once beside the tenant's welcome sheet, tokens revoked, tenants disabled. One inline page, no outside requests. `ADMIN_TOKEN` turns it on in the container.
+- **Receipts:** the combined checkpoint store reports the store furthest behind as latest, so a store that missed a write is caught up on the next publication; the image creates `/checkpoints` owned by the log's user.
+- **Deploy:** `onboard-tenant.sh` for the shell path; the early-access page says the log is running and taking tenants.
+- **Tests:** a thirty-second budget per test in every package; PGlite's engine load is paid in setup.
+- **Python:** unchanged; released in step.
+
 ## 0.5.0 — 2026-09-08
 
 - **Receipts:** the log over Postgres. `log --db-env` keeps leaves as hashes in one table keyed by tenant, one writer per tenant by advisory lock so a second instance is safe, tenants and sha256-hashed tokens in tables managed by `log-admin`, rate limits per token with a body cap and `retry-after`, retries in the HTTP sink, and `import` for an existing file log. Phase 2 of issue #6.

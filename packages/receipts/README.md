@@ -1,6 +1,6 @@
 # agent-custody
 
-Chain of custody for AI agents: signed, independently verifiable receipts for every tool call.
+Chain of custody for AI agents: a signed receipt for every tool call, checkable with public keys alone. What each check proves, and against whom, is [a table below](#what-a-receipt-proves-and-what-it-does-not).
 
 Two producers, one receipt format, one verifier.
 

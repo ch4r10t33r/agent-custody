@@ -20,7 +20,10 @@ Operators who log here should set `"hashOnly": true` in their `log` config, so t
 | `AGENT_CUSTODY_LOG_TOKEN` | bearer token required on append; without it the log accepts appends from anyone who can reach it | unset |
 | `AGENT_CUSTODY_LOG_ID` | the id written into every tree head, checked by verifiers with `--log-id`; use the public host | unset |
 | `AGENT_CUSTODY_LOG_TENANTS` | path to a tenants file inside the container, for several file logs at `/t/<tenant>/` | unset |
-| `DATABASE_URL` | with it, leaves, tenants, and tokens live in Postgres and the file is not used; the compose file sets it | unset |
+| `DATABASE_URL` | with it, leaves, tenants, tokens, and checkpoints live in Postgres and the file is not used; the compose file sets it | unset |
+| `ROLE` | `signer` runs the signer instead of the log | `log` |
+| `AGENT_CUSTODY_SIGNER_URL`, `SIGNER_TOKEN` | the log signs through this signer with this shared secret instead of holding a key; the compose file sets them | unset |
+| `AGENT_CUSTODY_CHECKPOINT_DIR`, `AGENT_CUSTODY_CHECKPOINT_EVERY` | where and how often signed checkpoints are written; the compose file serves the directory from `CHECKPOINTS_HOST` | unset, 300 |
 
 The volume at `/data` is the whole state: the log and the key. Back it up; a lost key means every tree head it signed is still verifiable, but new heads will be signed by a different key, which verifiers must be told about.
 
@@ -33,7 +36,8 @@ Any Linux VM with Docker works. A Hetzner CX22 (2 vCPU, 4 GB, about 4 EUR a mont
 git clone https://github.com/ch4r10t33r/agent-custody.git && cd agent-custody/deploy
 cp .env.example .env
 sed -i "s/^AGENT_CUSTODY_LOG_TOKEN=.*/AGENT_CUSTODY_LOG_TOKEN=$(openssl rand -hex 32)/" .env
-sed -i "s/^LOG_HOST=.*/LOG_HOST=log.example.com/" .env        # a DNS A record for this host must point at the VM
+sed -i "s/^SIGNER_TOKEN=.*/SIGNER_TOKEN=$(openssl rand -hex 32)/; s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
+sed -i "s/^LOG_HOST=.*/LOG_HOST=log.example.com/; s/^CHECKPOINTS_HOST=.*/CHECKPOINTS_HOST=checkpoints.example.com/" .env   # A records for both hosts must point at the VM
 docker compose --profile public up -d
 docker compose logs log | grep -A3 "public key"                # hand this to verifiers as --log-key
 ```
@@ -46,7 +50,7 @@ The operator's side is one config line, with the token in their environment:
 "log": { "url": "https://log.example.com/", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN", "hashOnly": true }
 ```
 
-Verifiers add `--log-key log.pub --log-id log.example.com` and, to prove history was not rewritten between two receipts, `agent-custody audit` against `GET /consistency`.
+Verifiers add `--log-url https://log.example.com/ --log-id log.example.com`, which fetches and pins the published keys, and, to prove history was not rewritten between two receipts, `agent-custody audit` against `GET /consistency`.
 
 **Tenants.** `docker compose exec log agent-custody log-admin --db-env DATABASE_URL tenant add acme --log-id acme-eu`, then `token add acme --label support-fleet`; the token prints once. The tenant appends at `https://log.example.com/t/acme/` and verifies with `--log-id acme-eu`. A file log from before Postgres comes in with `log-admin --db-env DATABASE_URL import --file /data/log.jsonl`, which adds its hashes to the default tenant and is safe to run twice.
 
@@ -83,6 +87,6 @@ Migration is a volume copy and a DNS change because the design keeps the state i
 | --- | --- | --- |
 | 1 | hash-only appends, tenant-scoped paths, `log` id in tree heads | done: `AGENT_CUSTODY_LOG_ID` and `AGENT_CUSTODY_LOG_TENANTS` in the contract |
 | 2 | Postgres store, tokens table, rate limits | done: Postgres is in the default profile; `DATABASE_URL` in the contract; `--profile file` keeps the old single-file server |
-| 3 | signer process, well-known keys, checkpoint publisher | two more services: `signer`, `publisher`; a bucket for checkpoints |
+| 3 | signer process, well-known keys, checkpoint publisher | done: the `signer` service holds the key; the log publishes checkpoints to a volume Caddy serves at `CHECKPOINTS_HOST`; verifiers use `--log-url` |
 | 4 | | this is the deployment |
 | 6 | witness | a second, separately operated deployment of the signer |

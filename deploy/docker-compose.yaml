@@ -11,9 +11,32 @@
 name: agent-custody
 
 services:
+  signer:
+    # The one process that holds the log's key. Reachable only from the log on the compose network.
+    build:
+      context: .
+      args:
+        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.4.0}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.4.0}
+    restart: unless-stopped
+    environment:
+      ROLE: signer
+      AGENT_CUSTODY_LOG_KEY: /data/keys/log.key
+      AGENT_CUSTODY_SIGNER_PORT: "8790"
+      SIGNER_TOKEN: "${SIGNER_TOKEN:?set SIGNER_TOKEN in .env (openssl rand -hex 32)}"
+    volumes:
+      - logdata:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8790/health"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
   log:
     depends_on:
       postgres:
+        condition: service_healthy
+      signer:
         condition: service_healthy
     build:
       context: .
@@ -27,10 +50,17 @@ services:
       AGENT_CUSTODY_LOG_KEY: /data/keys/log.key
       AGENT_CUSTODY_LOG_PORT: "8787"
       AGENT_CUSTODY_LOG_ID: ${AGENT_CUSTODY_LOG_ID:-}
-      # tenants, tokens, and leaves in Postgres; the volume keeps the signing key and the pre-import file log
+      # tenants, tokens, leaves, and checkpoints in Postgres; the volume keeps the pre-import file log
       DATABASE_URL: postgres://custody:${POSTGRES_PASSWORD:-}@postgres:5432/custody_log
+      # the key is in the signer; this process never holds it
+      AGENT_CUSTODY_SIGNER_URL: http://signer:8790/
+      SIGNER_TOKEN: "${SIGNER_TOKEN:-}"
+      # checkpoints as files for the checkpoints host, every five minutes
+      AGENT_CUSTODY_CHECKPOINT_DIR: /checkpoints
+      AGENT_CUSTODY_CHECKPOINT_EVERY: "${AGENT_CUSTODY_CHECKPOINT_EVERY:-300}"
     volumes:
       - logdata:/data
+      - checkpoints:/checkpoints
     ports:
       # bound to loopback: the host may reach it, the internet may not; the public profile adds Caddy in front
       - "127.0.0.1:8787:8787"
@@ -53,6 +83,8 @@ services:
     environment:
       # required only with --profile public; Caddy refuses to start without a host
       LOG_HOST: ${LOG_HOST:-}
+      # the second host: the published checkpoints, served as static files so they survive an outage of the log's API
+      CHECKPOINTS_HOST: ${CHECKPOINTS_HOST:-}
     ports:
       - "80:80"
       - "443:443"
@@ -60,6 +92,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      - checkpoints:/srv/checkpoints:ro
 
   postgres:
     # The store for leaves (as hashes), tenants, and hashed tokens; one writer per tenant is enforced inside it.
@@ -96,6 +129,7 @@ services:
       - "127.0.0.1:8787:8787"
 
 volumes:
+  checkpoints:
   logdata:
   caddy_data:
   caddy_config:

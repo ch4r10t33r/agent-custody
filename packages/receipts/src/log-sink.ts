@@ -10,6 +10,8 @@ import { dsseSign, type Envelope, type KeyPair } from "./crypto.ts";
 import { createHash } from "node:crypto";
 import { leafHash, MerkleLog, type InclusionProof } from "./log.ts";
 import { fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
+import { localSigner, type Signer } from "./signer.ts";
+import type { Checkpoint, CheckpointStore } from "./checkpoints.ts";
 import { TREEHEAD_TYPE, type TreeHead } from "./receipt.ts";
 
 export interface LogAppend {
@@ -30,9 +32,14 @@ function signedHead(e: { treeSize: number; rootHash: string }, key: KeyPair, log
   return dsseSign(TREEHEAD_TYPE, head, key);
 }
 
-async function appendSigned(log: LogBackend, key: KeyPair, leaf: { leaf: string } | { leafHash: string }, logId?: string): Promise<LogAppend> {
+async function signHead(e: { treeSize: number; rootHash: string }, signer: Signer, logId?: string): Promise<Envelope> {
+  const head: TreeHead = { treeSize: e.treeSize, rootHash: e.rootHash, timestamp: new Date().toISOString(), ...(logId ? { log: logId } : {}) };
+  return signer.sign(TREEHEAD_TYPE, head);
+}
+
+async function appendSigned(log: LogBackend, signer: Signer, leaf: { leaf: string } | { leafHash: string }, logId?: string): Promise<LogAppend> {
   const e = "leaf" in leaf ? await log.append(leaf.leaf) : await log.appendHash(leaf.leafHash);
-  return { inclusion: { leafIndex: e.leafIndex, treeSize: e.treeSize, hashes: e.hashes }, treeHead: signedHead(e, key, logId) };
+  return { inclusion: { leafIndex: e.leafIndex, treeSize: e.treeSize, hashes: e.hashes }, treeHead: await signHead(e, signer, logId) };
 }
 
 /** A local JSONL Merkle log. Tree heads are signed with the given key, normally the issuer's own. */
@@ -132,6 +139,8 @@ export interface LogServerOptions {
   rateLimit?: RateLimitOptions;
   /** largest append body accepted, in bytes; default 65536 */
   maxBodyBytes?: number;
+  /** where published checkpoints go and are listed from; without one, /checkpoints answers with none */
+  checkpoints?: CheckpointStore;
 }
 
 /** One log as the handler sees it, whatever stands behind it. */
@@ -144,6 +153,8 @@ export interface ResolvedLog {
 /** Turns the tenant in a path, or null for the root paths, into a log. */
 export interface LogResolver {
   resolve(tenant: string | null): Promise<ResolvedLog | null>;
+  /** every log this server has, null for the root one; what the checkpoint publisher walks */
+  tenants(): Promise<(string | null)[]>;
 }
 
 const tokenMatches = (tokens: string[], token: string | null): boolean => {
@@ -161,7 +172,14 @@ export function fileResolver(file: string, opts: LogServerOptions = {}): LogReso
   const root: ResolvedLog = { backend: fileBackend(file), logId: opts.logId, authorize: async (t) => tokenMatches(opts.tokens ?? [], t) };
   const tenants = new Map<string, ResolvedLog>();
   for (const [name, t] of Object.entries(opts.tenants ?? {})) tenants.set(name, { backend: fileBackend(t.file), logId: t.logId ?? name, authorize: async (tok) => tokenMatches(t.tokens ?? [], tok) });
-  return { async resolve(tenant) { return tenant === null ? root : (tenants.get(tenant) ?? null); } };
+  return {
+    async resolve(tenant) {
+      return tenant === null ? root : (tenants.get(tenant) ?? null);
+    },
+    async tenants() {
+      return [null, ...tenants.keys()];
+    },
+  };
 }
 
 /**
@@ -182,7 +200,66 @@ export function postgresResolver(tenancy: PostgresTenancy, opts: { defaultTenant
         authorize: async (tok) => (tenant === null && (opts.staticTokens?.length ?? 0) > 0 && tokenMatches(opts.staticTokens!, tok)) || (await tenancy.authorize(id, tok)),
       };
     },
+    async tenants() {
+      return (await tenancy.listTenants()).filter((t) => !t.disabledAt).map((t) => (t.id === def ? null : t.id));
+    },
   };
+}
+
+/**
+ * Publishes one checkpoint per log whose tree has grown since the last one: the current head, signed, into the
+ * checkpoint store. Call publishOnce on a timer, or start() to run it every `everyMs`.
+ */
+export class CheckpointPublisher {
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private readonly resolver: LogResolver;
+  private readonly signer: Signer;
+  private readonly store: CheckpointStore;
+  private readonly everyMs: number;
+  private readonly warn: (m: string) => void;
+  constructor(resolver: LogResolver, signer: Signer, store: CheckpointStore, everyMs = 300_000, warn: (m: string) => void = (m) => console.error(m)) {
+    this.resolver = resolver;
+    this.signer = signer;
+    this.store = store;
+    this.everyMs = everyMs;
+    this.warn = warn;
+  }
+
+  /** Publishes for every log that has grown; returns the checkpoints written. */
+  async publishOnce(): Promise<Checkpoint[]> {
+    const out: Checkpoint[] = [];
+    for (const tenant of await this.resolver.tenants()) {
+      try {
+        const r = await this.resolver.resolve(tenant);
+        if (!r) continue;
+        const name = tenant ?? "default";
+        const size = await r.backend.size();
+        if (size === 0) continue; // an empty tree is not a checkpoint worth publishing
+        const last = await this.store.latest(name);
+        if (last && last.treeSize >= size) continue;
+        const rootHash = await r.backend.root(size);
+        const envelope = await signHead({ treeSize: size, rootHash }, this.signer, r.logId);
+        const c: Checkpoint = { tenant: name, logId: r.logId, treeSize: size, rootHash, signedAt: new Date().toISOString(), envelope };
+        await this.store.save(c);
+        out.push(c);
+      } catch (e) {
+        this.warn(`agent-custody log: checkpoint for ${tenant ?? "default"} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return out;
+  }
+
+  start(): void {
+    if (this.timer) return;
+    this.timer = setInterval(() => void this.publishOnce(), this.everyMs);
+    this.timer.unref?.();
+    void this.publishOnce();
+  }
+
+  stop(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
+  }
 }
 
 /**
@@ -192,8 +269,9 @@ export function postgresResolver(tenancy: PostgresTenancy, opts: { defaultTenant
  *   GET  /consistency?old=M&new=N -> {oldSize, newSize, hashes}, proof that the log at N extends the log at M
  *   GET  /head             -> {treeHead}, the current tree head signed with the log's key
  */
-export function logHandler(source: string | LogResolver, key: KeyPair, opts: LogServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
+export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | Signer, opts: LogServerOptions = {}): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const resolver = typeof source === "string" ? fileResolver(source, opts) : source;
+  const signer: Signer = "privateKey" in keyOrSigner ? localSigner(keyOrSigner) : keyOrSigner;
   const limiter = new RateLimiter(opts.rateLimit);
   const maxBody = opts.maxBodyBytes ?? 65_536;
   const bearer = (req: IncomingMessage): string | null => {
@@ -206,8 +284,17 @@ export function logHandler(source: string | LogResolver, key: KeyPair, opts: Log
       res.end(JSON.stringify(body));
     };
     const url = new URL(req.url ?? "/", "http://localhost");
+    if (req.method === "GET" && url.pathname === "/.well-known/agent-custody-log.json") {
+      try {
+        const doc = await signer.keys();
+        const root = await resolver.resolve(null);
+        return json(200, { ...(root?.logId ? { log: root.logId } : {}), ...doc }, { "cache-control": "public, max-age=300" });
+      } catch (e) {
+        return json(503, { error: `keys unavailable: ${e instanceof Error ? e.message : String(e)}` });
+      }
+    }
     // /t/<tenant>/<op> reaches that tenant's log; anything else is the default log.
-    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head)$/.exec(url.pathname);
+    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head|checkpoints)$/.exec(url.pathname);
     let which: ResolvedLog | null;
     try {
       which = await resolver.resolve(m ? m[1]! : null);
@@ -235,10 +322,10 @@ export function logHandler(source: string | LogResolver, key: KeyPair, opts: Log
         }
         if (typeof parsed.leafHash === "string") {
           if (!/^[0-9a-f]{64}$/.test(parsed.leafHash)) return json(400, { error: "leafHash must be 64 lowercase hex characters" });
-          return json(200, await appendSigned(log, key, { leafHash: parsed.leafHash }, logId));
+          return json(200, await appendSigned(log, signer, { leafHash: parsed.leafHash }, logId));
         }
         if (typeof parsed.leaf !== "string" || parsed.leaf.length === 0) return json(400, { error: "leaf must be a non-empty string, or send leafHash" });
-        return json(200, await appendSigned(log, key, { leaf: parsed.leaf }, logId));
+        return json(200, await appendSigned(log, signer, { leaf: parsed.leaf }, logId));
       }
       const current = await log.size();
       if (req.method === "GET" && url.pathname.endsWith("/root")) {
@@ -253,7 +340,13 @@ export function logHandler(source: string | LogResolver, key: KeyPair, opts: Log
         return json(200, { oldSize, newSize, hashes: await log.consistencyProof(oldSize, newSize) });
       }
       if (req.method === "GET" && url.pathname.endsWith("/head")) {
-        return json(200, { treeHead: signedHead({ treeSize: current, rootHash: await log.root(current) }, key, logId) });
+        return json(200, { treeHead: await signHead({ treeSize: current, rootHash: await log.root(current) }, signer, logId) });
+      }
+      if (req.method === "GET" && url.pathname.endsWith("/checkpoints")) {
+        const since = url.searchParams.has("since") ? Number(url.searchParams.get("since")) : -1;
+        if (!Number.isInteger(since)) return json(400, { error: "since must be an integer tree size" });
+        const list = opts.checkpoints ? await opts.checkpoints.list(m ? m[1]! : "default", since) : [];
+        return json(200, { checkpoints: list.map((c) => ({ treeSize: c.treeSize, rootHash: c.rootHash, signedAt: c.signedAt, treeHead: c.envelope })) });
       }
       return json(404, { error: "not found" });
     } catch (e) {
@@ -268,9 +361,9 @@ export interface RunningLog {
 }
 
 /** Starts the reference log server. Port 0 picks a free port. */
-export function serveLog(source: string | LogResolver, key: KeyPair, opts: LogServerOptions & { port: number; host?: string }): Promise<RunningLog> {
+export function serveLog(source: string | LogResolver, keyOrSigner: KeyPair | Signer, opts: LogServerOptions & { port: number; host?: string }): Promise<RunningLog> {
   const host = opts.host ?? "127.0.0.1";
-  const handler = logHandler(source, key, opts);
+  const handler = logHandler(source, keyOrSigner, opts);
   const server = createServer((req, res) => {
     void handler(req, res);
   });

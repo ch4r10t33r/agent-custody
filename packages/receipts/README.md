@@ -225,6 +225,8 @@ If a vendor tells you their receipts prove more than the first five rows, ask th
 src/config.ts      gateway and SDK config schemas, path resolution
 src/crypto.ts      canonical JSON, sha256, Ed25519 keys, DSSE sign/verify
 src/log.ts         Merkle log: append, root, inclusion and consistency proofs, verify, JSONL persistence
+src/signer.ts      the signer: the log's key in its own process, the key document verifiers fetch
+src/checkpoints.ts signed heads published on a schedule, to files and to Postgres
 src/log-store.ts   the log server's backends: the file, and Postgres with tenants, hashed tokens, one writer per tenant, rate limits
 src/log-sink.ts    where leaves go: the local file, or a remote log over HTTP; plus the reference log server
 src/policy.ts      Cedar evaluation wrapper, fail-closed
@@ -278,6 +280,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - Remote log: the issuer can append to a log run by someone else over HTTP, whose key then signs the tree heads, so a verifier learns the receipt was in a log the operator could not rewrite. Includes the reference log server, bearer-token auth, and a root endpoint for auditors.
 - Framework adapters, each tested against the real package with a scripted model and no network: OpenAI Agents SDK (`wrapTools` enforces, `observeRunner` records from lifecycle events), Vercel AI SDK (`wrapTools` over a real `generateText` loop), LangChain (`ReceiptCallbackHandler` records, `issuer.wrap` enforces).
 
+- The signer, keys, and checkpoints: the key in its own process (`signer`, `--signer-url`), the key document at `/.well-known/agent-custody-log.json` fetched and pinned by `verify --log-url` and `audit --log-url`, and signed checkpoints per log published to a directory and a table for a verifier who was not watching. Phase 3 of [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - The log over Postgres: `log --db-env`, leaves as hashes in one table keyed by tenant, one writer per tenant by advisory lock, tenants and hashed tokens in tables managed by `log-admin`, rate limits and a body cap, retries in the sink, and `import` for an existing file log. Phase 2 of [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - A log for someone else: `hashOnly` sends leaf hashes so the log never holds a receipt; the reference server runs several tenant logs at `/t/<tenant>/` with their own tokens and ids; tree heads name their log and the verifier checks it with `--log-id`. Phase 1 of the hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - OpenTelemetry export: with `otel` in either config, every receipt is also one span at the collector the team already runs, trace id equal to the receipt id, attributes for tool, agent, principal, status, decision, and log position; after the receipt, best effort, never on the evidence path.
@@ -286,7 +289,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 
 **Next, in the order it pays off**
 
-1. The hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6), phase 3: the signer as its own process, published checkpoints, and well-known keys fetched with `--log-url`. Phases 1 and 2 are done; it comes before everything below.
+1. The hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6): phases 1 to 3 are done; what remains is running it for the first tenant, and then a witness that countersigns checkpoints.
 2. Post-quantum signatures: ML-DSA beside Ed25519 in the same DSSE envelope, hybrid by default when a PQ key is present, in every signed artefact and in the browser verifier. [Issue #11](https://github.com/ch4r10t33r/agent-custody/issues/11).
 3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
 4. Delegation chains for sub-agents.

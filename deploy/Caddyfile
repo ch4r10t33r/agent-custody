@@ -8,3 +8,14 @@
 	}
 	reverse_proxy log:8787
 }
+
+# The published checkpoints: plain files, one per tree size and a latest.json per log, served read-only.
+{$CHECKPOINTS_HOST} {
+	root * /srv/checkpoints
+	file_server browse
+	header {
+		Cache-Control "public, max-age=60"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

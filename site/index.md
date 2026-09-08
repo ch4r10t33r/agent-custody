@@ -2,8 +2,8 @@
 layout: home
 hero:
   name: agent-custody
-  text: Chain of custody for AI agents
-  tagline: What an agent did and what it believes, signed, independently verifiable, and revertible. The agent is not trusted; the layer around it is, and every record says how far that trust extends.
+  text: Proof of what your AI agents did
+  tagline: Every action an agent takes through its tools becomes signed evidence that says who authorized it, what the agent saw, what it did, and what depended on it. Anyone with the public keys can verify it, without trusting the agent, the operator, or the log.
   actions:
     - theme: brand
       text: Get started
@@ -21,34 +21,48 @@ hero:
       text: Hosted log, early access
       link: /early-access
 features:
-  - title: Receipts for tool calls
-    details: A signed, in-toto statement for every call an agent makes, appended to a Merkle transparency log. Verified offline by anyone with the public keys.
-    link: /receipts/
-  - title: Enforcement the agent cannot skip
-    details: An MCP gateway between the agent and its tools, with a delegation grant signed by a human and a Cedar policy that decides on facts the gateway fetched itself.
+  - title: 1. Authorize
+    details: A human signs a grant that names the agent and what it may do. An MCP gateway between the agent and its tools checks that grant and a Cedar policy on every call, on facts the gateway fetched itself. The agent cannot skip it.
     link: /receipts/usage
-  - title: A log the operator cannot rewrite
-    details: Append to a log run by someone else, whose key signs the tree heads, and prove with consistency proofs that history was never rewritten.
-    link: /receipts/verification
-  - title: Beliefs with provenance, quarantine, and undo
-    details: A bitemporal fact ledger where every belief cites the receipt that produced it. Self-reported writes stay quarantined until confirmed; a value the gateway checked against its source is verified. Retract restores what a wrong belief displaced.
-    link: /state/
-  - title: Blast radius
-    details: Every receipt records what the agent had been shown. From one wrong belief, walk forward to every action taken on it and every belief derived from it, and see what is still believed.
+  - title: 2. Execute
+    details: Only permitted calls reach the tool. The tool's own answer can be signed by the tool, or attested by Stripe's webhook signature or GitHub's delivery signature, so the outcome is vouched for by something other than the agent.
+    link: /receipts/verification#attested-execution
+  - title: 3. Record
+    details: One signed, in-toto receipt per call, allowed or denied, naming the tool, the arguments, the outcome, the policy that decided, the grant, and the facts the agent had been shown. Each is a leaf in a Merkle transparency log.
+    link: /receipts/
+  - title: 4. Verify
+    details: Anyone with the public keys checks a receipt offline, in the shell or in the browser. A log run by someone else signs the tree heads, and consistency proofs show history was never rewritten.
+    link: /verify
+  - title: 5. Trace
+    details: Every belief the agent holds cites the receipt that produced it, and every receipt records the beliefs the agent saw. From one action or one wrong fact, walk to everything that caused it and everything that depended on it.
     link: /state/#blast-radius
-  - title: Certified forget, retention, legal hold
-    details: Forget erases a value from the ledger and every store, and the signed receipt is the certificate. Retention runs as receipted sweeps. A legal hold refuses both until released.
+  - title: 6. Remediate
+    details: Retract a wrong belief and what it displaced is believed again. Forget a value and the receipt is the certificate that it is gone from the ledger and every store. A legal hold refuses both until released. One signed pack carries all of it to counsel.
     link: /state/#certified-forget
-  - title: Under the stores you already run
-    details: Write-through adapters for Mem0 and Zep keep recall where it is and put custody underneath. Any language reaches the gateway; Python, Go, Java, and Rust clients are included.
-    link: /state/#write-through-to-the-stores-you-already-use
 ---
+
+## What it does, in one screen
+
+Put the gateway between an agent and its tools. From then on, every tool call answers these questions, and the answers are signed by the gateway, not written by the agent:
+
+| Question | Where the answer is |
+| --- | --- |
+| Who acted | the agent named in the receipt, `attested` because a human-signed grant names it |
+| Who authorized it | the principal who signed the grant, and the grant itself |
+| What was allowed | the grant's scopes and the Cedar policy that decided this call |
+| What the agent saw | the facts the gateway fetched for the decision, and the beliefs the agent had been shown |
+| What it did | the tool, the arguments, and the outcome, allowed or denied |
+| Can I check it | yes, offline, with the public keys, at [/verify](/verify) or in the shell |
+| Did anything depend on it | the beliefs written from this call and every later call that consumed them |
+| What needs reversing | the blast radius, and the retraction or forget that undoes it, receipted |
+
+The name is the point: a chain of custody is an evidence record that holds up when the party who made it is the one under question. The agent is not trusted. The layer around it is, and every field of every record says how far that trust extends: `attested` by a signature, `observed` by the gateway, or `claimed` by the agent.
 
 ## Why this exists
 
 An agent acts on the world through tools, and it acts on beliefs it picked up along the way. Both leave the same kind of evidence today: the agent's own log, written by the thing you are trying to check, unsigned, editable, and gone when the process is. When a refund goes out that should not have, or a fleet of agents starts repeating a wrong customer fact, nobody can say what happened, who allowed it, where the belief came from, or how to undo it without wiping everything.
 
-agent-custody is the chain of custody for both. Receipts cover what an agent did. State covers what it believes. Each record says how far it can be trusted, and every one can be checked by someone who has no access to the agent, the operator, or the tools.
+Observability records what happened and asks you to trust the record. agent-custody produces evidence: a record an independent party can verify, that names who authorized the action, and that has not been altered since. Receipts cover what an agent did. State covers what it believes and why. Each record says how far it can be trusted, and every one can be checked by someone who has no access to the agent, the operator, or the tools.
 
 ### Receipts: what an agent did
 

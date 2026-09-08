@@ -1,8 +1,8 @@
 # agent-custody
 
-Chain of custody for AI agents: what an agent did and what it believes, signed, independently verifiable, and revertible.
+Proof of what your AI agents did. Every tool call an agent makes becomes signed evidence of who authorized it, what the agent saw, what it did, and what depended on it, verifiable by anyone with the public keys and without trusting the agent, the operator, or the log.
 
-The agent is not trusted. The layer around it is, and every record says exactly how far that trust extends.
+It is a chain of custody for both what an agent does and what it believes: authorize, execute, record, verify, trace, remediate. The agent is not trusted. The layer around it is, and every record says exactly how far that trust extends.
 
 ## Packages
 

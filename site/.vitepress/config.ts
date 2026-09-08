@@ -23,7 +23,7 @@ function sitePath(repoPath: string): string | null {
 export default withMermaid(
   defineConfig({
     title: "agent-custody",
-    description: "Chain of custody for AI agents: what an agent did and what it believes, signed, independently verifiable, and revertible.",
+    description: "Proof of what your AI agents did: every tool call becomes signed evidence of who authorized it, what the agent saw, what it did, and what depended on it, verifiable by anyone with the public keys.",
     srcDir: "..",
     srcExclude: ["site/verifier/**", "**/node_modules/**", "**/dist/**", "**/examples-out/**", "**/demo-out/**", "**/.venv/**", "**/target/**", "CLAUDE.md", "packages/receipts/examples/**", "packages/state/examples/**", "packages/python/tests/**", "site/README.md"],
     rewrites: {
@@ -46,7 +46,7 @@ export default withMermaid(
       ["link", { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" }],
       ["meta", { name: "theme-color", content: "#b45309" }],
       ["meta", { property: "og:title", content: "agent-custody" }],
-      ["meta", { property: "og:description", content: "Chain of custody for AI agents: what an agent did and what it believes, signed, independently verifiable, and revertible." }],
+      ["meta", { property: "og:description", content: "Proof of what your AI agents did: every tool call becomes signed evidence of who authorized it, what the agent saw, what it did, and what depended on it, verifiable by anyone with the public keys." }],
     ],
     // The conformance vectors are published as files next to the spec, straight from the receipts package.
     buildEnd(siteConfig) {

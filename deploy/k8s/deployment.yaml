@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-custody-log
+  labels: { app: agent-custody-log }
+spec:
+  replicas: 1
+  # One writer per log: never two pods on the same volume at once.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: agent-custody-log }
+  template:
+    metadata:
+      labels: { app: agent-custody-log }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: log
+          image: ghcr.io/ch4r10t33r/agent-custody-log
+          ports:
+            - { name: http, containerPort: 8787 }
+          env:
+            - { name: AGENT_CUSTODY_LOG_FILE, value: /data/log.jsonl }
+            - { name: AGENT_CUSTODY_LOG_KEY, value: /data/keys/log.key }
+            - { name: AGENT_CUSTODY_LOG_PORT, value: "8787" }
+            - name: AGENT_CUSTODY_LOG_TOKEN
+              valueFrom:
+                secretKeyRef: { name: agent-custody-log, key: AGENT_CUSTODY_LOG_TOKEN }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /head, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /head, port: http }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 50m, memory: 128Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: agent-custody-log-data }

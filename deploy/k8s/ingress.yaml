@@ -1,0 +1,23 @@
+# Replace log.example.com and the cluster-issuer name with yours. Any ingress controller works; the annotations
+# are the cert-manager ones and are harmless without it.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-custody-log
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+    nginx.ingress.kubernetes.io/proxy-body-size: 1m
+spec:
+  tls:
+    - hosts: [log.example.com]
+      secretName: agent-custody-log-tls
+  rules:
+    - host: log.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agent-custody-log
+                port: { name: http }

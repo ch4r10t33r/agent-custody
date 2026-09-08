@@ -1,0 +1,83 @@
+# The log, run by someone who is not the agent's operator. Today: the reference log server, single tenant,
+# file-backed, with the signing key on a volume. The service names, environment variables, and volumes are the
+# same contract the Kubernetes manifests in deploy/k8s use, so a deployment moves between them without a rewrite.
+#
+#   docker compose up -d                       the log on port 8787, private (put it behind your own TLS or VPN)
+#   docker compose --profile public up -d      the log behind Caddy with automatic TLS on LOG_HOST
+#   docker compose --profile phase2 up -d      also the Postgres the tenanted service will use (issue #6, phase 2)
+#
+# Copy .env.example to .env first.
+
+name: agent-custody
+
+services:
+  log:
+    build:
+      context: .
+      args:
+        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.3.0}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.3.0}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      AGENT_CUSTODY_LOG_FILE: /data/log.jsonl
+      AGENT_CUSTODY_LOG_KEY: /data/keys/log.key
+      AGENT_CUSTODY_LOG_PORT: "8787"
+    volumes:
+      - logdata:/data
+    ports:
+      # bound to loopback: the host may reach it, the internet may not; the public profile adds Caddy in front
+      - "127.0.0.1:8787:8787"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/head"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  caddy:
+    profiles: ["public"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      log:
+        condition: service_healthy
+    environment:
+      # required only with --profile public; Caddy refuses to start without a host
+      LOG_HOST: ${LOG_HOST:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+  postgres:
+    # Not used by the log server yet. It is the store the tenanted service (issue #6, phase 2) writes leaves and
+    # signed heads to; declared here so the volume, credentials, and backups are in place before that lands.
+    profiles: ["phase2"]
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: custody_log
+      POSTGRES_USER: custody
+      # required only with --profile phase2; Postgres refuses to start with an empty password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U custody -d custody_log"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  logdata:
+  caddy_data:
+  caddy_config:
+  pgdata:

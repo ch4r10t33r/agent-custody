@@ -1,0 +1,18 @@
+# The same log server on Kubernetes: one Deployment with one replica (the file log has one writer), a persistent
+# volume for the log and the key, a Service, and an Ingress with TLS from cert-manager. Environment variables are
+# the ones docker-compose.yaml sets, so the two deployments are the same contract.
+#
+#   kubectl create namespace agent-custody
+#   kubectl -n agent-custody create secret generic agent-custody-log --from-literal=AGENT_CUSTODY_LOG_TOKEN="$(openssl rand -hex 32)"
+#   kubectl apply -k deploy/k8s
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-custody
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - ingress.yaml
+images:
+  - name: ghcr.io/ch4r10t33r/agent-custody-log
+    newTag: "0.3.0"

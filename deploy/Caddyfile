@@ -1,0 +1,10 @@
+# TLS at the edge, certificate from Let's Encrypt, the log server behind it. LOG_HOST comes from .env.
+{$LOG_HOST} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	reverse_proxy log:8787
+}

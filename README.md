@@ -114,7 +114,7 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 - Verify a receipt in the browser, nothing uploaded, and check a second implementation against the published conformance vectors. [agent-custody.dev/verify](https://agent-custody.dev/verify), [vectors](https://agent-custody.dev/receipt/vectors)
 - Prove a log was never rewritten: keep any receipt's tree head, later audit that the log still extends it. [verification.md](packages/receipts/docs/verification.md)
 - Where each piece runs, sized, with what interception does not reach. [Deployment](https://agent-custody.dev/guide/deployment). What each release changed: [changelog](CHANGELOG.md).
-- Want a log run by someone who is not you? Run the reference log server on their machine and point `log` at it. A hosted one does not exist yet; [early access](https://agent-custody.dev/early-access) is where to say you want it.
+- Want a log run by someone who is not you? Run the reference log server on their machine and point `log` at it; [deploy/](deploy/README.md) has the container, a docker compose file for one VM, and Kubernetes manifests. A hosted one does not exist yet; [early access](https://agent-custody.dev/early-access) is where to say you want it.
 - Agents in Python, Go, Java, Rust, or anything else: the gateway is an MCP server and needs nothing from your language; for in-process receipts run the sidecar and use the Python package or a forty-line client. [sdk.md](packages/receipts/docs/sdk.md#other-languages-the-sidecar)
 - Seventeen step-by-step examples across the packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
 

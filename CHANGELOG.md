@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.2 — 2026-09-08
+
+- **Receipts:** the admin page itself is gated. Everything under `/admin`, the page included, needs the admin token, presented by the browser's own prompt as HTTP Basic or by an API client as a bearer; wrong attempts from one address are throttled. The page stores nothing. In 0.5.1 the page shell was served without the token while every request it made required it.
+- **Python:** unchanged; released in step.
+
 ## 0.5.1 — 2026-09-08
 
 - **Receipts:** the operator's admin page. `/admin` on a Postgres-backed log server, behind `--admin-token-env`: tenants listed and created, a token minted and shown once beside the tenant's welcome sheet, tokens revoked, tenants disabled. One inline page, no outside requests. `ADMIN_TOKEN` turns it on in the container.

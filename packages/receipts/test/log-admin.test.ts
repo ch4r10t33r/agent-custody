@@ -28,18 +28,31 @@ afterAll(async () => {
 const call = (method: string, path: string, body?: unknown, token: string | null = ADMIN) => fetch(new URL(path, log.url), { method, headers: { ...(token ? { authorization: `Bearer ${token}` } : {}), ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
 
 describe("the admin surface", () => {
-  it("the page is public HTML with a strict CSP; everything else under /admin needs the admin token", async () => {
-    const page = await call("GET", "admin", undefined, null);
-    expect(page.status).toBe(200);
-    expect(page.headers.get("content-type")).toMatch(/text\/html/);
-    expect(page.headers.get("content-security-policy")).toMatch(/default-src 'none'/);
-    const html = await page.text();
+  it("nothing under /admin answers without the token, the page included; the browser's Basic credential and a bearer both work; the page has a strict CSP", async () => {
+    const bare = await call("GET", "admin", undefined, null);
+    expect(bare.status).toBe(401);
+    expect(bare.headers.get("www-authenticate")).toMatch(/^Basic realm=/);
+    const basic = await fetch(new URL("admin", log.url), { headers: { authorization: `Basic ${Buffer.from(`anyone:${ADMIN}`).toString("base64")}` } });
+    expect(basic.status).toBe(200);
+    expect(basic.headers.get("content-type")).toMatch(/text\/html/);
+    expect(basic.headers.get("content-security-policy")).toMatch(/default-src 'none'/);
+    const html = await basic.text();
     expect(html).toContain("Log admin");
     expect(html).not.toMatch(/https?:\/\/(?!agent-custody\.dev)/); // no third-party requests
+    expect(html).not.toContain("sessionStorage");
     for (const [m, p] of [["GET", "admin/tenants"], ["POST", "admin/tenants"], ["GET", "admin/info"]] as const) {
       expect((await call(m, p, m === "POST" ? { id: "x" } : undefined, null)).status).toBe(401);
-      expect((await call(m, p, m === "POST" ? { id: "x" } : undefined, "wrong")).status).toBe(401);
     }
+    const viaBasic = await fetch(new URL("admin/info", log.url), { headers: { authorization: `Basic ${Buffer.from(`x:${ADMIN}`).toString("base64")}` } });
+    expect(viaBasic.status).toBe(200);
+  });
+
+  it("wrong tokens from one address are throttled after a handful of tries", async () => {
+    let last = 0;
+    for (let i = 0; i < 8; i++) last = (await call("GET", "admin/info", undefined, `wrong-${i}`)).status;
+    expect(last).toBe(429);
+    // the right token still works from the same address: the throttle is on failures, not on the address
+    expect((await call("GET", "admin/info")).status).toBe(200);
   });
 
   it("creates a tenant, mints a token shown once with the welcome sheet, the token appends on the tenant's path, and revocation stops it", async () => {

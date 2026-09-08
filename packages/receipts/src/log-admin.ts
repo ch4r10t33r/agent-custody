@@ -1,10 +1,12 @@
 // The operator's admin surface for a hosted log: tenants and their tokens, over HTTP behind an admin token, and a
-// single page at /admin that drives it. It is for whoever runs the log, never for tenants: every route needs the
-// admin token, the page keeps that token in the browser session only, and a minted token is shown once, beside the
-// welcome sheet the tenant gets. Nothing here touches receipts; the log holds hashes and the panel holds names.
+// single page at /admin that drives it. It is for whoever runs the log, never for tenants. Everything under /admin,
+// the page included, needs the admin token: the browser's own prompt supplies it as HTTP Basic (any user name,
+// the token as the password) and an API client sends it as a bearer. Failed attempts from one address are
+// throttled. A minted token is shown once, beside the welcome sheet the tenant gets. Nothing here touches
+// receipts; the log holds hashes and the panel holds names.
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { PostgresTenancy } from "./log-store.ts";
+import { RateLimiter, type PostgresTenancy } from "./log-store.ts";
 
 export interface AdminOptions {
   tenancy: PostgresTenancy;
@@ -65,20 +67,34 @@ export function welcomeSheet(o: { tenant: string; logId: string; publicUrl: stri
  *   POST /admin/tenants/:id/tokens/:prefix/revoke { revoked }
  */
 export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> {
+  // Five wrong tokens from one address, then one more a minute: enough to stop guessing, not enough to lock out a typo.
+  const failures = new RateLimiter({ perSecond: 1 / 60, burst: 5 });
+  const presented = (req: IncomingMessage): string | null => {
+    const h = req.headers.authorization ?? "";
+    if (h.startsWith("Bearer ") && h.length > 7) return h.slice(7);
+    if (h.startsWith("Basic ") && h.length > 6) {
+      const pair = Buffer.from(h.slice(6), "base64").toString();
+      const at = pair.indexOf(":");
+      return at >= 0 ? pair.slice(at + 1) : pair;
+    }
+    return null;
+  };
   return async (req, res, url) => {
     if (url.pathname !== "/admin" && !url.pathname.startsWith("/admin/")) return false;
-    const json = (status: number, body: unknown) => {
-      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store" });
+    const json = (status: number, body: unknown, headers: Record<string, string> = {}) => {
+      res.writeHead(status, { "content-type": "application/json", "cache-control": "no-store", ...headers });
       res.end(JSON.stringify(body));
     };
+    const addr = req.socket.remoteAddress ?? "?";
+    const given = presented(req);
+    if (given === null || !same(given, opts.token)) {
+      if (!failures.take(`admin:${addr}`)) return json(429, { error: "too many attempts; wait a minute" }, { "retry-after": "60" }), true;
+      // The challenge makes the browser ask; the same 401 tells an API client what is missing.
+      return json(401, { error: "admin token required" }, { "www-authenticate": 'Basic realm="agent-custody log admin", charset="UTF-8"' }), true;
+    }
     if (req.method === "GET" && url.pathname === "/admin") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'" });
       res.end(ADMIN_PAGE);
-      return true;
-    }
-    const h = req.headers.authorization ?? "";
-    if (!(h.startsWith("Bearer ") && h.length > 7 && same(h.slice(7), opts.token))) {
-      json(401, { error: "admin token required" });
       return true;
     }
     const body = async (): Promise<Record<string, unknown>> => {
@@ -126,7 +142,7 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
   };
 }
 
-/** The page. One file, no framework, no third-party requests; the admin token lives in sessionStorage for the tab. */
+/** The page. One file, no framework, no third-party requests; the browser holds the admin credential it prompted for. */
 const ADMIN_PAGE = `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agent-custody log admin</title>
@@ -155,12 +171,8 @@ const ADMIN_PAGE = `<!doctype html>
 </style>
 <main>
   <h1>Log admin</h1>
-  <p class="sub" id="where">Tenants and tokens on this log. The admin token stays in this tab.</p>
-  <section id="login">
-    <div class="row"><label>Admin token<input id="token" type="password" autocomplete="off"></label><button id="enter">Enter</button></div>
-    <p class="err" id="loginErr" hidden></p>
-  </section>
-  <section id="app" hidden>
+  <p class="sub" id="where">Tenants and tokens on this log.</p>
+  <section id="app">
     <h2>Tenants</h2>
     <table><thead><tr><th>tenant</th><th>log id</th><th>live tokens</th><th>created</th><th></th></tr></thead><tbody id="tenants"></tbody></table>
     <h2>New tenant</h2>
@@ -190,10 +202,11 @@ const ADMIN_PAGE = `<!doctype html>
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
-  let token = sessionStorage.getItem("agent-custody-admin") || "";
+  // The browser sends the credential it prompted for on every request under /admin; nothing is stored by this page.
   const api = async (method, path, body) => {
-    const r = await fetch(path, { method, headers: { authorization: "Bearer " + token, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const r = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" });
     const j = await r.json().catch(() => ({}));
+    if (r.status === 401) throw new Error("the admin token was not accepted; reload the page and enter it again");
     if (!r.ok) throw new Error(j.error || r.statusText);
     return j;
   };
@@ -211,13 +224,9 @@ const ADMIN_PAGE = `<!doctype html>
     try {
       const info = await api("GET", "/admin/info");
       $("where").textContent = (info.publicUrl || location.origin) + " · keyid " + (info.keyid ? info.keyid.slice(0, 12) : "?") + (info.checkpointsUrl ? " · checkpoints at " + info.checkpointsUrl : "");
-      $("login").hidden = true; $("app").hidden = false;
-      sessionStorage.setItem("agent-custody-admin", token);
       await loadTenants();
-    } catch (e) { $("loginErr").hidden = false; $("loginErr").textContent = e.message; }
+    } catch (e) { say(e.message, "err"); }
   };
-  $("enter").onclick = () => { token = $("token").value.trim(); enter(); };
-  $("token").onkeydown = (e) => { if (e.key === "Enter") $("enter").click(); };
   $("addTenant").onclick = async () => { try { const t = await api("POST", "/admin/tenants", { id: $("tid").value.trim(), logId: $("lid").value.trim() }); say("tenant " + t.id + " created; reached at /t/" + t.id + "/", "ok"); $("ttid").value = t.id; await loadTenants(); } catch (e) { say(e.message, "err"); } };
   $("mint").onclick = async () => {
     try {
@@ -235,7 +244,7 @@ const ADMIN_PAGE = `<!doctype html>
     if (b.dataset.disable && confirm("Disable tenant " + b.dataset.disable + "? Its paths answer 404 within ten seconds.")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(b.dataset.disable) + "/disable"); await loadTenants(); say("disabled " + b.dataset.disable, "ok"); } catch (err) { say(err.message, "err"); } }
     if (b.dataset.revoke) { const [id, prefix] = b.dataset.revoke.split("|"); if (confirm("Revoke token " + prefix + " of " + id + "?")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(id) + "/tokens/" + prefix + "/revoke"); await loadTokens(id); await loadTenants(); say("revoked", "ok"); } catch (err) { say(err.message, "err"); } } }
   });
-  if (token) enter();
+  enter();
 })();
 </script>
 `;

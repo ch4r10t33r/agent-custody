@@ -4,7 +4,7 @@ import { Ledger } from "./ledger.ts";
 import { createMemoryServer, serveStdio } from "./server.ts";
 import { blastRadius, formatBlastRadius, loadReceipts } from "./blast.ts";
 import { serveMemoryHttp } from "./http.ts";
-import { loadPrivateKey, loadPublicKey } from "@agent-custody/receipts";
+import { loadPrivateKey, loadPublicKey, verifyBundle } from "@agent-custody/receipts";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +12,7 @@ import { formatReport, runAll, SCENARIOS } from "./evals.ts";
 import { ledgerUnderTest, overwriteStoreUnderTest } from "./evals-ledger.ts";
 import { loadScenarios, signReport, verifyReport } from "./evals-file.ts";
 import { buildPack, formatPack, signPack, verifyPack } from "./pack.ts";
+import { buildActionPack, formatExplain, signActionPack, verifyActionPack } from "./explain.ts";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -60,6 +61,13 @@ const USAGE = `agent-custody-memory <command>
                                                    holds, the forget certificate and what the stores answered. For counsel and auditors.
   pack --verify <pack.json> --key <pub> [--issuer-key <pub>] [--principal-key <pub>]
                                                    checks the pack's signature and every receipt inside it
+  explain --receipts <dir> --receipt <receiptId> [--ledger <ledger>] [--issuer-key <pub>] [--principal-key <pub>] [--log-key <pub>] [--json]
+                                                   one action, answered: who, who authorized it, what was allowed, what the agent saw, what it did,
+                                                   why, the evidence, whether it verifies, what depended on it, what needs reversal.
+                                                   With a ledger the last two are answered from the beliefs; without, they say so.
+  explain ... --out <action.json> --sign <key>     the same as one signed action pack, every downstream receipt inside
+  explain --verify <action.json> --key <pub> [--issuer-key <pub>] [--principal-key <pub>] [--log-key <pub>]
+                                                   checks the pack, the receipt inside it, and every downstream receipt
   export --ledger <ledger.sqlite|postgres://…> --out <ledger.jsonl>  the auditable JSONL of any ledger, one event per line; also the feed for a warehouse
   blast --ledger <ledger.jsonl> --receipts <dir> --fact <factId> [--json]
                                                    everything that relied on a fact: later calls, derived beliefs, and whether it was retracted
@@ -173,6 +181,34 @@ async function main(argv: string[]): Promise<number> {
       console.log(formatPack(pack));
       console.error(`signed pack written to ${values.out}`);
       return pack.missingReceipts.length ? 1 : 0;
+    }
+    case "explain": {
+      const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, receipts: { type: "string" }, receipt: { type: "string" }, out: { type: "string" }, sign: { type: "string" }, verify: { type: "string" }, key: { type: "string", multiple: true }, "issuer-key": { type: "string", multiple: true }, "principal-key": { type: "string", multiple: true }, "log-key": { type: "string", multiple: true }, json: { type: "boolean", default: false } } });
+      const receiptKeys = values["issuer-key"]?.length ? { issuerKeys: values["issuer-key"].map(loadPublicKey), principalKeys: (values["principal-key"] ?? []).map(loadPublicKey), ...(values["log-key"]?.length ? { logKeys: values["log-key"].map(loadPublicKey) } : {}) } : undefined;
+      if (values.verify) {
+        if (!values.key?.length) throw new Error("explain --verify needs --key <pub>");
+        const r = verifyActionPack(JSON.parse(readFileSync(values.verify, "utf8")), values.key.map(loadPublicKey), receiptKeys);
+        if (values.json) console.log(JSON.stringify(r, null, 2));
+        else {
+          for (const c of r.checks) console.log(`${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.detail ? `  (${c.detail})` : ""}`);
+          console.log(`\nRESULT: ${r.ok ? "VERIFIED" : "NOT VERIFIED"}`);
+          if (r.pack) console.log("\n" + formatExplain(r.pack, r.receipt, true));
+        }
+        return r.ok ? 0 : 1;
+      }
+      if (!values.receipts || !values.receipt) throw new Error("explain needs --receipts and --receipt, or --verify");
+      const ledger = values.ledger ? new Ledger(values.ledger) : undefined;
+      const pack = await buildActionPack(values.receipts, values.receipt, ledger);
+      await ledger?.close();
+      const verification = receiptKeys ? verifyBundle(pack.receipt, receiptKeys) : null;
+      if (values.out) {
+        if (!values.sign) throw new Error("explain --out needs --sign <key>");
+        writeFileSync(values.out, JSON.stringify(signActionPack(pack, loadPrivateKey(values.sign)), null, 2));
+        console.error(`signed action pack written to ${values.out}`);
+      }
+      if (values.json) console.log(JSON.stringify({ pack, verification }, null, 2));
+      else console.log(formatExplain(pack, verification, !!ledger));
+      return verification && !verification.ok ? 1 : pack.missingReceipts.length ? 1 : 0;
     }
     case "export": {
       const { values } = parseArgs({ args: rest, options: { ledger: { type: "string" }, out: { type: "string" } } });

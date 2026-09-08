@@ -119,6 +119,29 @@ With the gateway fronting several upstreams, memory and the tools the agent acts
 
 It is an upper bound by design: a call made after the agent had seen the fact is in the radius whether or not the agent used it, because no receipt can prove what a model attended to. What it never misses is the thing that matters, a downstream action or belief that did depend on the fact. [examples/05-blast-radius.ts](examples/05-blast-radius.ts) runs the whole loop.
 
+## Explain one action
+
+The question a security owner asks first is not about a fact but about an action: *what is refund 183722, and can I trust the answer?* `agent-custody-memory explain --receipts receipts --receipt <id> --ledger ledger.sqlite --issuer-key keys/gateway.pub --principal-key keys/principal.pub` answers it in the order it is asked:
+
+```
+WHO                          support-agent (attested, named in a signed grant)
+WHO AUTHORIZED IT            user_456, grant signed by key bfa1c0d2e3f4, valid 2026-09-08T08:00:00.000Z to 2026-09-08T16:00:00.000Z
+WHAT WAS ALLOWED             tools customer.lookup, stripe.refund
+                             policy 9c1d2e3f4a5b decided allow
+WHAT THE AGENT SAW           customer = {"verified":true,"plan":"pro"} (fetched by the gateway via customer.lookup)
+                             1 belief(s) shown before this call:
+                               acct:42 plan = "enterprise" [0b83d822]
+WHAT IT DID                  stripe.refund {"customer_id":"cust_123","amount":845000} -> executed
+WHY                          the policy permitted it
+WHAT EVIDENCE                receipt 7f2e…, leaf 41 of a log whose head is signed by 3a9b0c1d2e3f
+                             authorization committed as leaf 40, before the call was forwarded
+CAN I VERIFY IT              VERIFIED, 23 checks
+DID ANYTHING DEPEND ON THIS  1 belief(s) written in this call, 3 later call(s) made after seeing them, 2 belief(s) derived
+WHAT NEEDS REVERSAL          2 belief(s) still believed, and 3 later call(s) to review
+```
+
+The first eight lines come from the receipt alone and work without a ledger; the last two are answered from the ledger, and without one they say `unknown without a ledger` rather than pretending nothing depended on the call. `--out action.json --sign keys/pack.key` writes the same answers as one signed action pack with the receipt and every downstream receipt inside it, and `explain --verify action.json --key keys/pack.pub --issuer-key ... --principal-key ...` checks the pack's signature and digest, the receipt, every downstream receipt, and that the written beliefs cite this receipt. Touch one receipt inside and the pack fails. The custody pack below is the same artefact seen from a fact instead of an action.
+
 ## Write-through to the stores you already use
 
 The ledger is not a retrieval store, and it does not try to be. `src/stores.ts` puts it under the ones teams already run: a fact written through the memory server also lands in every configured store, with its custody metadata (fact id, space, actor, provenance, receipt id), the store's own id is recorded on the fact, and a retraction reaches the store by that id. Certified forget will be built on this: a deletion is only real once it has reached the stores that serve recall.
@@ -189,8 +212,9 @@ src/ledger.ts   the fact record, the event kinds, as-of queries, supersession, r
 src/storage.ts  the store interface and its three stores: JSONL (default, auditable), SQLite (indexed, one machine), Postgres (shared); chosen by path or URL
 src/server.ts   the ledger as MCP tools; source and actor taken from the gateway's _meta
 src/http.ts     the memory server over Streamable HTTP with bearer auth, for a shared ledger
+src/explain.ts  one action explained: the ten answers from a receipt and the ledger, and the signed action pack
 src/pack.ts     the custody pack: build, sign, verify, format
-src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, pack, export, blast
+src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, explain, pack, export, blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
 src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
@@ -210,6 +234,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 - The memory server: the ledger as MCP tools behind the receipts gateway, with the source receipt id and the attested actor supplied by the gateway, policy over spaces, and a denial receipt for every refused write.
 - Forget digests are keyed under a server-held secret, or absent on request, so an erased value cannot be guessed back from the file.
 - Retention windows per space in the server, sweeps that default to them, and a `sweep --via` trigger that runs retention through a gateway as a named principal, on any timer.
+- Explain one action: from a receipt id, who, who authorized it, what was allowed, what the agent saw, what it did, why, the evidence, whether it verifies, what depended on it, and what needs reversal; the same as a signed action pack that carries every downstream receipt.
 - The custody pack: a fact's history with receipts, holds, blast radius, and forget certificate as one signed artefact, verified as a whole.
 - Removal verification: after a retraction, forget, or sweep the server asks each store's search whether the value still surfaces and records verified, stillIndexed, unverified, or failed per store, in the receipt.
 - Retention and legal hold: a receipted sweep forgets what was learned before an instant and reaches the stores; a hold refuses forget and sweep until released, as events on the fact's history.

@@ -56,6 +56,8 @@ Put the gateway between an agent and its tools. From then on, every tool call an
 | Did anything depend on it | the beliefs written from this call and every later call that consumed them |
 | What needs reversing | the blast radius, and the retraction or forget that undoes it, receipted |
 
+One command answers all eight for a receipt id, `agent-custody-memory explain`, and packs the answers with every receipt they rest on as a single signed file for whoever has to be convinced. [How it reads](/state/#explain-one-action).
+
 The name is the point: a chain of custody is an evidence record that holds up when the party who made it is the one under question. The agent is not trusted. The layer around it is, and every field of every record says how far that trust extends: `attested` by a signature, `observed` by the gateway, or `claimed` by the agent.
 
 ## Why this exists

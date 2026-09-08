@@ -54,6 +54,8 @@ Verifiers add `--log-url https://log.example.com/ --log-id log.example.com`, whi
 
 **Tenants.** `docker compose exec log agent-custody log-admin --db-env DATABASE_URL tenant add acme --log-id acme-eu`, then `token add acme --label support-fleet`; the token prints once. The tenant appends at `https://log.example.com/t/acme/` and verifies with `--log-id acme-eu`. A file log from before Postgres comes in with `log-admin --db-env DATABASE_URL import --file /data/log.jsonl`, which adds its hashes to the default tenant and is safe to run twice.
 
+**Onboarding a tenant.** `./onboard-tenant.sh acme --log-id acme-eu --label "support fleet"` creates the tenant and its first token, keeps the token in `/root/agent-custody-tenants/acme.token`, and prints the welcome sheet: their URL, log id, checkpoints URL, the one config line, and the two verifier commands. Hand the token over once by a channel you trust; the server keeps only its hash. Revoke with `log-admin token revoke acme <hash-prefix>`, disable with `log-admin tenant disable acme`.
+
 **Backups.** The volume is small; a nightly `docker run --rm -v agent-custody_logdata:/data -v /backup:/backup alpine tar czf /backup/log-$(date +%F).tgz /data` in cron for the key, and `docker compose exec postgres pg_dump -U custody custody_log | gzip > /backup/db-$(date +%F).sql.gz` for the leaves, tenants, and tokens, plus the provider's volume snapshots, is enough. Keep at least one signed tree head somewhere the VM cannot touch; that is what an auditor compares against.
 
 **Upgrades.** Bump `AGENT_CUSTODY_VERSION` in `.env`, then `docker compose build --pull && docker compose --profile public up -d`. The log format and the endpoints are stable within a major version.
@@ -88,5 +90,6 @@ Migration is a volume copy and a DNS change because the design keeps the state i
 | 1 | hash-only appends, tenant-scoped paths, `log` id in tree heads | done: `AGENT_CUSTODY_LOG_ID` and `AGENT_CUSTODY_LOG_TENANTS` in the contract |
 | 2 | Postgres store, tokens table, rate limits | done: Postgres is in the default profile; `DATABASE_URL` in the contract; `--profile file` keeps the old single-file server |
 | 3 | signer process, well-known keys, checkpoint publisher | done: the `signer` service holds the key; the log publishes checkpoints to a volume Caddy serves at `CHECKPOINTS_HOST`; verifiers use `--log-url` |
-| 4 | | this is the deployment |
+| 4 | | this is the deployment, running at log.agent-custody.dev |
+| 5 | | `onboard-tenant.sh` creates a tenant and prints the welcome sheet |
 | 6 | witness | a second, separately operated deployment of the signer |

@@ -43,7 +43,7 @@ features:
 | gateway, local log | observed outside the agent, tamper-evident to anyone holding a copy | the operator, who holds the key and the file |
 | gateway, log run by someone else | tree heads signed by a key the operator does not hold | only the log's operator, with yours |
 
-The full list of claims, who can check each, and against whom, is the [proof table](/receipts/#what-a-receipt-proves-and-what-it-does-not). What the gateway does not cover is on the [deployment page](/guide/deployment#what-the-gateway-does-not-cover). A hosted log is [not built yet](/early-access).
+The full list of claims, who can check each, and against whom, is the [proof table](/receipts/#what-a-receipt-proves-and-what-it-does-not). What the gateway does not cover is on the [deployment page](/guide/deployment#what-the-gateway-does-not-cover). A hosted log is [running and taking its first tenants](/early-access).
 
 ## Two packages
 

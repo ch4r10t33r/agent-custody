@@ -289,7 +289,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 
 **Next, in the order it pays off**
 
-1. The hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6): phases 1 to 3 are done; what remains is running it for the first tenant, and then a witness that countersigns checkpoints.
+1. The hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6): running at log.agent-custody.dev with keys published and checkpoints on a second host, taking its first tenants. What remains is the witness that countersigns checkpoints.
 2. Post-quantum signatures: ML-DSA beside Ed25519 in the same DSSE envelope, hybrid by default when a PQ key is present, in every signed artefact and in the browser verifier. [Issue #11](https://github.com/ch4r10t33r/agent-custody/issues/11).
 3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
 4. Delegation chains for sub-agents.

@@ -2,13 +2,15 @@
 title: Early access
 ---
 
-# Hosted log: early access, not yet running
+# Hosted log: taking the first tenants
 
-Everything on this site runs on your own machines today. The one thing you cannot run yourself is a log that is not yours: a transparency log operated by someone who is not the agent's operator, whose key signs the tree heads, so an auditor, a customer, or a regulator can accept a receipt without trusting you. That is the first hosted piece of agent-custody. It is not built yet, and nobody is on it; [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6) tracks it. Early access means telling us you want to be a first tenant, and shaping what gets built.
+Everything else on this site runs on your own machines. The one thing you cannot run yourself is a log that is not yours: a transparency log operated by someone who is not the agent's operator, whose key signs the tree heads, so an auditor, a customer, or a regulator can accept a receipt without trusting you.
 
-What you can do today, without us: run the reference log server from the receipts package on a machine your agent's operator does not control, and point the gateway at it with `log` in the config. That gives you tree heads signed by a key the operator does not hold, which is the whole point. [How](/receipts/usage), and a [container, compose file, and Kubernetes manifests](https://github.com/ch4r10t33r/agent-custody/tree/main/deploy) to run it on any VM.
+That log is running at `log.agent-custody.dev`. It holds no receipts, only their hashes; its keys are published at [/.well-known/agent-custody-log.json](https://log.agent-custody.dev/.well-known/agent-custody-log.json) for verifiers to pin; and it publishes signed checkpoints to a second host, [checkpoints.agent-custody.dev](https://checkpoints.agent-custody.dev/default/latest.json), so a rewrite is detectable by someone who was not watching. We run our own receipts on it. We are taking the first three tenants now, free, in exchange for shaping retention, jurisdiction, and what the reports should say.
 
-What a hosted log would add, once it exists: a tenant with a bearer token per agent fleet, consistency proofs served, retention, and a public key you hand to whoever verifies your receipts. Nothing more is promised here; the shared memory server and the reports already exist as things you run yourself.
+What a tenant gets: a log of their own at `/t/<tenant>/`, a bearer token per fleet, a log id their tree heads carry, and a welcome sheet with the one config line and the two verifier commands. What a tenant does not get yet, said plainly: a second independent signer (the witness, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6)), a dashboard, or a contract with service levels. Read the [proof table](/receipts/#what-a-receipt-proves-and-what-it-does-not) before repeating any claim about it.
+
+Prefer to run it yourself? The same server is a [container, a compose file, and Kubernetes manifests](https://github.com/ch4r10t33r/agent-custody/tree/main/deploy), and everything the hosted one does, yours does too.
 
 There is no price yet. The first tenants set it with us.
 

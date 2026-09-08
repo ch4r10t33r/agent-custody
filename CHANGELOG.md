@@ -2,6 +2,13 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.0 — 2026-09-08
+
+- **Receipts:** the log over Postgres. `log --db-env` keeps leaves as hashes in one table keyed by tenant, one writer per tenant by advisory lock so a second instance is safe, tenants and sha256-hashed tokens in tables managed by `log-admin`, rate limits per token with a body cap and `retry-after`, retries in the HTTP sink, and `import` for an existing file log. Phase 2 of issue #6.
+- **Receipts:** the signer, the key document, and checkpoints. `signer` holds the log's key in its own process and the log signs through `--signer-url`; the log serves `/.well-known/agent-custody-log.json` and `verify --log-url` and `audit --log-url` fetch and pin its keys by keyid; signed checkpoints per log are published to a directory and a table and listed at `/checkpoints`. Phase 3 of issue #6.
+- **Deploy:** Postgres and the signer are in the default compose profile, with a checkpoints volume served from a second Caddy host; `--profile file` keeps the single-file server. The image installs `pg`.
+- **Python:** unchanged; released in step.
+
 ## 0.4.0 — 2026-09-08
 
 - **Receipts:** a log for someone else. `"hashOnly": true` in the `log` config sends only the leaf hash, so a remote log commits to a receipt without ever holding it; the receipts stay with the issuer and the verifier is unchanged. The reference server accepts `{leaf}` or `{leafHash}`, serves several tenant logs at `/t/<tenant>/` from a `--tenants` file with their own tokens and ids, and writes `--log-id` into every tree head. `verify --log-id` and `audit --log-id` check that the tree heads name the expected log. Phase 1 of the hosted log, issue #6.

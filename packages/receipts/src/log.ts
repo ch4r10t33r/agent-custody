@@ -162,9 +162,10 @@ export class MerkleLog {
     if (existsSync(file)) {
       for (const line of readFileSync(file, "utf8").split("\n")) {
         if (!line.trim()) continue;
-        const parsed = JSON.parse(line) as string | { pruned: string };
-        // A pruned leaf keeps only its hash: the tree, its roots, and every proof are unchanged; the content is gone.
-        this.hashes.push(typeof parsed === "string" ? leafHash(parsed) : Buffer.from(parsed.pruned, "hex"));
+        const parsed = JSON.parse(line) as string | { pruned?: string; hash?: string };
+        // A pruned leaf keeps only its hash, and a leaf appended by hash never had content here: the tree, its
+        // roots, and every proof are the same either way.
+        this.hashes.push(typeof parsed === "string" ? leafHash(parsed) : Buffer.from((parsed.pruned ?? parsed.hash)!, "hex"));
       }
     } else {
       mkdirSync(dirname(file), { recursive: true });
@@ -178,7 +179,21 @@ export class MerkleLog {
   /** Appends a leaf (an opaque string, typically a canonical JSON envelope). Returns its proof against the new root. */
   append(leaf: string): InclusionProof & { rootHash: string } {
     appendFileSync(this.file, JSON.stringify(leaf) + "\n");
-    this.hashes.push(leafHash(leaf));
+    return this.pushHash(leafHash(leaf));
+  }
+
+  /**
+   * Appends a leaf by its RFC 6962 leaf hash, sha256(0x00 || leaf), as hex. The log commits to the leaf without ever
+   * holding it, which is what a log run for someone else should do: the receipt stays with its issuer.
+   */
+  appendHash(leafHashHex: string): InclusionProof & { rootHash: string } {
+    if (!/^[0-9a-f]{64}$/.test(leafHashHex)) throw new Error("leafHash must be 64 lowercase hex characters");
+    appendFileSync(this.file, JSON.stringify({ hash: leafHashHex }) + "\n");
+    return this.pushHash(Buffer.from(leafHashHex, "hex"));
+  }
+
+  private pushHash(hash: Buffer): InclusionProof & { rootHash: string } {
+    this.hashes.push(hash);
     const treeSize = this.hashes.length;
     return { leafIndex: treeSize - 1, treeSize, hashes: this.tree.path(treeSize - 1, 0, treeSize).map((b) => b.toString("hex")), rootHash: this.tree.mth(0, treeSize).toString("hex") };
   }

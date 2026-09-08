@@ -277,13 +277,14 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - Remote log: the issuer can append to a log run by someone else over HTTP, whose key then signs the tree heads, so a verifier learns the receipt was in a log the operator could not rewrite. Includes the reference log server, bearer-token auth, and a root endpoint for auditors.
 - Framework adapters, each tested against the real package with a scripted model and no network: OpenAI Agents SDK (`wrapTools` enforces, `observeRunner` records from lifecycle events), Vercel AI SDK (`wrapTools` over a real `generateText` loop), LangChain (`ReceiptCallbackHandler` records, `issuer.wrap` enforces).
 
+- A log for someone else: `hashOnly` sends leaf hashes so the log never holds a receipt; the reference server runs several tenant logs at `/t/<tenant>/` with their own tokens and ids; tree heads name their log and the verifier checks it with `--log-id`. Phase 1 of the hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - OpenTelemetry export: with `otel` in either config, every receipt is also one span at the collector the team already runs, trace id equal to the receipt id, attributes for tool, agent, principal, status, decision, and log position; after the receipt, best effort, never on the evidence path.
 - The REST connector: a plain HTTP API described as tools in the gateway config, credentials from the environment, so an agent's direct API calls become receipted, policy-checked tool calls through the gateway.
 - Pre-commit authorization for consequential tools: named in `precommit`, a call is signed and logged before it is forwarded, withheld if the log will not take it, and its receipt carries the committed authorization with proof that it precedes the execution.
 
 **Next, in the order it pays off**
 
-1. A log run by someone who is not the operator, hosted: a tenant with a bearer token per fleet, consistency proofs served, retention. The reference log server is here; the tenanted service is [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6), and it comes before everything below.
+1. The hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6), phases 2 and 3: the Postgres store with one writer per tenant, tokens and rate limits, the signer as its own process, published checkpoints, and well-known keys fetched with `--log-url`. Phase 1 is done; it comes before everything below.
 2. Post-quantum signatures: ML-DSA beside Ed25519 in the same DSSE envelope, hybrid by default when a PQ key is present, in every signed artefact and in the browser verifier. [Issue #11](https://github.com/ch4r10t33r/agent-custody/issues/11).
 3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
 4. Delegation chains for sub-agents.

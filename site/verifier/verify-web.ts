@@ -99,7 +99,7 @@ const ISSUER_NOTE: Record<string, string> = {
 };
 const short = (s: string) => s.slice(0, 12);
 
-export interface Options { issuerKeys: PublicKey[]; principalKeys: PublicKey[]; logKeys?: PublicKey[]; upstreamKeys?: PublicKey[]; providerSecrets?: { stripe?: string; github?: string }; logLeaves?: string[] }
+export interface Options { issuerKeys: PublicKey[]; principalKeys: PublicKey[]; logKeys?: PublicKey[]; upstreamKeys?: PublicKey[]; providerSecrets?: { stripe?: string; github?: string }; logId?: string; logLeaves?: (string | { pruned?: string; hash?: string })[] }
 
 async function hmacHex(secret: string, data: string): Promise<string> {
   const key = await subtle().importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -215,12 +215,14 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
   add("tree head signature", th.ok && bundle.treeHead.payloadType === TREEHEAD_TYPE, th.ok ? `${byLog ? "log key" : "issuer key"} ${short(th.keyid)}` : th.error);
   if (th.ok) {
     const head = th.payload;
+    if (opts.logId !== undefined) add("tree head names the expected log", head.log === opts.logId, head.log ? `log ${head.log}` : "tree head names no log");
     add("tree head matches inclusion proof size", head.treeSize === bundle.inclusion.treeSize);
     const included = await verifyInclusion(await leafHash(canonicalize(bundle.envelope)), bundle.inclusion, head.rootHash);
     add("log inclusion proof", included, `leaf ${bundle.inclusion.leafIndex} of ${bundle.inclusion.treeSize}, root ${short(head.rootHash)}`);
     if (opts.logLeaves) {
       const hashes: Bytes[] = [];
-      for (const l of opts.logLeaves) hashes.push(await leafHash(l));
+      // a log copy holds leaf strings, or {pruned} and {hash} lines that already are the leaf hash
+      for (const l of opts.logLeaves) hashes.push(typeof l === "string" ? await leafHash(l) : unhex((l.pruned ?? l.hash)!));
       if (head.treeSize > hashes.length) add("log file root matches tree head", false, `log copy has ${hashes.length} leaves, tree head is at ${head.treeSize}`);
       else { const root = await rootOf(hashes, head.treeSize); add("log file root matches tree head", root === head.rootHash, `recomputed ${short(root)}`); }
     }

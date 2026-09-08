@@ -23,6 +23,8 @@ export interface VerifyOptions {
   providerSecrets?: ProviderSecrets;
   /** If given, the root is recomputed from this log file at the receipt's tree size and compared. */
   logFile?: string;
+  /** If given, every tree head in the bundle must name this log, so a head from another tenant's log cannot be presented as this one's. */
+  logId?: string;
 }
 
 export interface VerifyResult {
@@ -123,6 +125,7 @@ export function verifyBundle(bundle: ReceiptBundle, opts: VerifyOptions): Verify
   add("tree head signature", th.ok && bundle.treeHead.payloadType === TREEHEAD_TYPE, th.ok ? `${byLog ? "log key" : "issuer key"} ${short(th.keyid)}` : th.error);
   if (th.ok) {
     const head = th.payload as TreeHead;
+    if (opts.logId !== undefined) add("tree head names the expected log", head.log === opts.logId, head.log ? `log ${head.log}` : "tree head names no log");
     add("tree head matches inclusion proof size", head.treeSize === bundle.inclusion.treeSize);
     const included = verifyInclusion(leafHash(canonicalize(bundle.envelope)), bundle.inclusion, head.rootHash);
     add("log inclusion proof", included, `leaf ${bundle.inclusion.leafIndex} of ${bundle.inclusion.treeSize}, root ${short(head.rootHash)}`);
@@ -150,7 +153,7 @@ export interface AuditResult {
  * Does the newer tree head extend the older one? Both must be signed by a trusted log or issuer key, and the proof
  * must be the log's consistency proof between the two sizes. A pass means nothing in the older log was rewritten.
  */
-export function auditExtends(older: Envelope, newer: Envelope, proof: string[], keys: PublicKeyRef[]): AuditResult {
+export function auditExtends(older: Envelope, newer: Envelope, proof: string[], keys: PublicKeyRef[], logId?: string): AuditResult {
   const checks: Check[] = [];
   const add = (name: string, ok: boolean, detail?: string) => {
     checks.push(detail === undefined ? { name, ok } : { name, ok, detail });
@@ -164,6 +167,8 @@ export function auditExtends(older: Envelope, newer: Envelope, proof: string[], 
   const a = decode("older", older);
   const b = decode("newer", newer);
   if (!a || !b) return { ok: false, checks, older: a, newer: b };
+  if (logId !== undefined) add("both tree heads name the expected log", a.log === logId && b.log === logId, `expected ${logId}, got ${a.log ?? "none"} and ${b.log ?? "none"}`);
+  else if (a.log !== b.log) add("both tree heads name the same log", false, `${a.log ?? "none"} and ${b.log ?? "none"}`);
   if (!add("older is not larger than newer", a.treeSize <= b.treeSize, `${a.treeSize} -> ${b.treeSize}`)) return { ok: false, checks, older: a, newer: b };
   const consistent = verifyConsistency(a.treeSize, a.rootHash, b.treeSize, b.rootHash, proof);
   add("newer log extends older log", consistent, consistent ? `${proof.length} proof hashes` : "history was rewritten, or the proof is for other tree heads");

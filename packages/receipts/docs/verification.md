@@ -83,6 +83,7 @@ execution       observed    executed
 | authorization log inclusion proof | the authorization statement is a leaf of that tree | an authorization that was never logged |
 | authorization logged before execution | the authorization's leaf precedes the receipt's leaf, at a tree size no larger than the receipt's | evidence written after the side effect, dressed up as before |
 | tree head signature | the tree head was signed by a trusted issuer key | forged log position |
+| tree head names the expected log | with `--log-id`: the tree head carries that log id, so a head from another tenant's log on the same server cannot be presented as this one's | a receipt logged to a different log than claimed |
 | tree head matches inclusion proof size | the proof and the tree head describe the same tree | mismatched bundle parts |
 | log inclusion proof | this exact envelope is a leaf of the tree with that root | receipt never logged, or logged then changed |
 | log file root matches tree head | recomputing the root from your copy of the log at that size gives the same value | your log copy and the issuer's history diverge: deletion, reordering, or edit |
@@ -160,7 +161,7 @@ An inclusion proof says a receipt was in the log at one moment. It does not say 
 
 ```bash
 node src/cli.ts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log log.jsonl --issuer-key keys/gateway.pub
-node src/cli.ts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log-url https://log.example.com/ --log-key keys/log.pub
+node src/cli.ts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log-url https://log.example.com/t/acme/ --log-key keys/log.pub --log-id acme
 ```
 
 Both tree heads must be signed by a trusted key. With `--log` the proof is computed from a copy of the log; with `--log-url` it is fetched from the log's `GET /consistency?old=M&new=N`. Exit code 0 means the newer log extends the older one. A failure means either history was rewritten between the two heads or the proof belongs to other tree heads; example 14 shows a rewritten log failing this way while every individual receipt still verifies.

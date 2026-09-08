@@ -4,7 +4,7 @@ This directory runs the log server as a container: on one VM with docker compose
 
 What it deploys today is the **reference log server** from `@agent-custody/receipts`: single tenant, file-backed, one signing key, bearer-token appends, the four endpoints the gateway and the verifier use. That is enough to run a log on a machine the agent's operator does not control, which is the property everything else is built on. The tenanted service with hash-only leaves, Postgres, published checkpoints, and a well-known key document is [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6); as its phases land, this directory picks them up without changing the contract below.
 
-One caution until phase 1 of #6 lands: the reference server stores whole leaves, which are receipt envelopes, so it holds the receipts' arguments and results. Running it on a second machine you control is fine. Running it for other people's receipts should wait for hash-only appends.
+Operators who log here should set `"hashOnly": true` in their `log` config, so the server commits to receipts without ever holding them; the log file then contains hashes only. Without it, the server stores whole receipt envelopes, arguments and results included, which is fine for your own second machine and not for other people's receipts.
 
 ## The image
 
@@ -18,6 +18,8 @@ One caution until phase 1 of #6 lands: the reference server stores whole leaves,
 | `AGENT_CUSTODY_LOG_KEY` | the signing key; generated on first start if absent, public half printed to the container log | `/data/keys/log.key` |
 | `AGENT_CUSTODY_LOG_PORT` | listen port inside the container | `8787` |
 | `AGENT_CUSTODY_LOG_TOKEN` | bearer token required on append; without it the log accepts appends from anyone who can reach it | unset |
+| `AGENT_CUSTODY_LOG_ID` | the id written into every tree head, checked by verifiers with `--log-id`; use the public host | unset |
+| `AGENT_CUSTODY_LOG_TENANTS` | path to a tenants file inside the container, for several logs at `/t/<tenant>/` with their own tokens and ids | unset |
 
 The volume at `/data` is the whole state: the log and the key. Back it up; a lost key means every tree head it signed is still verifiable, but new heads will be signed by a different key, which verifiers must be told about.
 
@@ -40,10 +42,10 @@ Caddy obtains the certificate and forwards to the log. Without `--profile public
 The operator's side is one config line, with the token in their environment:
 
 ```json
-"log": { "url": "https://log.example.com/", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN" }
+"log": { "url": "https://log.example.com/", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN", "hashOnly": true }
 ```
 
-Verifiers add `--log-key log.pub` and, to prove history was not rewritten between two receipts, `agent-custody audit` against `GET /consistency`.
+Verifiers add `--log-key log.pub --log-id log.example.com` and, to prove history was not rewritten between two receipts, `agent-custody audit` against `GET /consistency`.
 
 **Backups.** The volume is small; a nightly `docker run --rm -v agent-custody_logdata:/data -v /backup:/backup alpine tar czf /backup/log-$(date +%F).tgz /data` in cron, plus the provider's volume snapshots, is enough. Keep at least one signed tree head somewhere the VM cannot touch; that is what an auditor compares against.
 
@@ -76,7 +78,7 @@ Migration is a volume copy and a DNS change because the design keeps the state i
 
 | phase | what lands in the packages | what changes in this directory |
 | --- | --- | --- |
-| 1 | hash-only appends, tenant-scoped paths, `log` id in tree heads | nothing; the image picks up the new version |
+| 1 | hash-only appends, tenant-scoped paths, `log` id in tree heads | done: `AGENT_CUSTODY_LOG_ID` and `AGENT_CUSTODY_LOG_TENANTS` in the contract |
 | 2 | Postgres store, tokens table, rate limits | the `phase2` profile becomes the default; `DATABASE_URL` in the contract |
 | 3 | signer process, well-known keys, checkpoint publisher | two more services: `signer`, `publisher`; a bucket for checkpoints |
 | 4 | | this is the deployment |

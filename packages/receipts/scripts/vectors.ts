@@ -29,6 +29,8 @@ interface Case {
   upstreamKeys?: string[];
   /** shared secrets for provider-native deliveries; test values, published on purpose */
   providerSecrets?: { stripe?: string; github?: string };
+  /** the log id the verifier is told to expect on the tree head */
+  logId?: string;
   log: string[] | null;
   expected: { ok: boolean; failing: string[] };
 }
@@ -59,6 +61,7 @@ function addCase(c: Omit<Case, "expected">, opts?: Partial<VerifyOptions>) {
     logKeys: c.logKeys.map((k) => keyFrom(k)),
     ...(c.upstreamKeys ? { upstreamKeys: c.upstreamKeys.map((k) => keyFrom(k)) } : {}),
     ...(c.providerSecrets ? { providerSecrets: c.providerSecrets } : {}),
+    ...(c.logId ? { logId: c.logId } : {}),
     ...(logFile ? { logFile } : {}),
     ...opts,
   });
@@ -152,8 +155,9 @@ const logKp = generateKeyPair();
 const { writeKeyPair } = await import("../src/crypto.ts");
 const logFiles = writeKeyPair(logKp, join(rdir, "log-keys"), "log");
 key("log", logFiles.pubFile);
-const remote = await serveLog(join(rdir, "server-log.jsonl"), logKp, { port: 0 });
-const remoteSdk = createSdkIssuer({ agentId: "remote-bot", identity: { keyFile: join(sfx.dir, "keys", "app.key") }, receiptsDir: join(rdir, "receipts"), log: { url: remote.url } });
+const remote = await serveLog(join(rdir, "server-log.jsonl"), logKp, { port: 0, logId: "vectors-log" });
+// hash-only: the log's file holds leaf hashes, never the receipts; the tree heads name the log
+const remoteSdk = createSdkIssuer({ agentId: "remote-bot", identity: { keyFile: join(sfx.dir, "keys", "app.key") }, receiptsDir: join(rdir, "receipts"), log: { url: remote.url, hashOnly: true } });
 const remoteBundle = await remoteSdk.record({ tool: "crm.lookup", args: { id: "acct:42" } }, { status: "executed", result: { plan: "pro" } });
 await remoteSdk.record({ tool: "crm.lookup", args: { id: "acct:43" } }, { status: "executed", result: { plan: "free" } });
 const remoteHeadLater = (await (await fetch(new URL("head", remote.url))).json()) as { treeHead: Envelope };
@@ -161,6 +165,8 @@ const remoteProof = (await (await fetch(new URL("consistency?old=1&new=2", remot
 const rlog = logLines(join(rdir, "server-log.jsonl"));
 await remote.close();
 addCase({ name: "remote-log-with-log-key", description: "Logged to a log run by someone else: the tree head is signed by the log's key. With that key trusted, everything passes and the report names the log key.", bundle: remoteBundle, issuerKeys: ["app"], principalKeys: [], logKeys: ["log"], log: rlog });
+addCase({ name: "remote-log-expected-id", description: "The same receipt with the expected log id given. The tree head names vectors-log, so the check passes; the log file is hash-only and its root still matches.", bundle: remoteBundle, issuerKeys: ["app"], principalKeys: [], logKeys: ["log"], logId: "vectors-log", log: rlog });
+addCase({ name: "remote-log-wrong-id", description: "The same receipt with a different expected log id. Only the log-id check fails.", bundle: remoteBundle, issuerKeys: ["app"], principalKeys: [], logKeys: ["log"], logId: "another-log", log: rlog });
 addCase({ name: "remote-log-without-log-key", description: "The same receipt with only the issuer key trusted. The tree head signature fails; nothing about inclusion can be decided.", bundle: remoteBundle, issuerKeys: ["app"], principalKeys: [], logKeys: [], log: rlog });
 
 writeFileSync(join(out, "receipts.json"), JSON.stringify({ version: "0.2", generated: new Date().toISOString(), note: "Each case: verify `bundle` with the named keys (see `keys`) and, when `log` is not null, a copy of the log whose lines are these leaves. `expected.failing` lists the check names that must fail; `expected.ok` is true only when it is empty.", keys, cases }, null, 2) + "\n");

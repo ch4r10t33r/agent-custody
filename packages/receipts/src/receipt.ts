@@ -115,6 +115,8 @@ export interface TreeHead {
   treeSize: number;
   rootHash: string;
   timestamp: string;
+  /** which log this head belongs to, when the log serves more than one; a verifier told which log to expect checks it */
+  log?: string;
 }
 
 /** What gets written to disk and handed to a verifier. Self-contained apart from public keys. */

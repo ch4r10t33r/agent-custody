@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
 import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { loadConfig, loadSdkConfig } from "./config.ts";
 import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./crypto.ts";
 import { createDelegation } from "./delegation.ts";
@@ -32,10 +33,23 @@ const USAGE = `agent-custody <command>
   prune   --log <log.jsonl> --before <ISO instant> [--receipts <dir>]
           retention on the receipt log: replaces older leaves with their hashes, so proofs still verify and the content is gone
   log     --file <log.jsonl> --key <log.key> [--port 8787] [--host 127.0.0.1] [--token-env <NAME>]   reference log server
-  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--upstream-key <pub>] [--stripe-secret-env NAME] [--github-secret-env NAME] [--log <log.jsonl>] [--json]
-  audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--json]
+  verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub>] [--log-id <id>] [--upstream-key <pub>] [--stripe-secret-env NAME] [--github-secret-env NAME] [--log <log.jsonl>] [--json]
+  audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) --issuer-key <pub> [--log-key <pub>] [--log-id <id>] [--json]
           checks that the newer receipt's log extends the older one's: nothing between them was rewritten
 `;
+
+/** The tenants file for `log --tenants`: paths relative to the file, tokens from the environment, ids default to the tenant name. */
+function loadTenants(path: string): Record<string, { file: string; tokens?: string[]; logId?: string }> {
+  const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, { file: string; tokenEnv?: string; logId?: string }>;
+  const out: Record<string, { file: string; tokens?: string[]; logId?: string }> = {};
+  for (const [name, t] of Object.entries(raw)) {
+    if (!/^[A-Za-z0-9_.-]+$/.test(name) || typeof t?.file !== "string") throw new Error(`tenants: "${name}" needs a file, and its name must be a plain identifier`);
+    const token = t.tokenEnv ? process.env[t.tokenEnv] : undefined;
+    if (t.tokenEnv && !token) throw new Error(`tenants: environment variable ${t.tokenEnv} for "${name}" is not set`);
+    out[name] = { file: resolve(dirname(resolve(path)), t.file), ...(token ? { tokens: [token] } : {}), ...(t.logId ? { logId: t.logId } : {}) };
+  }
+  return out;
+}
 
 async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
@@ -113,14 +127,16 @@ async function main(argv: string[]): Promise<number> {
     case "log": {
       const { values } = parseArgs({
         args: rest,
-        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" } },
+        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, "log-id": { type: "string" }, tenants: { type: "string" } },
       });
       if (!values.file || !values.key) throw new Error("log needs --file and --key");
       const token = values["token-env"] ? process.env[values["token-env"]] : undefined;
       if (values["token-env"] && !token) throw new Error(`log: environment variable ${values["token-env"]} is not set`);
       const key = loadPrivateKey(values.key);
-      const running = await serveLog(values.file, key, { port: Number(values.port), host: values.host, ...(token ? { tokens: [token] } : {}) });
-      console.error(`agent-custody log: ${running.url} keyid=${key.keyid} file=${values.file} ${token ? "bearer token required" : "open, anyone may append"}`);
+      // --tenants names a JSON file { "<tenant>": { "file": "...", "tokenEnv": "NAME", "logId": "..." } }; each is reached at /t/<tenant>/.
+      const tenants = values.tenants ? loadTenants(values.tenants) : undefined;
+      const running = await serveLog(values.file, key, { port: Number(values.port), host: values.host, ...(token ? { tokens: [token] } : {}), ...(values["log-id"] ? { logId: values["log-id"] } : {}), ...(tenants ? { tenants } : {}) });
+      console.error(`agent-custody log: ${running.url} keyid=${key.keyid} file=${values.file}${values["log-id"] ? ` log=${values["log-id"]}` : ""} ${token ? "bearer token required" : "open, anyone may append"}${tenants ? ` tenants=${Object.keys(tenants).join(",")}` : ""}`);
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       await running.close();
       return 0;
@@ -134,6 +150,7 @@ async function main(argv: string[]): Promise<number> {
           "gateway-key": { type: "string", multiple: true },
           "principal-key": { type: "string", multiple: true },
           "log-key": { type: "string", multiple: true },
+          "log-id": { type: "string" },
           "upstream-key": { type: "string", multiple: true },
           "stripe-secret-env": { type: "string" },
           "github-secret-env": { type: "string" },
@@ -149,6 +166,7 @@ async function main(argv: string[]): Promise<number> {
         issuerKeys: issuerKeyFiles.map(loadPublicKey),
         principalKeys: (values["principal-key"] ?? []).map(loadPublicKey),
         ...(values["log-key"] ? { logKeys: values["log-key"].map(loadPublicKey) } : {}),
+        ...(values["log-id"] ? { logId: values["log-id"] } : {}),
         ...(values["upstream-key"] ? { upstreamKeys: values["upstream-key"].map(loadPublicKey) } : {}),
         ...(values["stripe-secret-env"] || values["github-secret-env"] ? { providerSecrets: { ...(values["stripe-secret-env"] ? { stripe: secretFrom(values["stripe-secret-env"]) } : {}), ...(values["github-secret-env"] ? { github: secretFrom(values["github-secret-env"]) } : {}) } } : {}),
         ...(values.log ? { logFile: values.log } : {}),
@@ -166,6 +184,7 @@ async function main(argv: string[]): Promise<number> {
           "log-url": { type: "string" },
           "issuer-key": { type: "string", multiple: true },
           "log-key": { type: "string", multiple: true },
+          "log-id": { type: "string" },
           json: { type: "boolean", default: false },
         },
       });
@@ -183,7 +202,7 @@ async function main(argv: string[]): Promise<number> {
         if (!res.ok) throw new Error(`log refused the consistency query: ${res.status}`);
         proof = ((await res.json()) as { hashes: string[] }).hashes;
       }
-      const result = auditExtends(older, newer, proof, keyFiles.map(loadPublicKey));
+      const result = auditExtends(older, newer, proof, keyFiles.map(loadPublicKey), values["log-id"]);
       if (values.json) console.log(JSON.stringify(result, null, 2));
       else {
         for (const c of result.checks) console.log(`${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.detail ? `  (${c.detail})` : ""}`);

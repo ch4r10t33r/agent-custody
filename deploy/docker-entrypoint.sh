@@ -7,6 +7,10 @@ set -eu
 : "${AGENT_CUSTODY_LOG_FILE:=/data/log.jsonl}"
 : "${AGENT_CUSTODY_LOG_KEY:=/data/keys/log.key}"
 : "${AGENT_CUSTODY_LOG_PORT:=8787}"
+# Optional: the id written into every tree head, and a tenants file for several logs behind one server.
+log_id_args=""
+[ -n "${AGENT_CUSTODY_LOG_ID:-}" ] && log_id_args="--log-id $AGENT_CUSTODY_LOG_ID"
+[ -n "${AGENT_CUSTODY_LOG_TENANTS:-}" ] && log_id_args="$log_id_args --tenants $AGENT_CUSTODY_LOG_TENANTS"
 
 key_dir=$(dirname "$AGENT_CUSTODY_LOG_KEY")
 key_name=$(basename "$AGENT_CUSTODY_LOG_KEY" .key)
@@ -21,8 +25,8 @@ echo "agent-custody log: public key (give this to verifiers as --log-key):" >&2
 cat "$key_dir/$key_name.pub" >&2
 
 if [ -n "${AGENT_CUSTODY_LOG_TOKEN:-}" ]; then
-  exec agent-custody log --file "$AGENT_CUSTODY_LOG_FILE" --key "$AGENT_CUSTODY_LOG_KEY" --host 0.0.0.0 --port "$AGENT_CUSTODY_LOG_PORT" --token-env AGENT_CUSTODY_LOG_TOKEN
+  exec agent-custody log --file "$AGENT_CUSTODY_LOG_FILE" --key "$AGENT_CUSTODY_LOG_KEY" --host 0.0.0.0 --port "$AGENT_CUSTODY_LOG_PORT" --token-env AGENT_CUSTODY_LOG_TOKEN $log_id_args
 else
   echo "agent-custody log: WARNING no AGENT_CUSTODY_LOG_TOKEN set; anyone who can reach port $AGENT_CUSTODY_LOG_PORT may append" >&2
-  exec agent-custody log --file "$AGENT_CUSTODY_LOG_FILE" --key "$AGENT_CUSTODY_LOG_KEY" --host 0.0.0.0 --port "$AGENT_CUSTODY_LOG_PORT"
+  exec agent-custody log --file "$AGENT_CUSTODY_LOG_FILE" --key "$AGENT_CUSTODY_LOG_KEY" --host 0.0.0.0 --port "$AGENT_CUSTODY_LOG_PORT" $log_id_args
 fi

@@ -93,3 +93,73 @@ describe("HTTP log sink", () => {
     expect(() => createSdkIssuer({ agentId: "bot", identity: { keyFile: join(dir, "keys", "app.key") }, receiptsDir: join(dir, "r"), log: { url: log.url, tokenEnv: "NOT_SET_ANYWHERE" } })).toThrow(/NOT_SET_ANYWHERE/);
   });
 });
+
+describe("a log run for someone else: hash-only leaves, tenants, and log ids", () => {
+  let dir: string;
+  let log: RunningLog;
+  let logKey: { keyFile: string; pubFile: string };
+  let appPub: string;
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), "log-tenants-"));
+    logKey = writeKeyPair(generateKeyPair(), join(dir, "log-keys"), "log");
+    appPub = writeKeyPair(generateKeyPair(), join(dir, "keys"), "app").pubFile;
+    log = await serveLog(join(dir, "default.jsonl"), loadPrivateKey(logKey.keyFile), {
+      port: 0,
+      logId: "default",
+      tenants: { acme: { file: join(dir, "acme.jsonl"), tokens: ["acme-token"] }, globex: { file: join(dir, "globex.jsonl"), tokens: ["globex-token"], logId: "globex-eu" } },
+    });
+    process.env.TEST_ACME_TOKEN = "acme-token";
+  });
+  afterAll(async () => {
+    await log.close();
+    delete process.env.TEST_ACME_TOKEN;
+  });
+
+  it("with hashOnly the log never sees the receipt: the file holds hashes, and the receipt still verifies against the log's head", async () => {
+    writeFileSync(join(dir, "sdk.json"), JSON.stringify({ agentId: "bot", identity: { keyFile: "keys/app.key" }, receiptsDir: "receipts", log: { url: new URL("t/acme/", log.url).toString(), tokenEnv: "TEST_ACME_TOKEN", hashOnly: true } }));
+    const issuer = createSdkIssuer(loadSdkConfig(join(dir, "sdk.json")));
+    const bundle = await issuer.record({ tool: "crm.lookup", args: { ssn: "SSN-111-22-3333" } }, { status: "executed", result: { plan: "pro" } });
+    const file = readFileSync(join(dir, "acme.jsonl"), "utf8");
+    expect(file).not.toContain("SSN-111-22-3333");
+    expect(file).not.toContain("payloadType");
+    expect(JSON.parse(file.trim().split("\n")[0]!)).toEqual({ hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+    const keys = { issuerKeys: [loadPublicKey(appPub)], principalKeys: [], logKeys: [loadPublicKey(logKey.pubFile)] };
+    expect(failing(verifyBundle(bundle, { ...keys, logFile: join(dir, "acme.jsonl") }))).toEqual([]);
+    // the tree head names the tenant's log; a verifier told which log to expect checks it
+    expect(failing(verifyBundle(bundle, { ...keys, logId: "acme" }))).toEqual([]);
+    const wrong = verifyBundle(bundle, { ...keys, logId: "globex-eu" });
+    expect(failing(wrong)).toEqual(["tree head names the expected log"]);
+    expect(wrong.checks.find((c) => c.name === "tree head names the expected log")?.detail).toBe("log acme");
+  });
+
+  it("tenants are separate logs with separate tokens and ids, and the default log stays at the root paths", async () => {
+    const post = (path: string, token: string | null, body: unknown) => fetch(new URL(path, log.url), { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+    expect((await post("t/globex/append", "acme-token", { leaf: "x" })).status).toBe(401);
+    const g = await post("t/globex/append", "globex-token", { leafHash: "ab".repeat(32) });
+    expect(g.status).toBe(200);
+    const head = JSON.parse(Buffer.from(((await g.json()) as { treeHead: { payload: string } }).treeHead.payload, "base64").toString()) as { log?: string; treeSize: number };
+    expect(head).toMatchObject({ log: "globex-eu", treeSize: 1 });
+    expect((await post("t/nobody/append", null, { leaf: "x" })).status).toBe(404);
+    expect((await post("t/acme/append", "acme-token", { leafHash: "not-hex" })).status).toBe(400);
+    const d = await post("append", null, { leaf: "open default log" });
+    expect(d.status).toBe(200);
+    const dhead = JSON.parse(Buffer.from(((await d.json()) as { treeHead: { payload: string } }).treeHead.payload, "base64").toString()) as { log?: string };
+    expect(dhead.log).toBe("default");
+    const roots = await Promise.all(["t/acme/root", "t/globex/root", "root"].map(async (p) => ((await (await fetch(new URL(p, log.url))).json()) as { treeSize: number }).treeSize));
+    expect(roots).toEqual([1, 1, 1]);
+  });
+
+  it("audit refuses to compare heads from different logs, and checks the expected log when told one", async () => {
+    const issuer = createSdkIssuer(loadSdkConfig(join(dir, "sdk.json")));
+    const older = await issuer.record({ tool: "t", args: { n: 1 } }, { status: "executed", result: null });
+    const newer = await issuer.record({ tool: "t", args: { n: 2 } }, { status: "executed", result: null });
+    const proof = (await (await fetch(new URL(`t/acme/consistency?old=${older.inclusion.treeSize}&new=${newer.inclusion.treeSize}`, log.url))).json()) as { hashes: string[] };
+    const keys = [loadPublicKey(logKey.pubFile)];
+    expect(failingAudit(auditExtends(older.treeHead, newer.treeHead, proof.hashes, keys))).toEqual([]);
+    expect(failingAudit(auditExtends(older.treeHead, newer.treeHead, proof.hashes, keys, "acme"))).toEqual([]);
+    expect(failingAudit(auditExtends(older.treeHead, newer.treeHead, proof.hashes, keys, "globex-eu"))).toEqual(["both tree heads name the expected log"]);
+    const globexHead = ((await (await fetch(new URL("t/globex/head", log.url))).json()) as { treeHead: import("../src/crypto.ts").Envelope }).treeHead;
+    expect(failingAudit(auditExtends(older.treeHead, globexHead, [], keys))).toContain("both tree heads name the same log");
+  });
+});

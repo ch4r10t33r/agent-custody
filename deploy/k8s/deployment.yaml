@@ -26,6 +26,7 @@ spec:
             - { name: AGENT_CUSTODY_LOG_FILE, value: /data/log.jsonl }
             - { name: AGENT_CUSTODY_LOG_KEY, value: /data/keys/log.key }
             - { name: AGENT_CUSTODY_LOG_PORT, value: "8787" }
+            - { name: AGENT_CUSTODY_LOG_ID, value: log.example.com }
             - name: AGENT_CUSTODY_LOG_TOKEN
               valueFrom:
                 secretKeyRef: { name: agent-custody-log, key: AGENT_CUSTODY_LOG_TOKEN }

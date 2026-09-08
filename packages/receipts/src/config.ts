@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 /** Where receipts are logged: a local file, or a log reached over HTTP whose bearer token comes from an environment variable. */
-const LogSchema = z.object({ url: z.string().url(), tokenEnv: z.string().min(1).optional() });
+const LogSchema = z.object({ url: z.string().url(), tokenEnv: z.string().min(1).optional(), /** send leaf hashes only; the log never holds the receipt. Use it for any log run by someone else */ hashOnly: z.boolean().optional() });
 const oneLog = { message: "exactly one of logFile or log is required" };
 /** Optional OpenTelemetry export: every receipt also becomes a span at this OTLP/HTTP collector, after it is issued. Never on the evidence path. */
 const OtelSchema = z.object({ url: z.string().url(), headersEnv: z.record(z.string(), z.string().min(1)).optional(), serviceName: z.string().min(1).optional() });

@@ -23,6 +23,7 @@ services:
       AGENT_CUSTODY_LOG_FILE: /data/log.jsonl
       AGENT_CUSTODY_LOG_KEY: /data/keys/log.key
       AGENT_CUSTODY_LOG_PORT: "8787"
+      AGENT_CUSTODY_LOG_ID: ${AGENT_CUSTODY_LOG_ID:-}
     volumes:
       - logdata:/data
     ports:

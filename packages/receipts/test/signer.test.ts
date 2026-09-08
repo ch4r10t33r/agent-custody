@@ -131,6 +131,7 @@ describe("checkpoints", () => {
   it("in Postgres the checkpoints are rows too, listed from the table", async () => {
     const db = new PGlite();
     try {
+      await db.query("SELECT 1"); // engine load, paid up front
       const tenancy = new PostgresTenancy(db);
       await tenancy.addTenant("default", "pg-log");
       const tok = (await tenancy.addToken("default", "t")).token;
@@ -155,5 +156,5 @@ describe("checkpoints", () => {
     } finally {
       await db.close();
     }
-  });
+  }, 30_000);
 });

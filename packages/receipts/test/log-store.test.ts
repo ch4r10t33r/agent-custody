@@ -12,9 +12,11 @@ import { httpLog, postgresResolver, serveLog, type RunningLog } from "../src/log
 import { importLogFile, PostgresLog, PostgresTenancy, RateLimiter } from "../src/log-store.ts";
 
 let db: PGlite;
-beforeAll(() => {
+// PGlite's first query loads the engine, which can take seconds on a loaded machine; pay it here, not in a test.
+beforeAll(async () => {
   db = new PGlite();
-});
+  await db.query("SELECT 1");
+}, 60_000);
 afterAll(async () => {
   await db.close();
 });
@@ -35,7 +37,7 @@ describe("PostgresLog", () => {
     expect(await pg.consistencyProof(5, 9)).toEqual(file.consistencyProof(5, 9));
     expect(verifyConsistency(5, await pg.root(5), 9, await pg.root(9), await pg.consistencyProof(5, 9))).toBe(true);
     await expect(pg.appendHash("nope")).rejects.toThrow(/64 lowercase hex/);
-  });
+  }, 20_000);
 
   it("a second instance on the same tenant sees the first's leaves and appends after them, never over them", async () => {
     const one = new PostgresLog(db, "shared");

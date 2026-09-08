@@ -251,6 +251,6 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 
 **Next, in the order it pays off**
 
-1. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
-2. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane, with SSO, SCIM, residency, and SIEM export. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
+1. The hosted plane, behind early access: tenanted log, then memory, then reports and a control plane, with SSO, SCIM, residency, and SIEM export. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
+2. Write-through adapters for Letta, LangMem, and Cognee, one per user who asks. [Issue #4](https://github.com/ch4r10t33r/agent-custody/issues/4).
 

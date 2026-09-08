@@ -283,9 +283,11 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 
 **Next, in the order it pays off**
 
-1. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
-2. Delegation chains for sub-agents.
-3. Receiver-attested receipts for agent-to-agent calls.
-4. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
+1. A log run by someone who is not the operator, hosted: a tenant with a bearer token per fleet, consistency proofs served, retention. The reference log server is here; the tenanted service is [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6), and it comes before everything below.
+2. Post-quantum signatures: ML-DSA beside Ed25519 in the same DSSE envelope, hybrid by default when a PQ key is present, in every signed artefact and in the browser verifier. [Issue #11](https://github.com/ch4r10t33r/agent-custody/issues/11).
+3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
+4. Delegation chains for sub-agents.
+5. Receiver-attested receipts for agent-to-agent calls.
+6. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
 
 A Python SDK follows the same shape once the TypeScript adapters have settled.

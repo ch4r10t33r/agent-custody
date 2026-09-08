@@ -2,6 +2,15 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.3.0 — 2026-09-08
+
+- **Receipts:** pre-commit authorization for consequential tools. Name them in `precommit` (or `*`) and the gateway signs an authorization statement and appends it to the log before forwarding the call; if the log will not take it the call is withheld, nothing goes upstream, and the receipt records `allow` beside `withheld`. The receipt embeds the committed authorization with its inclusion proof, and the verifier adds five checks that it is the issuer's, names this call, is in the log, and precedes the receipt. Mirrored in the browser verifier; three new conformance vectors; tutorial 16. Evidence now precedes the side effect for the calls where that matters.
+- **State:** `agent-custody-memory explain`. From a receipt id: who acted, who authorized it, what was allowed, what the agent saw, what it did, why, the evidence, whether it verifies, what depended on it, and what needs reversal. The first eight come from the receipt alone; the last two from the ledger, and without one they read "unknown". `--out --sign` writes the same as one signed action pack with every downstream receipt inside; `--verify` checks it as a whole.
+- **Receipts:** the REST connector. An upstream may be a plain HTTP API described as tools, `{ "rest": { "baseUrl", "headerEnv", "tools": [...] } }`, credentials read from the environment at startup. Scope, policy on the gateway's own lookups, pre-commit, and receipts apply unchanged, and a REST upstream sits beside MCP upstreams behind one grant. Tutorial 17.
+- **Receipts:** OpenTelemetry export. `otel` in a gateway or SDK config sends one OTLP/HTTP span per receipt to the collector you already run, trace id equal to the receipt id, after the receipt and never on the evidence path. No OpenTelemetry SDK dependency. Tutorial 18.
+- **Site:** the landing page leads with proof of what an agent did, the six steps a call goes through, and the questions every receipt answers.
+- **Python:** unchanged; released in step.
+
 ## 0.2.0 — 2026-09-07
 
 - **State, breaking:** the ledger is asynchronous. Every method returns a promise, `size` is `count()`, `close()` and `export()` return promises, and `blastRadius` and `buildPack` are awaited. Code written against 0.1.x must add `await`; nothing else changes.

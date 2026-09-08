@@ -27,6 +27,7 @@ Suggested reading order is the numbering. Output lands in `examples-out/`, which
 | 15 | agents in other languages | [15-sidecar.ts](../examples/15-sidecar.ts) | the sidecar on a free port, a client written as a Python or Go program would write it: decide, run, record; a denial recorded without running the tool; both receipts verified | `src/sidecar.ts` |
 | 16 | consequential tools, committed first | [16-precommit.ts](../examples/16-precommit.ts) | a refund named in `precommit`: the authorization leaf before the receipt leaf, the five authorization checks in the report, and the same call withheld when the log refuses | `src/gateway.ts`, `src/issue.ts`, `src/verify.ts` |
 | 17 | a REST API as an upstream | [17-rest-upstream.ts](../examples/17-rest-upstream.ts) | a stand-in payments API described as two tools, the token from the environment, a refund allowed on the gateway's own lookup and one denied before reaching the API, the receipt verified | `src/rest.ts`, `src/gateway.ts` |
+| 18 | OpenTelemetry export | [18-opentelemetry.ts](../examples/18-opentelemetry.ts) | a stand-in OTLP collector, `otel` in the config, one span per receipt with the receipt id as trace id, the collector going away and the next receipt still issued | `src/otel.ts`, `src/issue.ts` |
 
 ## How policies are defined, in one paragraph
 

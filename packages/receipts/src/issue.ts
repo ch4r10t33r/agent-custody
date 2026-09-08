@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { canonicalize, dsseSign, type KeyPair } from "./crypto.ts";
 import { fileLog, type LogSink } from "./log-sink.ts";
+import type { ReceiptExporter } from "./otel.ts";
 import { buildAuthorizationStatement, buildStatement, RECEIPT_TYPE, type AuthorizationBundle, type AuthorizationPredicate, type ReceiptBundle, type ReceiptPredicate } from "./receipt.ts";
 
 export interface Issuer {
@@ -14,8 +15,13 @@ export interface Issuer {
   authorize(predicate: AuthorizationPredicate): Promise<AuthorizationBundle>;
 }
 
+export interface IssuerOptions {
+  /** told about every receipt after it is written; an exporter's failure never reaches the caller */
+  exporter?: ReceiptExporter | undefined;
+}
+
 /** `log` is a sink, or a file path for the local log with tree heads signed by the issuer's key. */
-export function createIssuer(key: KeyPair, receiptsDir: string, log: string | LogSink): Issuer {
+export function createIssuer(key: KeyPair, receiptsDir: string, log: string | LogSink, opts: IssuerOptions = {}): Issuer {
   const sink = typeof log === "string" ? fileLog(log, key) : log;
   mkdirSync(receiptsDir, { recursive: true });
   return {
@@ -26,6 +32,8 @@ export function createIssuer(key: KeyPair, receiptsDir: string, log: string | Lo
       const entry = await sink.append(canonicalize(envelope));
       const bundle: ReceiptBundle = { envelope, treeHead: entry.treeHead, inclusion: entry.inclusion };
       writeFileSync(join(receiptsDir, `${predicate.receiptId}.json`), JSON.stringify(bundle, null, 2));
+      // After the evidence, not before, and awaited so a process that exits right after issuing still exports.
+      if (opts.exporter) await opts.exporter.exported(predicate, bundle).catch(() => {});
       return bundle;
     },
     async authorize(predicate) {

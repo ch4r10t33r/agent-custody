@@ -3,6 +3,9 @@ export { AUTHORIZATION_PREDICATE_TYPE, buildAuthorizationStatement } from "./rec
 export type { AuthorizationBundle, AuthorizationPredicate, AuthorizationStatement } from "./receipt.ts";
 export type { GatewayOptions } from "./gateway.ts";
 export { buildRequest, restUpstream } from "./rest.ts";
+export { openExporter, otlpExporter, spanFor } from "./otel.ts";
+export type { OtelConfig, OtlpOptions, ReceiptExporter } from "./otel.ts";
+export type { IssuerOptions } from "./issue.ts";
 export type { RestOptions, UpstreamClient } from "./rest.ts";
 export * from "./config.ts";
 export * from "./crypto.ts";

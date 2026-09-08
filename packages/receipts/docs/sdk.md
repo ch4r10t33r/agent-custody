@@ -30,6 +30,8 @@ Use the SDK for reach. Use the gateway for anything that moves money, touches pr
 
 `policyFile` and `principalId` are optional. Without a policy the SDK records and never denies. Paths resolve relative to the config file. Instead of `logFile`, `"log": { "url": "https://log.example.com/", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN" }` sends every leaf to a log run by someone else, whose key then signs the tree heads; see [usage.md](usage.md) for what that changes and [verification.md](verification.md) for what it proves. Generate the key with `node src/cli.ts keygen --dir keys --name app`.
 
+`"otel": { "url": "http://localhost:4318" }` additionally exports every receipt as one span to that OTLP/HTTP collector, after the receipt is written, with the receipt id as the trace id; see the [usage guide](usage.md#setup-step-by-step) for the fields. Export never blocks or fails a receipt.
+
 Policies see `context.args` and an empty `context.facts`. A policy that reads `context.facts` or `context.grant` errors, which is a deny. That is intended: an SDK policy cannot pretend it checked something outside the agent's process.
 
 ## Claude Code

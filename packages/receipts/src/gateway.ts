@@ -13,6 +13,7 @@ import { digestOf, loadPrivateKey, loadPublicKey, type Envelope } from "./crypto
 import { delegationValidAt, verifyDelegation, type Delegation } from "./delegation.ts";
 import { createIssuer } from "./issue.ts";
 import { openLog, type LogSink } from "./log-sink.ts";
+import { openExporter, type ReceiptExporter } from "./otel.ts";
 import { upstreamEvidenceOf } from "./upstream.ts";
 import { restUpstream, type UpstreamClient } from "./rest.ts";
 import { evaluate, policyDigest, type PolicyDecision } from "./policy.ts";
@@ -75,6 +76,8 @@ function extractValue(result: CallToolResult): unknown {
 export interface GatewayOptions {
   /** the log to append to, in place of the one the config names; for embedding and tests */
   log?: LogSink;
+  /** told about every receipt after it is written, in place of the exporter the config names */
+  exporter?: ReceiptExporter;
 }
 
 export async function createGateway(cfg: GatewayConfig, options: GatewayOptions = {}): Promise<Gateway> {
@@ -89,7 +92,7 @@ export async function createGateway(cfg: GatewayConfig, options: GatewayOptions 
 
   const policyText = readFileSync(cfg.policyFile, "utf8");
   const pDigest = policyDigest(policyText);
-  const issuer = createIssuer(gatewayKey, cfg.receiptsDir, options.log ?? openLog(cfg, gatewayKey));
+  const issuer = createIssuer(gatewayKey, cfg.receiptsDir, options.log ?? openLog(cfg, gatewayKey), { exporter: options.exporter ?? openExporter(cfg) });
   const precommit = new Set(cfg.precommit);
   const consequential = (tool: string) => precommit.has("*") || precommit.has(tool);
 

@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import type { SdkConfig } from "../config.ts";
 import { digestOf, loadPrivateKey } from "../crypto.ts";
 import { createIssuer } from "../issue.ts";
+import { openExporter } from "../otel.ts";
 import { openLog, type LogSink } from "../log-sink.ts";
 import { evaluate, type PolicyDecision } from "../policy.ts";
 import type { ReceiptBundle, ReceiptPredicate } from "../receipt.ts";
@@ -51,7 +52,7 @@ export class PolicyDeniedError extends Error {
 
 export function createSdkIssuer(cfg: SdkConfig): SdkIssuer {
   const key = loadPrivateKey(cfg.identity.keyFile);
-  const issuer = createIssuer(key, cfg.receiptsDir, openLog(cfg, key));
+  const issuer = createIssuer(key, cfg.receiptsDir, openLog(cfg, key), { exporter: openExporter(cfg) });
   const policyText = cfg.policyFile ? readFileSync(cfg.policyFile, "utf8") : null;
 
   const decide = (ev: ToolEvent): PolicyDecision | null =>

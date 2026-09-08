@@ -1,0 +1,44 @@
+# The witness: run this on a machine, and under an account, that the log's operator does not control. It watches
+# the log's published checkpoints, countersigns each one after proving it extends the last one it signed, and
+# serves what it signed from its own host. A verifier who requires the witness's signature is protected against the
+# log's operator rewriting history or showing two histories. Same image as the log, ROLE=witness.
+#
+#   cp .env.example .env    # WITNESS_HOST, the log's URLs, which logs to watch
+#   docker compose up -d
+
+name: agent-custody-witness
+
+services:
+  witness:
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.4}
+    restart: unless-stopped
+    environment:
+      ROLE: witness
+      AGENT_CUSTODY_LOG_KEY: /data/keys/witness.key
+      WITNESS_LOG_URL: ${WITNESS_LOG_URL:?the log's API base, e.g. https://log.example.com/}
+      WITNESS_CHECKPOINTS_URL: ${WITNESS_CHECKPOINTS_URL:?where the log publishes checkpoints, e.g. https://checkpoints.example.com/}
+      WITNESS_TENANTS: ${WITNESS_TENANTS:-default}
+      WITNESS_EVERY: ${WITNESS_EVERY:-300}
+    volumes:
+      - witnessdata:/data
+      - witnessed:/witnessed
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      WITNESS_HOST: ${WITNESS_HOST:?the witness's public host, e.g. witness.example.org}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - witnessed:/srv/witnessed:ro
+
+volumes:
+  witnessdata:
+  witnessed:
+  caddy_data:
+  caddy_config:

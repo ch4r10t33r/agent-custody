@@ -74,6 +74,10 @@ kubectl -n agent-custody logs deploy/agent-custody-log | grep -A3 "public key"
 
 One replica, `Recreate` strategy, a `ReadWriteOnce` volume: the file log has one writer, and this keeps it that way. When the Postgres-backed store lands (#6, phase 2), the deployment gains a `DATABASE_URL` and the volume holds only the key.
 
+## The witness, on someone else's machine
+
+`deploy/witness/` is a separate compose stack: the same image with `ROLE=witness`, and a Caddy serving what it signs. It belongs on a machine and under an account that the log's operator does not control; run on the log's own machine it proves nothing. It needs the log's API URL, the checkpoints URL, and the tenants to watch, generates its own key on first start, and publishes that key at `/.well-known/agent-custody-witness.json` on its host. Every five minutes it fetches each watched log's latest checkpoint, proves it extends the last head it signed with the log's own consistency proof, and countersigns it; a checkpoint that does not extend, or a second history at the same size, gets an `ALARM.json` on the host instead of a signature. Verifiers add `--witness-url https://witness.example.org/` to `audit` and the newer head must then carry the witness's signature. `audit --older` and `--newer` accept checkpoint files from either host as well as receipt bundles.
+
 ## Hetzner now, AWS later
 
 Yes, and it is the right order. Nothing here depends on a cloud provider: a container, a volume, a hostname, and a certificate. A Hetzner VM runs the compose file as written; Hetzner's S3-compatible Object Storage is where the checkpoint publisher (#6, phase 3) writes signed heads. Moving to AWS later, when a tenant's procurement asks for it or an integration needs it, is:
@@ -94,4 +98,4 @@ Migration is a volume copy and a DNS change because the design keeps the state i
 | 3 | signer process, well-known keys, checkpoint publisher | done: the `signer` service holds the key; the log publishes checkpoints to a volume Caddy serves at `CHECKPOINTS_HOST`; verifiers use `--log-url` |
 | 4 | | this is the deployment, running at log.agent-custody.dev |
 | 5 | | `onboard-tenant.sh` creates a tenant and prints the welcome sheet |
-| 6 | witness | a second, separately operated deployment of the signer |
+| 6 | witness | done: `deploy/witness/` is its own compose stack for a machine the operator does not control; `ROLE=witness` in the same image |

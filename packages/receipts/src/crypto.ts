@@ -99,6 +99,26 @@ export function dsseSign(payloadType: string, payloadObj: unknown, kp: KeyPair):
   };
 }
 
+/** Adds a signature over the same payload: a countersignature, the DSSE way. The envelope keeps every earlier signature. */
+export function dsseCountersign(env: Envelope, kp: KeyPair): Envelope {
+  const payload = Buffer.from(env.payload, "base64");
+  const sig = sign(null, pae(env.payloadType, payload), kp.privateKey);
+  return { ...env, signatures: [...env.signatures.filter((s) => s.keyid !== kp.keyid), { keyid: kp.keyid, sig: sig.toString("base64") }] };
+}
+
+/** Every trusted key whose signature on the envelope verifies, by keyid. Empty when none does. */
+export function dsseVerifiers(env: Envelope, trusted: PublicKeyRef[]): string[] {
+  if (!env || typeof env.payload !== "string" || !Array.isArray(env.signatures)) return [];
+  const payload = Buffer.from(env.payload, "base64");
+  const data = pae(env.payloadType, payload);
+  const out: string[] = [];
+  for (const s of env.signatures) {
+    const key = trusted.find((t) => t.keyid === s.keyid);
+    if (key && verify(null, data, key.publicKey, Buffer.from(s.sig, "base64"))) out.push(s.keyid);
+  }
+  return out;
+}
+
 export type DsseVerifyResult =
   | { ok: true; payload: unknown; keyid: string }
   | { ok: false; error: string };

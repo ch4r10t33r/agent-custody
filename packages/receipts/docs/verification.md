@@ -163,7 +163,7 @@ An inclusion proof says a receipt was in the log at one moment. It does not say 
 node src/cli.ts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log log.jsonl --issuer-key keys/gateway.pub
 node src/cli.ts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log-url https://log.example.com/t/acme/ --log-id acme
 
-`--log-url` also fetches the log's published keys from `/.well-known/agent-custody-log.json` and pins them by keyid, so no key file changes hands; `--log-key` still works for a key you were handed. The same flag on `verify` does the same for a receipt.
+A witness that countersigns the log's checkpoints from a machine the operator does not control is required with `--witness-url https://witness.example.org/` or `--witness-key witness.pub`: the check `newer tree head countersigned by a witness` then has to pass, and `--newer` may be a checkpoint file from the witness's host. `--log-url` also fetches the log's published keys from `/.well-known/agent-custody-log.json` and pins them by keyid, so no key file changes hands; `--log-key` still works for a key you were handed. The same flag on `verify` does the same for a receipt.
 ```
 
 Both tree heads must be signed by a trusted key. With `--log` the proof is computed from a copy of the log; with `--log-url` it is fetched from the log's `GET /consistency?old=M&new=N`. Exit code 0 means the newer log extends the older one. A failure means either history was rewritten between the two heads or the proof belongs to other tree heads; example 14 shows a rewritten log failing this way while every individual receipt still verifies.

@@ -243,16 +243,29 @@ async function rootOf(hashes: Bytes[], size: number): Promise<string> {
 }
 
 export interface AuditResult { ok: boolean; checks: Check[] }
-export async function auditExtends(older: Envelope, newer: Envelope, proof: string[], keys: PublicKey[]): Promise<AuditResult> {
+export async function auditExtends(older: Envelope, newer: Envelope, proof: string[], keys: PublicKey[], logId?: string, opts: { witnessKeys?: PublicKey[] } = {}): Promise<AuditResult> {
   const checks: Check[] = [];
   const add = (name: string, ok: boolean, detail?: string) => { checks.push(detail === undefined ? { name, ok } : { name, ok, detail }); return ok; };
   const decode = async (label: string, env: Envelope) => { const v = await dsseVerify(env, keys); add(`${label} tree head signature`, v.ok && env.payloadType === TREEHEAD_TYPE, v.ok ? `keyid ${short(v.keyid)}` : v.error); return v.ok ? v.payload : null; };
   const a = await decode("older", older);
   const b = await decode("newer", newer);
   if (!a || !b) return { ok: false, checks };
+  if (logId !== undefined) add("both tree heads name the expected log", a.log === logId && b.log === logId, `expected ${logId}, got ${a.log ?? "none"} and ${b.log ?? "none"}`);
+  else if (a.log !== b.log) add("both tree heads name the same log", false, `${a.log ?? "none"} and ${b.log ?? "none"}`);
   if (!add("older is not larger than newer", a.treeSize <= b.treeSize, `${a.treeSize} -> ${b.treeSize}`)) return { ok: false, checks };
   const consistent = await verifyConsistency(a.treeSize, a.rootHash, b.treeSize, b.rootHash, proof);
   add("newer log extends older log", consistent, consistent ? `${proof.length} proof hashes` : "history was rewritten, or the proof is for other tree heads");
+  if (opts.witnessKeys && opts.witnessKeys.length > 0) {
+    // every witness key whose signature on the newer head verifies
+    const by: string[] = [];
+    for (const s of newer.signatures) {
+      const k = opts.witnessKeys.find((w) => w.keyid === s.keyid);
+      if (!k) continue;
+      const payload = b64.decode(newer.payload);
+      if (await subtle().verify({ name: "Ed25519" }, k.key, b64.decode(s.sig), pae(newer.payloadType, payload))) by.push(s.keyid);
+    }
+    add("newer tree head countersigned by a witness", by.length > 0, by.length ? `witness ${short(by[0]!)}` : "no witness signature on the newer head");
+  }
   return { ok: checks.every((c) => c.ok), checks };
 }
 

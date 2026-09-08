@@ -10,12 +10,13 @@ import { postgresResolver, serveLog } from "./log-sink.ts";
 import { importLogFile, PostgresTenancy, type PostgresLike } from "./log-store.ts";
 import { bothCheckpoints, dirCheckpoints, postgresCheckpoints, type CheckpointStore } from "./checkpoints.ts";
 import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey, type Signer } from "./signer.ts";
+import { fetchWitnessKeys, Witness } from "./witness.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
 import { createRequire } from "node:module";
 import { pruneLog } from "./retention.ts";
 import { serveSidecar } from "./sidecar.ts";
-import type { ReceiptBundle, TreeHead } from "./receipt.ts";
+import { TREEHEAD_TYPE, type ReceiptBundle, type TreeHead } from "./receipt.ts";
 import type { Envelope } from "./crypto.ts";
 import { MerkleLog } from "./log.ts";
 import { createSdkIssuer } from "./sdk/index.ts";
@@ -50,13 +51,18 @@ const USAGE = `agent-custody <command>
   log     ... --db-env NAME --admin-token-env NAME [--public-url <https://log.example.com/>] [--checkpoints-url <https://checkpoints.example.com/>]
                                                  the operator's admin page at /admin and its API, behind the admin token: tenants, tokens shown once,
                                                  the welcome sheet; the public URLs fill the sheet in
+  witness --key <witness.key> --log-url <url> --checkpoints-url <url> --out <dir> [--tenant <name>]... [--every <seconds>] [--once]
+                                                 a second signer, run by someone who is not the log's operator: fetches the log's latest
+                                                 checkpoint per watched log, proves it extends the last one it signed, and countersigns it
+                                                 into <dir>; refuses and writes an alarm otherwise. Serve <dir> from a host of your own.
   signer  --key <log.key> --port 8790 [--host 127.0.0.1] [--token-env NAME] [--retired-key <pub>]...
                                                  the one process that holds the log's key: POST /sign, GET /keys
   log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id>
   log-admin --db-env NAME token add <tenant> --label <text> | token list <tenant> | token revoke <tenant> <hash-prefix>
   log-admin --db-env NAME import --file <log.jsonl> [--tenant default]      copies a file log into the database as hashes
-  audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) [--issuer-key <pub>] [--log-key <pub>] [--log-id <id>] [--json]
-                                                 with --log-url the log's published keys are fetched and pinned by keyid
+  audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) [--issuer-key <pub>] [--log-key <pub>] [--log-id <id>] [--witness-key <pub> | --witness-url <url>] [--json]
+                                                 with --log-url the log's published keys are fetched and pinned by keyid; with a witness key or
+                                                 URL the newer head must also carry the witness's countersignature
           checks that the newer receipt's log extends the older one's: nothing between them was rewritten
 `;
 
@@ -154,6 +160,23 @@ async function main(argv: string[]): Promise<number> {
       console.error(`agent-custody serve: ${running.url} agent=${issuer.agentId} keyid=${issuer.keyid} log=${issuer.log.kind}:${issuer.log.where}`);
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       await running.close();
+      return 0;
+    }
+    case "witness": {
+      const { values } = parseArgs({ args: rest, options: { key: { type: "string" }, "log-url": { type: "string" }, "checkpoints-url": { type: "string" }, out: { type: "string" }, tenant: { type: "string", multiple: true }, every: { type: "string", default: "300" }, once: { type: "boolean", default: false } } });
+      if (!values.key || !values["log-url"] || !values["checkpoints-url"] || !values.out) throw new Error("witness needs --key, --log-url, --checkpoints-url, and --out");
+      const w = new Witness({ logUrl: values["log-url"], checkpointsUrl: values["checkpoints-url"], tenants: values.tenant?.length ? values.tenant : ["default"], key: loadPrivateKey(values.key), outDir: values.out });
+      const everyMs = Number(values.every) * 1000;
+      if (!(everyMs > 0)) throw new Error("--every must be a positive number of seconds");
+      if (values.once) {
+        const outcomes = await w.runOnce();
+        for (const o of outcomes) console.log(`${o.tenant.padEnd(20)} ${o.outcome}${"treeSize" in o ? ` at ${o.treeSize}` : ""}${"reason" in o ? `: ${o.reason}` : ""}`);
+        return outcomes.some((o) => o.outcome === "refused") ? 1 : 0;
+      }
+      console.error(`agent-custody witness: keyid=${w.keyid} watching ${values["log-url"]} via ${values["checkpoints-url"]} every ${values.every}s, writing to ${values.out}`);
+      w.start(everyMs);
+      await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+      w.stop();
       return 0;
     }
     case "signer": {
@@ -310,16 +333,26 @@ async function main(argv: string[]): Promise<number> {
           "issuer-key": { type: "string", multiple: true },
           "log-key": { type: "string", multiple: true },
           "log-id": { type: "string" },
+          "witness-key": { type: "string", multiple: true },
+          "witness-url": { type: "string" },
           json: { type: "boolean", default: false },
         },
       });
       const keyFiles = [...(values["issuer-key"] ?? []), ...(values["log-key"] ?? [])];
       if (!values.older || !values.newer) throw new Error("audit needs --older and --newer");
+      const witnessKeys = [...(values["witness-key"] ?? []).map(loadPublicKey), ...(values["witness-url"] ? await fetchWitnessKeys(values["witness-url"]) : [])];
       if (!values.log === !values["log-url"]) throw new Error("audit needs exactly one of --log or --log-url");
       const auditKeys = [...keyFiles.map(loadPublicKey), ...(values["log-url"] ? (await fetchLogKeys(values["log-url"])).keys : [])];
       if (auditKeys.length === 0) throw new Error("audit needs a key: --issuer-key, --log-key, or a --log-url that publishes its keys");
-      const older = (JSON.parse(readFileSync(values.older, "utf8")) as ReceiptBundle).treeHead;
-      const newer = (JSON.parse(readFileSync(values.newer, "utf8")) as ReceiptBundle).treeHead;
+      // --older and --newer take a receipt bundle, or a checkpoint file from the log's or the witness's host
+      const headOf = (file: string): Envelope => {
+        const j = JSON.parse(readFileSync(file, "utf8")) as { treeHead?: Envelope; envelope?: Envelope };
+        if (j.treeHead) return j.treeHead;
+        if (j.envelope && j.envelope.payloadType === TREEHEAD_TYPE) return j.envelope;
+        throw new Error(`${file} is neither a receipt bundle nor a checkpoint`);
+      };
+      const older = headOf(values.older);
+      const newer = headOf(values.newer);
       const sizeOf = (env: Envelope) => (JSON.parse(Buffer.from(env.payload, "base64").toString()) as TreeHead).treeSize;
       const [m, n] = [sizeOf(older), sizeOf(newer)];
       let proof: string[];
@@ -329,7 +362,7 @@ async function main(argv: string[]): Promise<number> {
         if (!res.ok) throw new Error(`log refused the consistency query: ${res.status}`);
         proof = ((await res.json()) as { hashes: string[] }).hashes;
       }
-      const result = auditExtends(older, newer, proof, auditKeys, values["log-id"]);
+      const result = auditExtends(older, newer, proof, auditKeys, values["log-id"], witnessKeys.length ? { witnessKeys } : {});
       if (values.json) console.log(JSON.stringify(result, null, 2));
       else {
         for (const c of result.checks) console.log(`${c.ok ? "PASS" : "FAIL"}  ${c.name}${c.detail ? `  (${c.detail})` : ""}`);

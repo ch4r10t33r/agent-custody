@@ -23,6 +23,17 @@ if [ -n "${ADMIN_TOKEN:-}" ]; then
 fi
 # Checkpoints go to this directory (served by the checkpoints host) every AGENT_CUSTODY_CHECKPOINT_EVERY seconds.
 [ -n "${AGENT_CUSTODY_CHECKPOINT_DIR:-}" ] && log_id_args="$log_id_args --checkpoint-dir $AGENT_CUSTODY_CHECKPOINT_DIR --checkpoint-every ${AGENT_CUSTODY_CHECKPOINT_EVERY:-300}"
+# ROLE=witness runs the witness: countersigns the log's checkpoints into /witnessed, served by the witness host.
+if [ "${ROLE:-log}" = "witness" ]; then
+  key_dir=$(dirname "$AGENT_CUSTODY_LOG_KEY"); key_name=$(basename "$AGENT_CUSTODY_LOG_KEY" .key)
+  mkdir -p "$key_dir" /witnessed
+  [ -f "$AGENT_CUSTODY_LOG_KEY" ] || agent-custody keygen --dir "$key_dir" --name "$key_name" >&2
+  echo "agent-custody witness: public key (verifiers fetch it from the witness host's /.well-known/agent-custody-witness.json):" >&2
+  cat "$key_dir/$key_name.pub" >&2
+  tenant_args=""
+  for t in $(printf '%s' "${WITNESS_TENANTS:-default}" | tr ',' ' '); do tenant_args="$tenant_args --tenant $t"; done
+  exec agent-custody witness --key "$AGENT_CUSTODY_LOG_KEY" --log-url "$WITNESS_LOG_URL" --checkpoints-url "$WITNESS_CHECKPOINTS_URL" --out /witnessed --every "${WITNESS_EVERY:-300}" $tenant_args
+fi
 # ROLE=signer runs the signer instead of the log; the log then signs through AGENT_CUSTODY_SIGNER_URL.
 if [ "${ROLE:-log}" = "signer" ]; then
   key_dir=$(dirname "$AGENT_CUSTODY_LOG_KEY"); key_name=$(basename "$AGENT_CUSTODY_LOG_KEY" .key)

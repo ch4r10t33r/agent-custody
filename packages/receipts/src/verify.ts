@@ -1,5 +1,5 @@
 // Independent verification of a receipt bundle. Needs only public keys, and optionally a copy of the log.
-import { canonicalize, digestOf, dsseVerify, type Envelope, type PublicKeyRef } from "./crypto.ts";
+import { canonicalize, digestOf, dsseVerifiers, dsseVerify, type Envelope, type PublicKeyRef } from "./crypto.ts";
 import { delegationValidAt, verifyDelegation } from "./delegation.ts";
 import { leafHash, MerkleLog, verifyConsistency, verifyInclusion } from "./log.ts";
 import { checkProvider, checkUpstream, contentDigest, isProviderAttestation, type ProviderSecrets } from "./upstream.ts";
@@ -153,7 +153,12 @@ export interface AuditResult {
  * Does the newer tree head extend the older one? Both must be signed by a trusted log or issuer key, and the proof
  * must be the log's consistency proof between the two sizes. A pass means nothing in the older log was rewritten.
  */
-export function auditExtends(older: Envelope, newer: Envelope, proof: string[], keys: PublicKeyRef[], logId?: string): AuditResult {
+export interface AuditOptions {
+  /** with these, the newer head must also carry a signature by one of them: a witness that is not the log's operator */
+  witnessKeys?: PublicKeyRef[];
+}
+
+export function auditExtends(older: Envelope, newer: Envelope, proof: string[], keys: PublicKeyRef[], logId?: string, opts: AuditOptions = {}): AuditResult {
   const checks: Check[] = [];
   const add = (name: string, ok: boolean, detail?: string) => {
     checks.push(detail === undefined ? { name, ok } : { name, ok, detail });
@@ -172,6 +177,10 @@ export function auditExtends(older: Envelope, newer: Envelope, proof: string[], 
   if (!add("older is not larger than newer", a.treeSize <= b.treeSize, `${a.treeSize} -> ${b.treeSize}`)) return { ok: false, checks, older: a, newer: b };
   const consistent = verifyConsistency(a.treeSize, a.rootHash, b.treeSize, b.rootHash, proof);
   add("newer log extends older log", consistent, consistent ? `${proof.length} proof hashes` : "history was rewritten, or the proof is for other tree heads");
+  if (opts.witnessKeys && opts.witnessKeys.length > 0) {
+    const by = dsseVerifiers(newer, opts.witnessKeys);
+    add("newer tree head countersigned by a witness", by.length > 0, by.length ? `witness ${short(by[0]!)}` : "no witness signature on the newer head");
+  }
   return { ok: checks.every((c) => c.ok), checks, older: a, newer: b };
 }
 

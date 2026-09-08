@@ -6,15 +6,15 @@ FROM node:22-alpine
 ARG AGENT_CUSTODY_VERSION=0.3.0
 RUN npm install -g "@agent-custody/receipts@${AGENT_CUSTODY_VERSION}" pg@8 \
   && adduser -D -u 10001 custody \
-  && mkdir -p /data/keys /checkpoints \
-  && chown -R custody:custody /data /checkpoints
+  && mkdir -p /data/keys /checkpoints /witnessed \
+  && chown -R custody:custody /data /checkpoints /witnessed
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 USER custody
 WORKDIR /data
-VOLUME ["/data", "/checkpoints"]
+VOLUME ["/data", "/checkpoints", "/witnessed"]
 EXPOSE 8787
 
 # Every setting is an environment variable, so compose and Kubernetes configure it the same way.

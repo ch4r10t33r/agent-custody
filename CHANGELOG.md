@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.4 — 2026-09-08
+
+- **Receipts:** the witness. `agent-custody witness` runs on a machine the log's operator does not control, fetches each watched log's latest published checkpoint, verifies it against the log's published keys, proves with the log's own consistency proof that it extends the last head the witness signed, and countersigns it, DSSE allowing several signatures on one envelope; a rewritten history, a second history at the same size, or a checkpoint signed by an unpublished key gets an alarm file instead. It publishes its key at `/.well-known/agent-custody-witness.json`. `audit --witness-url` or `--witness-key` requires the witness's signature on the newer head, and `--older`/`--newer` accept checkpoint files from either host. Mirrored in the browser verifier. Phase 6 of issue #6: the code; running it needs a second operator.
+- **Deploy:** `deploy/witness/`, a separate compose stack with `ROLE=witness` and its own host.
+- **Python:** unchanged; released in step.
+
 ## 0.5.3 — 2026-09-08
 
 - **Receipts:** `log --trust-proxy`. Behind a reverse proxy every request arrives from the proxy's address, so the per-address limits, the admin failure throttle above all, were shared by everyone and one client's wrong attempts could lock the page for all. With the flag, and `TRUST_PROXY=1` in the container, limits key on the first `X-Forwarded-For` address; off by default, since the header is otherwise the client's to forge. The compose file sets it because Caddy is the only way in.

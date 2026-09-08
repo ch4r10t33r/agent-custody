@@ -47,7 +47,8 @@ Receipts are not a dashboard. With `otel` in a gateway or SDK config, each recei
 
 - **SDK or sidecar only.** The record is self-reported by the agent's own process; every field is `claimed`. Good for a history, not for a dispute.
 - **Gateway with the default local log.** Decisions and outcomes were observed outside the agent, and the log is tamper-evident to anyone holding a copy. The operator holds the gateway key and the log file, and can rewrite their own history; a copy taken out of their control is what detects it.
-- **Gateway with a log run by someone else.** The tree heads are signed by a key the operator does not hold. This is the only setup in which the operator is not trusted, and it is the one to use when a receipt has an audience outside the team. The reference log server ships in the package; a hosted one is [not built yet](/early-access).
+- **Gateway with a log run by someone else.** The tree heads are signed by a key the operator does not hold. This is the setup in which the operator is not trusted, and it is the one to use when a receipt has an audience outside the team. The reference log server ships in the package, and one is [running](/early-access).
+- **The same, with a witness.** A second signer on a machine the log's operator does not control countersigns the log's checkpoints after proving each extends the last. A verifier who requires the witness is protected against the log's operator too. The witness ships in the package; running one for our log is the next step.
 
 ## Sizing
 

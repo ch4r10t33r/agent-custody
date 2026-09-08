@@ -1,0 +1,10 @@
+# The witness's host: its countersigned checkpoints, alarms, and key document, served read-only.
+{$WITNESS_HOST} {
+	root * /srv/witnessed
+	file_server browse
+	header {
+		Cache-Control "public, max-age=60"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

@@ -10,7 +10,7 @@ export type { MemoryUnderTest, Op, Report, Scenario, ScenarioScore } from "./eva
 export { ledgerUnderTest, overwriteStoreUnderTest } from "./evals-ledger.ts";
 export { EVAL_REPORT_TYPE, ScenarioFileSchema, loadScenarios, signReport, verifyReport } from "./evals-file.ts";
 export type { EvalReportPredicate, ReportCheck, ScenarioFile } from "./evals-file.ts";
-export { factMetadata, factText, mem0Store, zepStore } from "./stores.ts";
+export { factMetadata, factText, mem0Store, pgvectorStore, zepStore } from "./stores.ts";
 export { blastRadius, formatBlastRadius, loadReceipts } from "./blast.ts";
 export { memoryHttpHandler, serveMemoryHttp } from "./http.ts";
 export { PACK_TYPE, buildPack, formatPack, signPack, verifyPack } from "./pack.ts";
@@ -19,4 +19,4 @@ export type { ActionPack, ActionPackCheck, ActionPackVerification, ReceiptKeys }
 export type { CustodyPack, PackCheck, PackVerification } from "./pack.ts";
 export type { MemoryHttpOptions, RunningMemoryServer } from "./http.ts";
 export type { BlastRadius, ReceiptSummary } from "./blast.ts";
-export type { Mem0Like, Mem0Options, RemovalOutcome, Store, ZepLike, ZepOptions } from "./stores.ts";
+export type { Mem0Like, Mem0Options, PgLike, PgvectorOptions, RemovalOutcome, Store, ZepLike, ZepOptions } from "./stores.ts";

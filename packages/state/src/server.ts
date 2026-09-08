@@ -3,6 +3,7 @@
 // call's _meta, which receipt it is and who the attested grant says is calling. Those become the fact's source and
 // actor; a caller cannot supply them. Run it directly and the source is null and the actor is whatever the caller
 // claims, which is recorded as such.
+import { randomUUID } from "node:crypto";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from "@modelcontextprotocol/sdk/types.js";
@@ -214,12 +215,14 @@ export function createMemoryServer(ledger: Ledger, opts: MemoryServerOptions = {
           }
           const input = { subject: a.subject, predicate: a.predicate, value: a.value ?? null, space: a.space, actor: actorFor(a.actor), source: { receiptId }, provenance: writeProvenance, ...(a.validFrom ? { validFrom: a.validFrom } : {}), ...(a.confidence !== undefined ? { confidence: a.confidence } : {}), ...(a.supersedes ? { supersedes: a.supersedes } : {}) } as const;
           // The stores are written first, so their ids can be recorded on the fact; the ledger's checks run beforehand
-          // so a write the ledger would refuse never reaches a store.
+          // so a write the ledger would refuse never reaches a store. The fact id is chosen here, before the stores
+          // see the fact, so the metadata they keep names the real id and a store may key its row by it.
           await ledger.validateAssert(input);
           const external: Record<string, string> = {};
-          const preview: Fact = { ...input, factId: "pending", validFrom: input.validFrom ?? new Date().toISOString(), validTo: null, confidence: input.confidence ?? null };
+          const factId = randomUUID();
+          const preview: Fact = { ...input, factId, validFrom: input.validFrom ?? new Date().toISOString(), validTo: null, confidence: input.confidence ?? null };
           for (const store of opts.stores ?? []) external[store.name] = await store.put(preview);
-          const ev = await ledger.assert({ ...input, external });
+          const ev = await ledger.assert({ ...input, factId, external });
           return json({ fact: ev.fact, eventId: ev.eventId, txTime: ev.txTime, supersedes: ev.supersedes });
         }
         case "memory.read": {

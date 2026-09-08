@@ -46,5 +46,5 @@ def test_wrong_token_is_refused(memory_server):
     async def go():
         async with MemoryClient(memory_server["url"], token="nope") as memory:
             await memory.read()
-    with pytest.raises(Exception):
+    with pytest.raises(MemoryError, match="refused the connection: HTTP 401"):
         run(go())

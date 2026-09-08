@@ -82,6 +82,7 @@ export default withMermaid(
           { text: "The interceptor SDK and other languages", link: "/receipts/sdk" },
           { text: "Writing policies", link: "/receipts/policies" },
           { text: "Verifying a receipt", link: "/receipts/verification" },
+          { text: "What the evidence satisfies", link: "/receipts/compliance" },
         ] },
         { text: "State", items: [{ text: "The fact ledger", link: "/state/" }] },
         { text: "Python", items: [{ text: "The Python client", link: "/python/" }] },

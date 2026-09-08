@@ -106,3 +106,60 @@ export function zepStore(client: ZepLike, opts: ZepOptions): Store {
       : {}),
   };
 }
+
+// ---- pgvector ----
+/** What the pgvector adapter needs from a client: the query method of a pg Pool or of PGlite. */
+export interface PgLike {
+  query(text: string, values?: unknown[]): Promise<{ rows: unknown[] }>;
+}
+
+export interface PgvectorOptions {
+  /** turns the fact's text into the vector the table indexes; the same function the retrieval side uses */
+  embed: (text: string) => Promise<number[]>;
+  /** the vector's length, fixed per table */
+  dimensions: number;
+  /** table name, optionally schema-qualified; default "agent_memories"; created if missing */
+  table?: string;
+  /** how many nearest rows verifyRemoved inspects for the removed id; default 10 */
+  topK?: number;
+}
+
+/**
+ * Write-through to a pgvector table: the fact's text, its embedding, and its custody metadata as one row, keyed by
+ * the fact id, in the Postgres a team already runs. Removal deletes the row, and verification embeds the text again
+ * and checks the removed id is not among the nearest rows, which is what a retrieval query would return.
+ */
+export function pgvectorStore(client: PgLike, opts: PgvectorOptions): Store {
+  const table = opts.table ?? "agent_memories";
+  if (!/^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$/.test(table)) throw new Error(`pgvector: table must be a plain identifier, optionally schema-qualified; got "${table}"`);
+  if (!(Number.isInteger(opts.dimensions) && opts.dimensions > 0)) throw new Error("pgvector: dimensions must be a positive integer");
+  let ready: Promise<void> | null = null;
+  const init = () =>
+    (ready ??= (async () => {
+      await client.query("CREATE EXTENSION IF NOT EXISTS vector");
+      await client.query(`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY, text TEXT NOT NULL, embedding vector(${opts.dimensions}) NOT NULL, metadata JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+    })());
+  const literal = (v: number[]) => {
+    if (v.length !== opts.dimensions) throw new Error(`pgvector: embedding has ${v.length} dimensions, the table has ${opts.dimensions}`);
+    return `[${v.join(",")}]`;
+  };
+  return {
+    name: "pgvector",
+    async put(fact) {
+      await init();
+      const text = factText(fact);
+      await client.query(`INSERT INTO ${table} (id, text, embedding, metadata) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET text = EXCLUDED.text, embedding = EXCLUDED.embedding, metadata = EXCLUDED.metadata`, [fact.factId, text, literal(await opts.embed(text)), JSON.stringify(factMetadata(fact))]);
+      return fact.factId;
+    },
+    async remove(externalId) {
+      await init();
+      await client.query(`DELETE FROM ${table} WHERE id = $1`, [externalId]);
+    },
+    async verifyRemoved(externalId, fact) {
+      await init();
+      const rows = (await client.query(`SELECT id FROM ${table} ORDER BY embedding <=> $1 LIMIT $2`, [literal(await opts.embed(factText(fact))), opts.topK ?? 10])).rows as { id: string }[];
+      return !rows.some((r) => r.id === externalId);
+    },
+  };
+}
+

@@ -109,6 +109,8 @@ export interface HoldEvent {
 export type LedgerEvent = AssertEvent | RetractEvent | ConfirmEvent | ForgetEvent | HoldEvent;
 
 export interface AssertInput {
+  /** the fact's id, when the caller had to know it before the append, as the memory server does for its stores; default a fresh UUID */
+  factId?: string;
   subject: string;
   predicate: string;
   value: unknown;
@@ -235,7 +237,7 @@ export class Ledger {
       kind: "assert",
       txTime,
       fact: {
-        factId: randomUUID(),
+        factId: input.factId ?? randomUUID(),
         subject: input.subject,
         predicate: input.predicate,
         value: input.value,

@@ -144,7 +144,7 @@ The first eight lines come from the receipt alone and work without a ledger; the
 
 ## Write-through to the stores you already use
 
-The ledger is not a retrieval store, and it does not try to be. `src/stores.ts` puts it under the ones teams already run: a fact written through the memory server also lands in every configured store, with its custody metadata (fact id, space, actor, provenance, receipt id), the store's own id is recorded on the fact, and a retraction reaches the store by that id. Certified forget will be built on this: a deletion is only real once it has reached the stores that serve recall.
+The ledger is not a retrieval store, and it does not try to be. `src/stores.ts` puts it under the ones teams already run: a fact written through the memory server also lands in every configured store, with its custody metadata (fact id, space, actor, provenance, receipt id), the store's own id is recorded on the fact, and a retraction reaches the store by that id. Certified forget will be built on this: a deletion is only real once it has reached the stores that serve recall. For teams whose recall is a pgvector table, `pgvectorStore` writes the fact's text, its embedding from the function you already use, and its custody metadata as one row keyed by the fact id, and verifies a removal with the same nearest-neighbour query a retrieval call runs.
 
 ```ts
 import { MemoryClient } from "mem0ai";
@@ -154,6 +154,7 @@ import { Ledger, createMemoryServer, mem0Store, zepStore } from "@agent-custody/
 const stores = [
   mem0Store(new MemoryClient({ apiKey: process.env.MEM0_API_KEY! }), { userId: "user_42" }),   // infer is off: the memory is the fact, verbatim
   zepStore(new ZepClient({ apiKey: process.env.ZEP_API_KEY! }), { userId: "user_42" }),         // or { graphId } for a shared graph
+  pgvectorStore(pool, { embed, dimensions: 1536, table: "agent_memories" }),                    // your Postgres, your embedding function
 ];
 createMemoryServer(new Ledger("./ledger.jsonl"), { stores });
 ```
@@ -216,7 +217,7 @@ src/explain.ts  one action explained: the ten answers from a receipt and the led
 src/pack.ts     the custody pack: build, sign, verify, format
 src/cli.ts      agent-custody-memory serve (stdio or --http, with --retention and --forget-key-env), sweep (ledger-only or --via a gateway), eval, explain, pack, export, blast
 src/blast.ts    blast radius: from receipts' consumed facts and the ledger's source receipts, forward
-src/stores.ts   write-through adapters: Mem0 and Zep, and the Store interface for others
+src/stores.ts   write-through adapters: Mem0, Zep, and pgvector, and the Store interface for others
 src/evals.ts    the memory-mutation harness: scenarios, scoring, report
 src/evals-ledger.ts  the ledger and a naive overwrite store behind the harness interface
 src/evals-file.ts    scenario files, validated; signed eval reports and their verification
@@ -244,6 +245,7 @@ tsconfig.build.json  emits dist/ for consumers; the repo itself runs the .ts dir
 - Certified forget: `memory.forget` erases a value from the ledger file keeping its digest, stops believing it, removes it from every store, and reports exactly what happened; the gateway's receipt of that call is the certificate.
 - Policy over provenance: the gateway looks up the fact a write supersedes or a retraction targets, so policy decides on its space, actor, and provenance; a claimed fact can be displaced, an attested org fact cannot.
 - Consumed facts and blast radius: the memory server declares the facts it serves, the gateway records them on every later receipt, and `blast` walks from a fact to every downstream call and derived belief, transitively, with its retraction status.
+- Write-through to pgvector: the fact's text, embedding, and custody metadata as one row in the Postgres a team already runs, keyed by the fact id; removal verified by the same nearest-neighbour query recall runs; tested against Postgres with the extension in Docker.
 - Write-through adapters for Mem0 and Zep: every write lands in the store with custody metadata, the store id is recorded on the fact, retractions reach the store, and failures are ordered so nothing is half-recorded.
 - The eval CLI: built-in or custom scenario files, the naive baseline beside the ledger, a signed report a reviewer verifies, and a non-zero exit on regression, for cron.
 - The memory-mutation eval harness: stale reads, contradictions, blast radius, and correct reads over scripted incidents, scored the same way for the ledger and for anything behind the same interface.

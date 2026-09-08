@@ -24,6 +24,21 @@ class MemoryError(RuntimeError):
     """The memory server refused the call. Nothing was written."""
 
 
+def _refusal(e: BaseException) -> str:
+    """The reason inside whatever the transport raised: an HTTP status if there is one, else the innermost message."""
+    seen = [e]
+    while seen:
+        x = seen.pop()
+        status = getattr(getattr(x, "response", None), "status_code", None)
+        if status is not None:
+            return f"HTTP {status}"
+        seen.extend(getattr(x, "exceptions", []) or [])
+    inner = e
+    while getattr(inner, "exceptions", None):
+        inner = inner.exceptions[0]  # type: ignore[attr-defined]
+    return str(inner) or type(inner).__name__
+
+
 class MemoryClient:
     def __init__(self, url: str, token: Optional[str] = None):
         self.url = url
@@ -33,11 +48,27 @@ class MemoryClient:
 
     async def __aenter__(self) -> "MemoryClient":
         headers = {"authorization": f"Bearer {self.token}"} if self.token else None
+        # A refused token surfaces inside the transport's task group as a cancellation, not as the status. Ask first.
+        async with create_mcp_http_client(headers=headers) as http:
+            probe = await http.post(self.url, json={"jsonrpc": "2.0", "id": 0, "method": "ping"}, headers={"accept": "application/json, text/event-stream"})
+            if probe.status_code in (401, 403):
+                raise MemoryError(f"memory server at {self.url} refused the connection: HTTP {probe.status_code}")
         self._cm = streamable_http_client(self.url, http_client=create_mcp_http_client(headers=headers))
-        read, write = await self._cm.__aenter__()
-        self._session = ClientSession(read, write)
-        await self._session.__aenter__()
-        await self._session.initialize()
+        try:
+            # mcp 2.x yields (read, write); mcp 1.x yields (read, write, get_session_id). Both are supported.
+            read, write, *_ = await self._cm.__aenter__()
+            self._session = ClientSession(read, write)
+            await self._session.__aenter__()
+            await self._session.initialize()
+        except BaseException as e:  # noqa: BLE001 - the transport raises exception groups; the caller gets one plain error
+            detail = _refusal(e)
+            try:
+                await self.__aexit__(None, None, None)
+            except BaseException:  # noqa: BLE001
+                pass
+            self._session = None
+            self._cm = None
+            raise MemoryError(f"memory server at {self.url} refused the connection: {detail}") from None
         return self
 
     async def __aexit__(self, *exc: Any) -> None:

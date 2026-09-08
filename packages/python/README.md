@@ -16,7 +16,7 @@ refund = client.wrap("stripe.refund", lambda args: stripe.refund(**args))
 refund({"amount": 5000})                         # decide, run, record; raises PolicyDeniedError on deny
 ```
 
-Adapters, each tested against the real package: `agent_custody.langchain.ReceiptCallbackHandler` (record-only), `agent_custody.openai_agents.wrap_tools` (enforce and record), `agent_custody.claude_agent_sdk.claude_hook` (PreToolUse deny, PostToolUse record). Receipts are verified by the TypeScript verifier; the tests do exactly that.
+Adapters, each tested against the real package: `agent_custody.langchain.ReceiptCallbackHandler` (record-only), `agent_custody.crewai.wrap_tools` (enforce: each CrewAI tool becomes a CustodyTool with the same name, description, and schema whose run is decided, executed, and recorded; a denial is returned as the tool result), `agent_custody.openai_agents.wrap_tools` (enforce and record), `agent_custody.claude_agent_sdk.claude_hook` (PreToolUse deny, PostToolUse record). Receipts are verified by the TypeScript verifier; the tests do exactly that.
 
 **The memory tools.** `agent_custody.memory.MemoryClient` (extra `memory`) talks to the shared memory server from `@agent-custody/state` over MCP: write, read, retract, history. Writes from here are `claimed`, quarantined until a gateway confirms them, and reads leave quarantined facts out unless asked; that is the honest position of an agent that did not go through the gateway.
 

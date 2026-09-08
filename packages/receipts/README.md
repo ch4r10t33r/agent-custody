@@ -14,6 +14,7 @@ Anyone holding the public keys can verify a receipt offline. The agent is not tr
 - [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, adapters for the OpenAI Agents SDK, Vercel AI SDK and LangChain, and wrapping tool functions in anything else
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
 - [Verifying a receipt](docs/verification.md): what each check means and what a verified receipt does and does not prove
+- [What the evidence satisfies](docs/compliance.md): the receipts, packs, and certificates mapped to SOC 2, ISO 27001, the EU AI Act, and UK GDPR, with what none of them claims
 
 ## Getting started
 
@@ -105,7 +106,7 @@ Every receipt names its issuer, and the verifier prints what that issuer kind is
 | Vercel AI SDK | SDK | `wrapTools` | | a real `generateText` loop over the SDK's mock model |
 | LangChain / LangGraph (JS) | SDK | `tool(issuer.wrap(fn))` | `ReceiptCallbackHandler` | real `StructuredTool` invocations |
 | anything else | SDK | `issuer.wrap(name, fn)` | `issuer.record` | plain functions |
-| Python: LangChain, OpenAI Agents SDK, Claude Agent SDK | sidecar + [Python package](../python/README.md) | `wrap_tools`, `claude_hook` PreToolUse deny, `client.wrap` | `ReceiptCallbackHandler` | the real Python packages, receipts checked by this verifier |
+| Python: LangChain, OpenAI Agents SDK, CrewAI, Claude Agent SDK | sidecar + [Python package](../python/README.md) | `wrap_tools` (OpenAI Agents, CrewAI), `claude_hook` PreToolUse deny, `client.wrap` | `ReceiptCallbackHandler` | the real Python packages, receipts checked by this verifier |
 | Go, Java, Rust, any language with HTTP | sidecar | decide then record | record | [examples/languages](examples/languages), each run against a live sidecar |
 | any MCP host in any language: Claude Agent SDK Python, OpenAI Agents Python | gateway | yes | | the gateway is an MCP server; [usage.md](docs/usage.md#python-hosts) |
 | any REST API, as tools the agent reaches through the gateway | gateway, `rest` upstream | yes | | a stand-in HTTP API; [usage.md](docs/usage.md#setup-step-by-step) |

@@ -8,7 +8,7 @@ The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-cu
 
 | question | answer |
 | --- | --- |
-| Who operates the service? | The maintainer of agent-custody, reachable at partha@charioteerconsulting.com. One operator today; the contracting entity is being set up and will be named here; a second, independent operator is being sought for the witness, which by design must not be us. |
+| Who operates the service, and who is the contracting entity? | Charioteer Consulting Ltd, reachable at partha@charioteerconsulting.com. One operator today; a second, independent operator is being sought for the witness, which by design must not be us. |
 | Is there a security contact and disclosure policy? | Yes: [SECURITY.md](https://github.com/ch4r10t33r/agent-custody/blob/main/SECURITY.md), acknowledgement within two working days, assessment within seven. |
 | Do you hold SOC 2, ISO 27001, or Cyber Essentials? | No. The [compliance mapping](/receipts/compliance) says which of your controls our artefacts are evidence for; it makes no claim about our own certification. |
 | Has the service had an independent penetration test? | No. A [threat model](/receipts/threat-model) is published and is the scope we would give a tester. |

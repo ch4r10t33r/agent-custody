@@ -2,7 +2,7 @@
 
 This directory runs the log server as a container: on one VM with docker compose, or on Kubernetes with the manifests in `k8s/`. Both use the same image and the same environment variables, so a deployment moves between them by changing where it runs, not what it is.
 
-What it deploys today is the **reference log server** from `@agent-custody/receipts`: single tenant, file-backed, one signing key, bearer-token appends, the four endpoints the gateway and the verifier use. That is enough to run a log on a machine the agent's operator does not control, which is the property everything else is built on. The tenanted service with hash-only leaves, Postgres, published checkpoints, and a well-known key document is [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6); as its phases land, this directory picks them up without changing the contract below.
+What it deploys is the log service from `@agent-custody/receipts` as it runs at log.agent-custody.dev: tenants with their own logs and bearer tokens (hashed at rest) in Postgres, hash-only leaves, a separate signer process that alone holds the key, signed checkpoints published on a second host, the key document at `/.well-known/agent-custody-log.json`, the operator's page at `/admin`, and per-tenant usage for invoicing. The witness is a separate stack for a machine the operator does not control. The single-file server is still there behind `--profile file` for a second machine of your own. Day-two operations, restore, key rotation, token and tenant lifecycle, incidents, are in [RUNBOOK.md](RUNBOOK.md).
 
 Operators who log here should set `"hashOnly": true` in their `log` config, so the server commits to receipts without ever holding them; the log file then contains hashes only. Without it, the server stores whole receipt envelopes, arguments and results included, which is fine for your own second machine and not for other people's receipts.
 
@@ -58,9 +58,9 @@ Verifiers add `--log-url https://log.example.com/ --log-id log.example.com`, whi
 
 **Onboarding a tenant.** Open `https://log.example.com/admin`; the browser asks for a user name (anything) and a password, which is `ADMIN_TOKEN` from `.env`. Create the tenant, mint a token: the token is shown once beside the welcome sheet, ready to copy. Nothing under `/admin` answers without the token, wrong attempts are throttled, and tenants never see the page. The same from the server: `./onboard-tenant.sh acme --log-id acme-eu --label "support fleet"` creates the tenant and its first token, keeps the token in `/root/agent-custody-tenants/acme.token`, and prints the welcome sheet: their URL, log id, checkpoints URL, the one config line, and the two verifier commands. Hand the token over once by a channel you trust; the server keeps only its hash. Revoke with `log-admin token revoke acme <hash-prefix>`, disable with `log-admin tenant disable acme`.
 
-**Backups.** The volume is small; a nightly `docker run --rm -v agent-custody_logdata:/data -v /backup:/backup alpine tar czf /backup/log-$(date +%F).tgz /data` in cron for the key, and `docker compose exec postgres pg_dump -U custody custody_log | gzip > /backup/db-$(date +%F).sql.gz` for the leaves, tenants, and tokens, plus the provider's volume snapshots, is enough. Keep at least one signed tree head somewhere the VM cannot touch; that is what an auditor compares against.
+**Backups.** A nightly cron job tars the data volume (the key) and `pg_dump`s the database (leaves, tenants, token hashes, checkpoints) into `/var/backups/agent-custody`, keeping thirty days; the script is in the runbook. That directory is on the same disk as the data, so copy it off the machine as well, to object storage or a second host, and restore from it once a quarter the way the runbook describes, since a backup that has never been restored is a hope. Keep at least one signed tree head somewhere the VM cannot touch; that is what an auditor compares against, and the witness does it continuously.
 
-**Upgrades.** Bump `AGENT_CUSTODY_VERSION` in `.env`, then `docker compose build --pull && docker compose --profile public up -d`. The log format and the endpoints are stable within a major version.
+**Upgrades.** Bump `AGENT_CUSTODY_VERSION` in `.env`, then `docker compose --profile public pull && docker compose --profile public up -d`. The log format and the endpoints are stable within a major version; rolling back is the same two commands with the previous version.
 
 ## Kubernetes
 
@@ -72,11 +72,11 @@ kubectl apply -k k8s
 kubectl -n agent-custody logs deploy/agent-custody-log | grep -A3 "public key"
 ```
 
-One replica, `Recreate` strategy, a `ReadWriteOnce` volume: the file log has one writer, and this keeps it that way. When the Postgres-backed store lands (#6, phase 2), the deployment gains a `DATABASE_URL` and the volume holds only the key.
+One replica, `Recreate` strategy, a `ReadWriteOnce` volume: a log has one writer, and this keeps it that way. With `DATABASE_URL` in the secret the leaves live in Postgres and the volume holds only the key.
 
 ## Monitoring and metering
 
-`.github/workflows/monitor.yml` runs `agent-custody log-check` against the log every ten minutes from GitHub's machines, which are not ours, and a failing run notifies the repository's watchers; the workflow badge is the status page. The same probe runs from any cron: `agent-custody log-check --log-url https://log.example.com/ --checkpoints-url https://checkpoints.example.com/ --tenant default --max-lag 900`, exit code 1 on trouble. `GET /health` is the liveness check for a load balancer or the container. Usage per tenant per month is on the admin page and at `/admin/usage.csv?month=YYYY-MM` for invoicing.
+`.github/workflows/monitor.yml` runs `agent-custody log-check` against the log every ten minutes from GitHub's machines, which are not ours, and a failing run emails the workflow's owner; the workflow badge is the status page. The same probe runs from any cron: `agent-custody log-check --log-url https://log.example.com/ --checkpoints-url https://checkpoints.example.com/ --tenant default --max-lag 900`, exit code 1 on trouble. `GET /health` is the liveness check for a load balancer or the container. Usage per tenant per month is on the admin page and at `/admin/usage.csv?month=YYYY-MM` for invoicing.
 
 ## The witness, on someone else's machine
 
@@ -84,16 +84,16 @@ One replica, `Recreate` strategy, a `ReadWriteOnce` volume: the file log has one
 
 ## Hetzner now, AWS later
 
-Yes, and it is the right order. Nothing here depends on a cloud provider: a container, a volume, a hostname, and a certificate. A Hetzner VM runs the compose file as written; Hetzner's S3-compatible Object Storage is where the checkpoint publisher (#6, phase 3) writes signed heads. Moving to AWS later, when a tenant's procurement asks for it or an integration needs it, is:
+Yes, and it is the right order. Nothing here depends on a cloud provider: a container, a database, a volume, a hostname, and a certificate. A Hetzner VM runs the compose file as written. Moving to AWS later, when a tenant's procurement asks for it or an integration needs it, is:
 
 1. Run the same image on ECS or EKS (the `k8s/` manifests apply to EKS unchanged apart from the ingress class and the storage class).
-2. Copy the volume: the log file and the key. `tar` out, `tar` in, start. The key moves with it, so verifiers notice nothing; if you prefer a fresh key in AWS's secret store, add it and keep the old public key published.
-3. For the phase-2 store, `pg_dump` from Hetzner to RDS.
+2. Copy the volume: the key. `tar` out, `tar` in, start. The key moves with it, so verifiers notice nothing; if you prefer a fresh key in AWS's secret store, rotate as the runbook describes and keep the old public key published.
+3. `pg_dump` from Hetzner to RDS.
 4. Point the DNS record at the new address. The gateway's config does not change.
 
 Migration is a volume copy and a DNS change because the design keeps the state in one place and the trust in the key.
 
-## Phases of issue #6 and what changes here
+## What issue #6 delivered, phase by phase
 
 | phase | what lands in the packages | what changes in this directory |
 | --- | --- | --- |

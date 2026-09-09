@@ -370,7 +370,7 @@ async function main(argv: string[]): Promise<number> {
       let proof: string[];
       if (values.log) proof = new MerkleLog(values.log).consistencyProof(Math.min(m, n), Math.max(m, n));
       else {
-        const res = await fetch(new URL(`consistency?old=${Math.min(m, n)}&new=${Math.max(m, n)}`, values["log-url"]!.endsWith("/") ? values["log-url"]! : `${values["log-url"]}/`));
+        const res = await fetch(new URL(`consistency?old=${Math.min(m, n)}&new=${Math.max(m, n)}`, values["log-url"]!.endsWith("/") ? values["log-url"]! : `${values["log-url"]}/`), { signal: AbortSignal.timeout(10_000) });
         if (!res.ok) throw new Error(`log refused the consistency query: ${res.status}`);
         proof = ((await res.json()) as { hashes: string[] }).hashes;
       }

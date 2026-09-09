@@ -60,7 +60,7 @@ export async function connectSigner(url: string, opts: RemoteSignerOptions = {})
   const f = opts.fetch ?? fetch;
   const base = url.endsWith("/") ? url : `${url}/`;
   const headers = { "content-type": "application/json", ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}) };
-  const res = await f(new URL("keys", base), { headers });
+  const res = await f(new URL("keys", base), { headers, signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`signer ${url} refused the key request: ${res.status}`);
   const doc = (await res.json()) as KeyDocument;
   const current = doc.keys[0];
@@ -75,7 +75,7 @@ export async function connectSigner(url: string, opts: RemoteSignerOptions = {})
       return env;
     },
     async keys() {
-      const k = await f(new URL("keys", base), { headers });
+      const k = await f(new URL("keys", base), { headers, signal: AbortSignal.timeout(10_000) });
       if (!k.ok) throw new Error(`signer ${url} refused the key request: ${k.status}`);
       return (await k.json()) as KeyDocument;
     },
@@ -154,7 +154,7 @@ export function serveSigner(kp: KeyPair, opts: SignerServerOptions & { port: num
 
 /** For verifiers: the keys a log publishes, fetched from its origin and returned as key references pinned by keyid. */
 export async function fetchLogKeys(logUrl: string, f: typeof fetch = fetch): Promise<{ doc: KeyDocument; keys: PublicKeyRef[] }> {
-  const res = await f(new URL("/.well-known/agent-custody-log.json", logUrl));
+  const res = await f(new URL("/.well-known/agent-custody-log.json", logUrl), { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`log ${logUrl} serves no key document: ${res.status}`);
   const doc = (await res.json()) as KeyDocument;
   if (!Array.isArray(doc.keys) || doc.keys.length === 0) throw new Error(`log ${logUrl} lists no keys`);

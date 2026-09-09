@@ -63,6 +63,8 @@ export interface HttpLogOptions {
   hashOnly?: boolean;
   /** attempts on 429 and 5xx; default 3 */
   retries?: number;
+  /** how long one append may take before it counts as unreachable; default 10000. A log that accepts and never answers must not hold a call forever. */
+  timeoutMs?: number;
   fetch?: typeof fetch;
 }
 
@@ -74,6 +76,7 @@ export function httpLog(url: string, opts: HttpLogOptions = {}): LogSink {
   const f = opts.fetch ?? fetch;
   const base = url.endsWith("/") ? url : `${url}/`;
   const attempts = opts.retries ?? 3;
+  const timeoutMs = opts.timeoutMs ?? 10_000;
   return {
     kind: "http",
     where: url,
@@ -86,6 +89,7 @@ export function httpLog(url: string, opts: HttpLogOptions = {}): LogSink {
             method: "POST",
             headers: { "content-type": "application/json", ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}) },
             body: JSON.stringify(opts.hashOnly ? { leafHash: leafHash(leaf).toString("hex") } : { leaf }),
+            signal: AbortSignal.timeout(timeoutMs),
           });
         } catch (e) {
           last = `log ${url} unreachable: ${e instanceof Error ? e.message : String(e)}`;
@@ -111,7 +115,7 @@ export function httpLog(url: string, opts: HttpLogOptions = {}): LogSink {
 
 export interface LogConfig {
   logFile?: string | undefined;
-  log?: { url: string; tokenEnv?: string | undefined; hashOnly?: boolean | undefined } | undefined;
+  log?: { url: string; tokenEnv?: string | undefined; hashOnly?: boolean | undefined; timeoutMs?: number | undefined } | undefined;
 }
 
 /** The sink a config asks for: a remote log when `log` is set, otherwise the local file. */
@@ -119,7 +123,7 @@ export function openLog(cfg: LogConfig, key: KeyPair): LogSink {
   if (cfg.log) {
     const token = cfg.log.tokenEnv ? process.env[cfg.log.tokenEnv] : undefined;
     if (cfg.log.tokenEnv && !token) throw new Error(`log token: environment variable ${cfg.log.tokenEnv} is not set`);
-    return httpLog(cfg.log.url, { ...(token === undefined ? {} : { token }), ...(cfg.log.hashOnly ? { hashOnly: true } : {}) });
+    return httpLog(cfg.log.url, { ...(token === undefined ? {} : { token }), ...(cfg.log.hashOnly ? { hashOnly: true } : {}), ...(cfg.log.timeoutMs ? { timeoutMs: cfg.log.timeoutMs } : {}) });
   }
   if (!cfg.logFile) throw new Error("config needs logFile or log.url");
   return fileLog(cfg.logFile, key);

@@ -1,0 +1,17 @@
+# Dependency updates, weekly, one pull request per ecosystem. Security advisories arrive as soon as GitHub has them
+# once Dependabot alerts are enabled in the repository's security settings.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly }
+    groups: { npm: { patterns: ["*"] } }
+  - package-ecosystem: pip
+    directory: /packages/python
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+  - package-ecosystem: docker
+    directory: /deploy
+    schedule: { interval: weekly }

@@ -41,7 +41,12 @@ if [ "${ROLE:-log}" = "signer" ]; then
   [ -f "$AGENT_CUSTODY_LOG_KEY" ] || agent-custody keygen --dir "$key_dir" --name "$key_name" >&2
   echo "agent-custody signer: public key (give this to verifiers as --log-key, or let them fetch it from the log):" >&2
   cat "$key_dir/$key_name.pub" >&2
-  exec agent-custody signer --key "$AGENT_CUSTODY_LOG_KEY" --host 0.0.0.0 --port "${AGENT_CUSTODY_SIGNER_PORT:-8790}" --token-env SIGNER_TOKEN
+  # Retired public keys stay in the key document so heads they signed keep verifying: one .pub per file in
+  # /data/keys/retired/. See deploy/RUNBOOK.md, "Rotating the signing key".
+  retired_args=""
+  for pub in /data/keys/retired/*.pub; do [ -e "$pub" ] && retired_args="$retired_args --retired-key $pub"; done
+  # shellcheck disable=SC2086
+  exec agent-custody signer --key "$AGENT_CUSTODY_LOG_KEY" --host 0.0.0.0 --port "${AGENT_CUSTODY_SIGNER_PORT:-8790}" --token-env SIGNER_TOKEN $retired_args
 fi
 if [ -n "${AGENT_CUSTODY_SIGNER_URL:-}" ]; then
   log_id_args="$log_id_args --signer-url $AGENT_CUSTODY_SIGNER_URL --signer-token-env SIGNER_TOKEN"

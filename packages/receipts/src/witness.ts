@@ -181,7 +181,7 @@ export class Witness {
 
 /** For verifiers: the witness's published keys, fetched from its host and pinned by keyid. */
 export async function fetchWitnessKeys(witnessUrl: string, f: typeof fetch = fetch): Promise<PublicKeyRef[]> {
-  const res = await f(new URL("/.well-known/agent-custody-witness.json", witnessUrl));
+  const res = await f(new URL("/.well-known/agent-custody-witness.json", witnessUrl), { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) throw new Error(`witness ${witnessUrl} serves no key document: ${res.status}`);
   const doc = (await res.json()) as KeyDocument;
   if (!Array.isArray(doc.keys) || doc.keys.length === 0) throw new Error(`witness ${witnessUrl} lists no keys`);

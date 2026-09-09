@@ -120,6 +120,10 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 - Agents in Python, Go, Java, Rust, or anything else: the gateway is an MCP server and needs nothing from your language; for in-process receipts run the sidecar and use the Python package or a forty-line client. [sdk.md](packages/receipts/docs/sdk.md#other-languages-the-sidecar)
 - Seventeen step-by-step examples across the packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
 
+## Security
+
+Report a vulnerability privately to partha@charioteerconsulting.com; [SECURITY.md](SECURITY.md) has the scope, the response times, and how keys and tokens are protected.
+
 ## Working in the repository
 
 ```bash

@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.8 — 2026-09-09
+
+- **Receipts:** an audit trail of administrative actions. Every tenant created or disabled and every token minted or revoked is recorded with who did it (the name entered at the admin page's prompt and the address, `bearer` for an API client, the user and host for `log-admin`), what, which tenant, and the detail, never the token itself. The admin page shows it under Activity, `GET /admin/audit` and `log-admin audit` list it, a tenant reads their own rows at `GET /t/<name>/audit` with their token, and `log-export` writes them to `audit.json`.
+- **Receipts:** `docs/threat-model.md`, the attacker's view: every party who could make a receipt false, the move, what stops it, whether that is a property of the evidence or of the deployment, and what is not defended.
+- **State, Python:** unchanged; released in step.
+
 ## 0.5.7 — 2026-09-09
 
 - **Receipts:** a tenant's export. `agent-custody log-export --log-url <url> --tenant <name> --token-env NAME --out <dir>` fetches, with the tenant's own token, every leaf hash (`GET /t/<name>/leaves`, paged), the signed head, the published keys, the signed checkpoints, and their usage (`GET /t/<name>/usage`), checks that the head and every checkpoint verify against the keys and that the leaves hash to their roots, and writes `log.jsonl` in the format `verify --log` and `audit --log` read. Both routes answer only to that tenant's token. The welcome sheet includes the command.

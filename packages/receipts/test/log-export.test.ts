@@ -47,7 +47,12 @@ describe("a tenant's export", () => {
     expect(r.problems).toEqual([]);
     expect(r).toMatchObject({ logId: "acme-eu", treeSize: 7, rootHash: expect.any(String) });
     expect(r.usage).toEqual([{ month: new Date().toISOString().slice(0, 7), appends: 7, totalLeaves: 7, liveTokens: 1 }]);
-    for (const f of ["log.jsonl", "head.json", "keys.json", "checkpoints.json", "usage.json", "export.json"]) expect(existsSync(join(out, f)), f).toBe(true);
+    for (const f of ["log.jsonl", "head.json", "keys.json", "checkpoints.json", "usage.json", "audit.json", "export.json"]) expect(existsSync(join(out, f)), f).toBe(true);
+    // the tenant's administrative history travels with the export: the tenant's creation and the token minted for it
+    const audit = JSON.parse(readFileSync(join(out, "audit.json"), "utf8")) as { action: string; tenantId: string }[];
+    expect(audit.map((e) => e.action)).toEqual(["token.add", "tenant.add"]);
+    expect(audit.every((e) => e.tenantId === "acme")).toBe(true);
+    expect(r.audit).toBe(2);
     // the exported log file is a copy the verifier reads: same size, same root as the head it was exported under
     const copy = new MerkleLog(join(out, "log.jsonl"));
     expect(copy.size).toBe(7);

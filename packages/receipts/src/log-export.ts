@@ -29,6 +29,8 @@ export interface ExportResult {
   rootHash: string;
   keyid: string;
   checkpoints: number;
+  /** administrative actions on this tenant: tokens minted and revoked, the tenant created or disabled, by whom */
+  audit: number;
   usage: { month: string; appends: number; totalLeaves: number; liveTokens: number }[];
   /** what did not add up; an export with problems is still written, and says so */
   problems: string[];
@@ -83,13 +85,21 @@ export async function exportLog(o: ExportOptions): Promise<ExportResult> {
     }
   }
 
+  let audit: unknown[] = [];
+  try {
+    audit = ((await get(new URL("?limit=1000", path("audit")), true)) as { entries: unknown[] }).entries;
+  } catch (e) {
+    problems.push(`audit trail: ${e instanceof Error ? e.message : String(e)}`);
+  }
+
   mkdirSync(o.outDir, { recursive: true });
   writeFileSync(join(o.outDir, "log.jsonl"), leaves.map((h) => JSON.stringify({ hash: h })).join("\n") + (leaves.length ? "\n" : ""));
   writeFileSync(join(o.outDir, "head.json"), JSON.stringify({ treeHead, ...head }, null, 2));
   writeFileSync(join(o.outDir, "keys.json"), JSON.stringify(doc satisfies KeyDocument, null, 2));
   writeFileSync(join(o.outDir, "checkpoints.json"), JSON.stringify(cps.checkpoints, null, 2));
   writeFileSync(join(o.outDir, "usage.json"), JSON.stringify(usage, null, 2));
-  const result: ExportResult = { outDir: o.outDir, logId: head.log ?? null, treeSize: head.treeSize, rootHash: head.rootHash, keyid: v.keyid, checkpoints: cps.checkpoints.length, usage, problems };
+  writeFileSync(join(o.outDir, "audit.json"), JSON.stringify(audit, null, 2));
+  const result: ExportResult = { outDir: o.outDir, logId: head.log ?? null, treeSize: head.treeSize, rootHash: head.rootHash, keyid: v.keyid, checkpoints: cps.checkpoints.length, audit: audit.length, usage, problems };
   writeFileSync(join(o.outDir, "export.json"), JSON.stringify({ exportedAt: new Date().toISOString(), logUrl: base, tenant: o.tenant ?? null, ...result }, null, 2));
   return result;
 }
@@ -97,7 +107,7 @@ export async function exportLog(o: ExportOptions): Promise<ExportResult> {
 export function formatExport(r: ExportResult): string {
   const lines = [
     `exported ${r.treeSize} leaf hash(es) of log ${r.logId ?? "(unnamed)"} to ${r.outDir}`,
-    `head root ${r.rootHash.slice(0, 16)}, signed by ${r.keyid.slice(0, 12)}, ${r.checkpoints} checkpoint(s)`,
+    `head root ${r.rootHash.slice(0, 16)}, signed by ${r.keyid.slice(0, 12)}, ${r.checkpoints} checkpoint(s), ${r.audit} administrative action(s) on this tenant`,
     ...r.usage.map((u) => `usage ${u.month}: ${u.appends} append(s), ${u.totalLeaves} leaves in total, ${u.liveTokens} live token(s)`),
     "",
     "log.jsonl is a log copy the verifier reads: agent-custody verify <receipt> --log <outDir>/log.jsonl --issuer-key ...",

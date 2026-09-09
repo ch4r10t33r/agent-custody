@@ -79,13 +79,13 @@ export function welcomeSheet(o: { tenant: string; logId: string; publicUrl: stri
 export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> {
   // Five wrong tokens from one address, then one more a minute: enough to stop guessing, not enough to lock out a typo.
   const failures = new RateLimiter({ perSecond: 1 / 60, burst: 5 });
-  const presented = (req: IncomingMessage): string | null => {
+  const presented = (req: IncomingMessage): { token: string; user: string | null } | null => {
     const h = req.headers.authorization ?? "";
-    if (h.startsWith("Bearer ") && h.length > 7) return h.slice(7);
+    if (h.startsWith("Bearer ") && h.length > 7) return { token: h.slice(7), user: null };
     if (h.startsWith("Basic ") && h.length > 6) {
       const pair = Buffer.from(h.slice(6), "base64").toString();
       const at = pair.indexOf(":");
-      return at >= 0 ? pair.slice(at + 1) : pair;
+      return at >= 0 ? { token: pair.slice(at + 1), user: pair.slice(0, at) } : { token: pair, user: null };
     }
     return null;
   };
@@ -97,7 +97,7 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
     };
     const addr = clientAddress(req, opts.trustProxy);
     const given = presented(req);
-    if (given === null || !same(given, opts.token)) {
+    if (given === null || !same(given.token, opts.token)) {
       if (!failures.take(`admin:${addr}`)) return json(429, { error: "too many attempts; wait a minute" }, { "retry-after": "60" }), true;
       // The challenge makes the browser ask; the same 401 tells an API client what is missing.
       return json(401, { error: "admin token required" }, { "www-authenticate": 'Basic realm="agent-custody log admin", charset="UTF-8"' }), true;
@@ -115,6 +115,10 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
       }
       return text ? (JSON.parse(text) as Record<string, unknown>) : {};
     };
+    // Who did it, for the audit trail: the user name the browser prompt asked for (any name, but it is recorded), or
+    // "bearer" for an API client, and the address either came from. There is one admin token; the name is what
+    // tells two operators apart.
+    const actor = `admin:${given.user?.replace(/[^\w.@-]/g, "").slice(0, 64) || "bearer"}@${addr}`;
     try {
       const t = opts.tenancy;
       const parts = url.pathname.split("/").filter(Boolean); // ["admin", ...]
@@ -126,6 +130,11 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
         const csv = ["month,tenant,log_id,appends,total_leaves,live_tokens,disabled", ...u.tenants.map((x) => [u.month, x.id, x.logId, x.appends, x.totalLeaves, x.liveTokens, x.disabled].join(","))].join("\n") + "\n";
         res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="agent-custody-usage-${u.month}.csv"`, "cache-control": "no-store" });
         res.end(csv);
+      } else if (req.method === "GET" && parts.length === 2 && parts[1] === "audit") {
+        const tenant = url.searchParams.get("tenant");
+        const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 200;
+        if (!Number.isInteger(limit) || limit < 1 || limit > 1000) return json(400, { error: "limit must be an integer in 1..1000" }), true;
+        json(200, { entries: await t.audit({ ...(tenant ? { tenant } : {}), limit }) });
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "info") {
         json(200, { publicUrl: opts.publicUrl ?? null, checkpointsUrl: opts.checkpointsUrl ?? null, keyid: opts.keyid ?? null });
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "tenants") {
@@ -134,9 +143,9 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
       } else if (req.method === "POST" && parts.length === 2 && parts[1] === "tenants") {
         const b = await body();
         if (typeof b.id !== "string" || !/^[A-Za-z0-9_.-]+$/.test(b.id)) return json(400, { error: "id must be a plain identifier" }), true;
-        json(200, await t.addTenant(b.id, typeof b.logId === "string" && b.logId ? b.logId : b.id));
+        json(200, await t.addTenant(b.id, typeof b.logId === "string" && b.logId ? b.logId : b.id, actor));
       } else if (req.method === "POST" && parts.length === 4 && parts[1] === "tenants" && parts[3] === "disable") {
-        await t.disableTenant(parts[2]!);
+        await t.disableTenant(parts[2]!, actor);
         json(200, { disabled: parts[2] });
       } else if (req.method === "GET" && parts.length === 4 && parts[1] === "tenants" && parts[3] === "tokens") {
         json(200, await t.listTokens(parts[2]!));
@@ -145,11 +154,11 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
         const label = typeof b.label === "string" && b.label.trim() ? b.label.trim() : "fleet";
         const tenant = await t.tenant(parts[2]!);
         if (!tenant) return json(404, { error: "unknown tenant" }), true;
-        const minted = await t.addToken(tenant.id, label);
+        const minted = await t.addToken(tenant.id, label, actor);
         const welcome = opts.publicUrl ? welcomeSheet({ tenant: tenant.id, logId: tenant.logId, publicUrl: opts.publicUrl, ...(opts.checkpointsUrl ? { checkpointsUrl: opts.checkpointsUrl } : {}), ...(opts.keyid ? { keyid: opts.keyid } : {}) }) : null;
         json(200, { ...minted, welcome });
       } else if (req.method === "POST" && parts.length === 6 && parts[1] === "tenants" && parts[3] === "tokens" && parts[5] === "revoke") {
-        json(200, { revoked: await t.revokeToken(parts[2]!, parts[4]!) });
+        json(200, { revoked: await t.revokeToken(parts[2]!, parts[4]!, actor) });
       } else {
         json(404, { error: "not found" });
       }
@@ -217,6 +226,9 @@ const ADMIN_PAGE = `<!doctype html>
     <h2>Tokens of a tenant</h2>
     <div class="row"><label>tenant<input id="ltid" placeholder="acme" autocomplete="off"></label><button class="quiet" id="listTokens">List</button></div>
     <table><thead><tr><th>label</th><th>hash</th><th>created</th><th>state</th><th></th></tr></thead><tbody id="tokens"></tbody></table>
+    <h2>Activity</h2>
+    <p class="muted">Every tenant and token change on this log, newest first, with who made it: the name entered at the sign-in prompt, or the command line on the server. Tenants see their own rows in their export.</p>
+    <table><thead><tr><th>when</th><th>who</th><th>action</th><th>tenant</th><th>detail</th></tr></thead><tbody id="audit"></tbody></table>
     <p class="muted" id="msg"></p>
   </section>
 </main>
@@ -247,15 +259,17 @@ const ADMIN_PAGE = `<!doctype html>
       $("where").textContent = (info.publicUrl || location.origin) + " · keyid " + (info.keyid ? info.keyid.slice(0, 12) : "?") + (info.checkpointsUrl ? " · checkpoints at " + info.checkpointsUrl : "");
       await loadTenants();
       await loadUsage();
+      await loadAudit();
     } catch (e) { say(e.message, "err"); }
   };
-  $("addTenant").onclick = async () => { try { const t = await api("POST", "/admin/tenants", { id: $("tid").value.trim(), logId: $("lid").value.trim() }); say("tenant " + t.id + " created; reached at /t/" + t.id + "/", "ok"); $("ttid").value = t.id; await loadTenants(); } catch (e) { say(e.message, "err"); } };
+  $("addTenant").onclick = async () => { try { const t = await api("POST", "/admin/tenants", { id: $("tid").value.trim(), logId: $("lid").value.trim() }); say("tenant " + t.id + " created; reached at /t/" + t.id + "/", "ok"); $("ttid").value = t.id; await loadTenants(); await loadAudit(); } catch (e) { say(e.message, "err"); } };
   $("mint").onclick = async () => {
     try {
       const r = await api("POST", "/admin/tenants/" + encodeURIComponent($("ttid").value.trim()) + "/tokens", { label: $("label").value.trim() });
       $("tokval").textContent = r.token; $("sheet").textContent = r.welcome || "(set --public-url on the server for the welcome sheet)"; $("minted").hidden = false;
       say("token minted for " + $("ttid").value.trim() + "; stored as hash " + r.tokenHash.slice(0, 12), "ok");
       await loadTenants();
+      await loadAudit();
     } catch (e) { say(e.message, "err"); }
   };
   $("copyTok").onclick = () => navigator.clipboard.writeText($("tokval").textContent).then(() => say("token copied", "ok"));
@@ -267,12 +281,16 @@ const ADMIN_PAGE = `<!doctype html>
     $("csv").href = "/admin/usage.csv?month=" + encodeURIComponent(month);
     $("usage").innerHTML = u.tenants.map((t) => "<tr><td><code>" + esc(t.id) + "</code>" + (t.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td><code>" + esc(t.logId) + "</code></td><td>" + t.appends + "</td><td>" + t.totalLeaves + "</td><td>" + t.liveTokens + "</td></tr>").join("") || "<tr><td colspan=5 class=muted>no tenants</td></tr>";
   };
+  const loadAudit = async () => {
+    const a = await api("GET", "/admin/audit?limit=100");
+    $("audit").innerHTML = a.entries.map((e) => "<tr><td>" + esc(e.at.replace("T", " ").slice(0, 19)) + "</td><td><code>" + esc(e.actor) + "</code></td><td>" + esc(e.action) + "</td><td><code>" + esc(e.tenantId || "") + "</code></td><td class=muted>" + esc(Object.entries(e.detail).map(([k, v]) => k + "=" + v).join(" ")) + "</td></tr>").join("") || "<tr><td colspan=5 class=muted>nothing yet</td></tr>";
+  };
   $("loadUsage").onclick = () => loadUsage().catch((e) => say(e.message, "err"));
   $("month").value = new Date().toISOString().slice(0, 7);
   document.addEventListener("click", async (e) => {
     const b = e.target.closest("button"); if (!b) return;
-    if (b.dataset.disable && confirm("Disable tenant " + b.dataset.disable + "? Its paths answer 404 within ten seconds.")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(b.dataset.disable) + "/disable"); await loadTenants(); say("disabled " + b.dataset.disable, "ok"); } catch (err) { say(err.message, "err"); } }
-    if (b.dataset.revoke) { const [id, prefix] = b.dataset.revoke.split("|"); if (confirm("Revoke token " + prefix + " of " + id + "?")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(id) + "/tokens/" + prefix + "/revoke"); await loadTokens(id); await loadTenants(); say("revoked", "ok"); } catch (err) { say(err.message, "err"); } } }
+    if (b.dataset.disable && confirm("Disable tenant " + b.dataset.disable + "? Its paths answer 404 within ten seconds.")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(b.dataset.disable) + "/disable"); await loadTenants(); await loadAudit(); say("disabled " + b.dataset.disable, "ok"); } catch (err) { say(err.message, "err"); } }
+    if (b.dataset.revoke) { const [id, prefix] = b.dataset.revoke.split("|"); if (confirm("Revoke token " + prefix + " of " + id + "?")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(id) + "/tokens/" + prefix + "/revoke"); await loadTokens(id); await loadTenants(); await loadAudit(); say("revoked", "ok"); } catch (err) { say(err.message, "err"); } } }
   });
   enter();
 })();

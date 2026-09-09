@@ -61,7 +61,7 @@ docker compose exec log agent-custody log-admin --db-env DATABASE_URL token add 
 docker compose exec log agent-custody log-admin --db-env DATABASE_URL token revoke <id> <old hash prefix>
 ```
 
-Hash prefixes are on the admin page and in `log-admin token list <id>` (the first eight characters of the stored hash; the plaintext is not recoverable). A revoked token gets 401 on its next append; the gateway behind it withholds pre-committed calls and errors on the rest, which is the tenant's signal that the switch missed a machine.
+Every one of these commands is recorded in the audit trail with your user and host. Hash prefixes are on the admin page and in `log-admin token list <id>` (the first eight characters of the stored hash; the plaintext is not recoverable). A revoked token gets 401 on its next append; the gateway behind it withholds pre-committed calls and errors on the rest, which is the tenant's signal that the switch missed a machine.
 
 **Export, theirs to run.** A tenant takes their own log with `agent-custody log-export --log-url https://log.example.com/ --tenant <id> --token-env AGENT_CUSTODY_LOG_TOKEN --out <dir>`: every leaf hash as a log file the verifier reads, the signed head, the keys, the checkpoints, their usage, self-checked. Put it in the welcome sheet and in the offboarding email; a tenant who runs it monthly never depends on this machine for their evidence.
 
@@ -79,7 +79,7 @@ curl -s https://log.example.com/.well-known/agent-custody-log.json      # the ne
 
 Then tell tenants the new key id and the date; verifiers that pin by `--log-url` pick it up on their next fetch, and verifiers holding a `--log-key` file need the new one. Keep the retired private key offline or destroy it; nothing needs it again. Rotate on a schedule you state in your terms (yearly is reasonable), and immediately on any suspicion of the host.
 
-**A leaked admin token.** Set a new `ADMIN_TOKEN` in `.env`, `docker compose --profile public up -d log`. Then look at the admin page's tenant and token lists for anything you did not create; revoke it and disable the tenant. Appends made through a token the attacker minted are hashes in that tenant's log, worthless to them and harmless to others.
+**A leaked admin token.** Set a new `ADMIN_TOKEN` in `.env`, `docker compose --profile public up -d log`. Then read the Activity list on the admin page, or `log-admin audit`: every tenant and token change carries who made it and from which address, so anything you did not do stands out; revoke it and disable the tenant. Appends made through a token the attacker minted are hashes in that tenant's log, worthless to them and harmless to others.
 
 **A leaked signer token.** Same with `SIGNER_TOKEN`, restarting both `signer` and `log`. The signer is reachable only inside the compose network, so a leaked token alone signs nothing from outside; treat it as a sign the host may be compromised and rotate the key as well.
 

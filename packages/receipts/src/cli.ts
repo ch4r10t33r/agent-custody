@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { hostname, userInfo } from "node:os";
 import { parseArgs } from "node:util";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -68,6 +69,7 @@ const USAGE = `agent-custody <command>
                                                  the one process that holds the log's key: POST /sign, GET /keys
   log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id>
   log-admin --db-env NAME token add <tenant> --label <text> | token list <tenant> | token revoke <tenant> <hash-prefix>
+  log-admin --db-env NAME audit [--tenant <id>]   who did what to tenants and tokens, newest first
   log-admin --db-env NAME import --file <log.jsonl> [--tenant default]      copies a file log into the database as hashes
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) [--issuer-key <pub>] [--log-key <pub>] [--log-id <id>] [--witness-key <pub> | --witness-url <url>] [--json]
                                                  with --log-url the log's published keys are fetched and pinned by keyid; with a witness key or
@@ -221,23 +223,26 @@ async function main(argv: string[]): Promise<number> {
       if (!values["db-env"]) throw new Error("log-admin needs --db-env NAME");
       const tenancy = new PostgresTenancy(openPostgres(values["db-env"]));
       const [what, verb, ...args] = positionals;
+      const actor = `cli:${userInfo().username}@${hostname()}`;
       if (what === "tenant" && verb === "add" && args[0]) {
-        const t = await tenancy.addTenant(args[0], values["log-id"] ?? args[0]);
+        const t = await tenancy.addTenant(args[0], values["log-id"] ?? args[0], actor);
         console.log(`tenant ${t.id} log=${t.logId} reached at /t/${t.id}/`);
       } else if (what === "tenant" && verb === "list") {
         for (const t of await tenancy.listTenants()) console.log(`${t.id.padEnd(24)} log=${t.logId.padEnd(28)} created ${t.createdAt}${t.disabledAt ? `  DISABLED ${t.disabledAt}` : ""}`);
       } else if (what === "tenant" && verb === "disable" && args[0]) {
-        await tenancy.disableTenant(args[0]);
+        await tenancy.disableTenant(args[0], actor);
         console.log(`tenant ${args[0]} disabled`);
       } else if (what === "token" && verb === "add" && args[0]) {
         if (!values.label) throw new Error("token add needs --label");
-        const { token, tokenHash } = await tenancy.addToken(args[0], values.label);
+        const { token, tokenHash } = await tenancy.addToken(args[0], values.label, actor);
         console.error(`token for ${args[0]} (${values.label}); shown once, stored as hash ${tokenHash.slice(0, 12)}…:`);
         console.log(token);
       } else if (what === "token" && verb === "list" && args[0]) {
         for (const t of await tenancy.listTokens(args[0])) console.log(`${t.tokenHash.slice(0, 12)}  ${t.label.padEnd(24)} created ${t.createdAt}${t.revokedAt ? `  REVOKED ${t.revokedAt}` : ""}`);
       } else if (what === "token" && verb === "revoke" && args[0] && args[1]) {
-        console.log(`revoked ${await tenancy.revokeToken(args[0], args[1])} token(s)`);
+        console.log(`revoked ${await tenancy.revokeToken(args[0], args[1], actor)} token(s)`);
+      } else if (what === "audit") {
+        for (const e of await tenancy.audit({ ...(values.tenant !== "default" ? { tenant: values.tenant } : {}), limit: 100 })) console.log(`${e.at}  ${e.actor.padEnd(40)} ${e.action.padEnd(14)} ${(e.tenantId ?? "").padEnd(20)} ${Object.entries(e.detail).map(([k, v]) => `${k}=${v}`).join(" ")}`);
       } else if (what === "import") {
         if (!values.file) throw new Error("import needs --file <log.jsonl>");
         if (!(await tenancy.tenant(values.tenant))) throw new Error(`unknown tenant ${values.tenant}; add it first`);

@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 import { dsseSign, type Envelope, type KeyPair } from "./crypto.ts";
 import { createHash } from "node:crypto";
 import { leafHash, MerkleLog, type InclusionProof } from "./log.ts";
-import { fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
+import { type AuditEntry, fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
 import { localSigner, type Signer } from "./signer.ts";
 import type { Checkpoint, CheckpointStore } from "./checkpoints.ts";
 import { adminRoutes, type AdminOptions } from "./log-admin.ts";
@@ -180,6 +180,8 @@ export interface ResolvedLog {
   authorize(token: string | null): Promise<boolean>;
   /** this log's own metering for a month, where the store keeps it */
   usage?(month: string): Promise<TenantUsage>;
+  /** administrative actions on this log, newest first, where the store keeps them */
+  audit?(limit: number): Promise<AuditEntry[]>;
 }
 
 /** Turns the tenant in a path, or null for the root paths, into a log. */
@@ -235,6 +237,7 @@ export function postgresResolver(tenancy: PostgresTenancy, opts: { defaultTenant
           const row = u.tenants.find((t) => t.id === id);
           return { month, appends: row?.appends ?? 0, totalLeaves: row?.totalLeaves ?? 0, liveTokens: row?.liveTokens ?? 0 };
         },
+        audit: (limit) => tenancy.audit({ tenant: id, limit }),
       };
     },
     async tenants() {
@@ -343,7 +346,7 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       }
     }
     // /t/<tenant>/<op> reaches that tenant's log; anything else is the default log.
-    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head|checkpoints|leaves|usage)$/.exec(url.pathname);
+    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head|checkpoints|leaves|usage|audit)$/.exec(url.pathname);
     let which: ResolvedLog | null;
     try {
       which = await resolver.resolve(m ? m[1]! : null);
@@ -379,8 +382,14 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       const current = await log.size();
       // A tenant's own data, with their token: every leaf hash, in pages, and their metering. The export command
       // pages through these and rebuilds a log file the verifier reads directly.
-      if (req.method === "GET" && (url.pathname.endsWith("/leaves") || url.pathname.endsWith("/usage"))) {
+      if (req.method === "GET" && (url.pathname.endsWith("/leaves") || url.pathname.endsWith("/usage") || url.pathname.endsWith("/audit"))) {
         if (!(await which.authorize(bearer(req)))) return json(401, { error: "unauthorized" });
+        if (url.pathname.endsWith("/audit")) {
+          if (!which.audit) return json(404, { error: "this log keeps no audit trail" });
+          const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 200;
+          if (!Number.isInteger(limit) || limit < 1 || limit > 1000) return json(400, { error: "limit must be an integer in 1..1000" });
+          return json(200, { entries: await which.audit(limit) }, { "cache-control": "no-store" });
+        }
         if (url.pathname.endsWith("/usage")) {
           if (!which.usage) return json(404, { error: "this log keeps no usage" });
           const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);

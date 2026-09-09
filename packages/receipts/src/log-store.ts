@@ -225,6 +225,16 @@ export interface TokenRecord {
 
 const sha256hex = (s: string) => createHash("sha256").update(s).digest("hex");
 
+/** One administrative action: who did what to which tenant, when. Written by every mutation and never deleted. */
+export interface AuditEntry {
+  id: number;
+  at: string;
+  actor: string;
+  action: "tenant.add" | "tenant.disable" | "token.add" | "token.revoke";
+  tenantId: string | null;
+  detail: Record<string, unknown>;
+}
+
 /** Tenants and their tokens, in Postgres. Tokens are stored hashed; a lookup hashes what the caller presented. */
 export class PostgresTenancy {
   private readonly client: PostgresLike;
@@ -246,9 +256,24 @@ export class PostgresTenancy {
         await PostgresLog.ensureSchema(this.client, p);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}tenants (id TEXT PRIMARY KEY, log_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), disabled_at TIMESTAMPTZ)`);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}tokens (token_hash TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES ${p}tenants(id), label TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), revoked_at TIMESTAMPTZ)`);
+        await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}audit (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), actor TEXT NOT NULL, action TEXT NOT NULL, tenant_id TEXT, detail JSONB NOT NULL DEFAULT '{}')`);
       })();
     }
     return this.ready;
+  }
+
+  private async record(actor: string | undefined, action: AuditEntry["action"], tenantId: string | null, detail: Record<string, unknown>): Promise<void> {
+    await this.client.query(`INSERT INTO ${this.prefix}audit (actor, action, tenant_id, detail) VALUES ($1, $2, $3, $4)`, [actor ?? "unattributed", action, tenantId, JSON.stringify(detail)]);
+  }
+
+  /** Administrative actions, newest first; for one tenant when given. What the admin page shows and a tenant's export carries. */
+  async audit(opts: { tenant?: string; limit?: number } = {}): Promise<AuditEntry[]> {
+    await this.init();
+    const limit = Math.min(Math.max(1, opts.limit ?? 200), 1000);
+    const rows = (opts.tenant
+      ? await this.client.query(`SELECT id, at, actor, action, tenant_id, detail FROM ${this.prefix}audit WHERE tenant_id = $1 ORDER BY id DESC LIMIT ${limit}`, [opts.tenant])
+      : await this.client.query(`SELECT id, at, actor, action, tenant_id, detail FROM ${this.prefix}audit ORDER BY id DESC LIMIT ${limit}`)).rows as Record<string, unknown>[];
+    return rows.map((r) => ({ id: Number(r.id), at: new Date(r.at as string).toISOString(), actor: String(r.actor), action: r.action as AuditEntry["action"], tenantId: r.tenant_id === null || r.tenant_id === undefined ? null : String(r.tenant_id), detail: (typeof r.detail === "string" ? JSON.parse(r.detail) : r.detail) as Record<string, unknown> }));
   }
 
   private row(r: Record<string, unknown>): Tenant {
@@ -290,18 +315,21 @@ export class PostgresTenancy {
     return l;
   }
 
-  async addTenant(id: string, logId = id): Promise<Tenant> {
+  /** Creates a tenant, or renames its log id. `by` names who did it in the audit trail. */
+  async addTenant(id: string, logId = id, by?: string): Promise<Tenant> {
     if (!/^[A-Za-z0-9_.-]+$/.test(id)) throw new Error(`tenant id must be a plain identifier; got "${id}"`);
     await this.init();
     const rows = (await this.client.query(`INSERT INTO ${this.prefix}tenants (id, log_id) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET log_id = EXCLUDED.log_id RETURNING id, log_id, created_at, disabled_at`, [id, logId])).rows as Record<string, unknown>[];
     this.tenantCache.delete(id);
+    await this.record(by, "tenant.add", id, { logId });
     return this.row(rows[0]!);
   }
 
-  async disableTenant(id: string): Promise<void> {
+  async disableTenant(id: string, by?: string): Promise<void> {
     await this.init();
     await this.client.query(`UPDATE ${this.prefix}tenants SET disabled_at = now() WHERE id = $1 AND disabled_at IS NULL`, [id]);
     this.tenantCache.delete(id);
+    await this.record(by, "tenant.disable", id, {});
   }
 
   async listTenants(): Promise<Tenant[]> {
@@ -310,22 +338,25 @@ export class PostgresTenancy {
   }
 
   /** Mints a token for a tenant. The token is returned once and stored only as its hash. */
-  async addToken(tenantId: string, label: string): Promise<{ token: string; tokenHash: string }> {
+  async addToken(tenantId: string, label: string, by?: string): Promise<{ token: string; tokenHash: string }> {
     await this.init();
     if (!(await this.tenant(tenantId))) throw new Error(`unknown tenant ${tenantId}`);
     const token = randomBytes(32).toString("hex");
     const tokenHash = sha256hex(token);
     await this.client.query(`INSERT INTO ${this.prefix}tokens (token_hash, tenant_id, label) VALUES ($1, $2, $3)`, [tokenHash, tenantId, label]);
+    await this.record(by, "token.add", tenantId, { label, tokenHash: tokenHash.slice(0, 12) });
     return { token, tokenHash };
   }
 
   /** Revokes the tokens of a tenant whose hash starts with the prefix; returns how many. */
-  async revokeToken(tenantId: string, hashPrefix: string): Promise<number> {
+  async revokeToken(tenantId: string, hashPrefix: string, by?: string): Promise<number> {
     await this.init();
     if (hashPrefix.length < 8) throw new Error("give at least eight characters of the token hash");
     const rows = (await this.client.query(`UPDATE ${this.prefix}tokens SET revoked_at = now() WHERE tenant_id = $1 AND token_hash LIKE $2 AND revoked_at IS NULL RETURNING token_hash`, [tenantId, `${hashPrefix}%`])).rows as { token_hash: string }[];
     for (const r of rows) this.tokenCache.delete(`${tenantId}:${r.token_hash}`);
-    return rows.length;
+    const revoked = rows.length;
+    await this.record(by, "token.revoke", tenantId, { hashPrefix: hashPrefix.slice(0, 12), revoked });
+    return revoked;
   }
 
   /**

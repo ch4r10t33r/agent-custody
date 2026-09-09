@@ -113,3 +113,35 @@ describe("the admin surface", () => {
     expect(sheet).toContain("hashOnly");
   });
 });
+
+describe("the audit trail", () => {
+  it("records every tenant and token change with who made it, shows it on the page and the API, and a tenant sees only their own rows in their export route", async () => {
+    const basic = (user: string) => ({ authorization: `Basic ${Buffer.from(`${user}:${ADMIN}`).toString("base64")}`, "content-type": "application/json" });
+    expect((await fetch(new URL("admin/tenants", log.url), { method: "POST", headers: basic("dana"), body: JSON.stringify({ id: "audited", logId: "audited-eu" }) })).status).toBe(200);
+    const minted = (await (await fetch(new URL("admin/tenants/audited/tokens", log.url), { method: "POST", headers: basic("dana"), body: JSON.stringify({ label: "fleet-a" }) })).json()) as { token: string; tokenHash: string };
+    const second = (await (await call("POST", "admin/tenants/audited/tokens", { label: "fleet-b" })).json()) as { token: string; tokenHash: string };
+    expect((await call("POST", `admin/tenants/audited/tokens/${second.tokenHash.slice(0, 12)}/revoke`)).status).toBe(200);
+    await tenancy.addTenant("bystander", "bystander", "cli:test@host");
+
+    const all = ((await (await call("GET", "admin/audit?limit=10")).json()) as { entries: any[] }).entries;
+    expect(all[0]).toMatchObject({ actor: "cli:test@host", action: "tenant.add", tenantId: "bystander", detail: { logId: "bystander" } });
+    const mine = all.filter((e) => e.tenantId === "audited");
+    expect(mine.map((e) => e.action)).toEqual(["token.revoke", "token.add", "token.add", "tenant.add"]);
+    expect(mine[3].actor).toMatch(/^admin:dana@/);
+    expect(mine[2].actor).toMatch(/^admin:dana@/);
+    expect(mine[1].actor).toMatch(/^admin:bearer@/);
+    expect(mine[0].detail).toEqual({ hashPrefix: second.tokenHash.slice(0, 12), revoked: 1 });
+    expect(mine[2].detail).toEqual({ label: "fleet-a", tokenHash: minted.tokenHash.slice(0, 12) });
+    expect(mine.every((e) => typeof e.at === "string" && !JSON.stringify(e).includes(minted.token))).toBe(true);
+    const html = await (await call("GET", "admin")).text();
+    expect(html).toContain("<h2>Activity</h2>");
+    expect(html).toContain("/admin/audit");
+
+    // the tenant's own view, with their token: their rows and nobody else's
+    const own = (await (await fetch(new URL("t/audited/audit", log.url), { headers: { authorization: `Bearer ${minted.token}` } })).json()) as { entries: any[] };
+    expect(own.entries.map((e) => e.action)).toEqual(["token.revoke", "token.add", "token.add", "tenant.add"]);
+    expect(own.entries.some((e) => e.tenantId !== "audited")).toBe(false);
+    expect((await fetch(new URL("t/audited/audit", log.url))).status).toBe(401);
+    expect((await call("GET", "admin/audit?limit=0")).status).toBe(400);
+  });
+});

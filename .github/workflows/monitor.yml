@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - run: npx -y @agent-custody/receipts@latest log-check --log-url https://log.agent-custody.dev/ --checkpoints-url https://checkpoints.agent-custody.dev/ --tenant default --tenant agent-custody --max-lag 900

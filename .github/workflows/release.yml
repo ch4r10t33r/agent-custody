@@ -57,7 +57,7 @@ jobs:
     environment: pypi
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - run: uv build
         working-directory: packages/python
       - uses: pypa/gh-action-pypi-publish@release/v1

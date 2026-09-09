@@ -16,6 +16,10 @@ Do not open a public issue for a security problem.
 
 The [threat model](packages/receipts/docs/threat-model.md) lists every attacker the design answers and what it does not defend; a way to break one of its "evidence" rows is the report we most want. Issues of most interest: a receipt or tree head that verifies but should not, a way to make the gateway forward a call it should have denied or withheld, a way to append to another tenant's log or read its usage, a policy evaluation that allows what it should deny, and any way to reach the admin page or the signer without their tokens.
 
+## For procurement
+
+The [security questionnaire](https://agent-custody.dev/security) answers what a vendor review asks about the hosted log and the packages, with every "no" left as a no.
+
 ## Supported versions
 
 The three packages move in lockstep. Security fixes go to the latest minor version; upgrading within a minor is a version bump. The receipt format is versioned separately (v0.2) and every published conformance vector must keep verifying, so an upgrade never invalidates existing evidence.
@@ -26,4 +30,4 @@ The three packages move in lockstep. Security fixes go to the latest minor versi
 - Tenant tokens are stored as SHA-256 hashes; the plaintext is shown once at creation. The admin page and the signer each require their own token, presented from the environment, and wrong attempts are throttled per address.
 - The hosted log holds leaf hashes only; receipts, arguments, and results never leave the tenant's machine.
 - Secrets reach the gateway, the verifier, and the exporters through named environment variables, never as config values or flags.
-- Published npm packages carry provenance attestations from the release workflow; the container image is built by GitHub Actions from the published package and tagged by version.
+- The container image is built by GitHub Actions from the published package and tagged by version. Releases to date were published to npm and PyPI by hand from the maintainer's machine; the release workflow publishes with provenance attestations through trusted publishing once the registries are configured for it, and this line will say so when it does.

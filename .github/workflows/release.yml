@@ -1,6 +1,9 @@
 # Publishes the packages when a version tag is pushed: v0.1.3 publishes @agent-custody/receipts, @agent-custody/state,
 # and agent-custody on PyPI, all at that version. No tokens: npm and PyPI trust this workflow through OIDC ("trusted
 # publishing"), which each registry must be told about once, in the package's settings, before the first tagged release.
+# Until that is done, releases are published by hand and only the check job runs here: set the repository variable
+# PUBLISH_FROM_CI to "true" once both registries list this workflow as a trusted publisher, and every tag from then on
+# publishes with provenance attestations and no long-lived token anywhere.
 name: release
 
 on:
@@ -33,6 +36,7 @@ jobs:
 
   npm:
     needs: check
+    if: vars.PUBLISH_FROM_CI == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +57,7 @@ jobs:
 
   pypi:
     needs: check
+    if: vars.PUBLISH_FROM_CI == 'true'
     runs-on: ubuntu-latest
     environment: pypi
     steps:

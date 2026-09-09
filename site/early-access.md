@@ -17,3 +17,5 @@ There is no price yet. The first tenants set it with us.
 <ClientOnly><EarlyAccess /></ClientOnly>
 
 Everything else, the gateway, the SDK, the ledger, the verifier, stays open source under Apache-2.0 and needs no account. [Get started](/guide/getting-started) with that today.
+
+For your security team: the [security questionnaire](/security), the [threat model](/receipts/threat-model), and the [compliance mapping](/receipts/compliance).

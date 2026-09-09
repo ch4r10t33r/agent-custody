@@ -1,5 +1,7 @@
 # agent-custody
 
+[![test](https://github.com/ch4r10t33r/agent-custody/actions/workflows/test.yml/badge.svg)](https://github.com/ch4r10t33r/agent-custody/actions/workflows/test.yml) [![site](https://github.com/ch4r10t33r/agent-custody/actions/workflows/site.yml/badge.svg)](https://github.com/ch4r10t33r/agent-custody/actions/workflows/site.yml) [![hosted log](https://github.com/ch4r10t33r/agent-custody/actions/workflows/monitor.yml/badge.svg)](https://github.com/ch4r10t33r/agent-custody/actions/workflows/monitor.yml) [![npm](https://img.shields.io/npm/v/%40agent-custody%2Freceipts?label=%40agent-custody%2Freceipts)](https://www.npmjs.com/package/@agent-custody/receipts) [![PyPI](https://img.shields.io/pypi/v/agent-custody?label=agent-custody)](https://pypi.org/project/agent-custody/)
+
 Proof of what your AI agents did. Every tool call an agent makes through the gateway becomes a signed record of who authorized it, what the agent saw, what it did, and what depended on it, checkable by anyone with the public keys. What each check proves, and against whom, is [a table](packages/receipts/README.md#what-a-receipt-proves-and-what-it-does-not), not a slogan.
 
 It is a chain of custody for both what an agent does and what it believes: authorize, execute, record, verify, trace, remediate. The agent is not trusted. The layer around it is, and every record says exactly how far that trust extends.

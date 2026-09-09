@@ -1,0 +1,6 @@
+# agent-custody security contact, RFC 9116
+Contact: mailto:partha@charioteerconsulting.com
+Expires: 2027-09-09T00:00:00.000Z
+Preferred-Languages: en
+Canonical: https://agent-custody.dev/.well-known/security.txt
+Policy: https://github.com/ch4r10t33r/agent-custody/blob/main/SECURITY.md

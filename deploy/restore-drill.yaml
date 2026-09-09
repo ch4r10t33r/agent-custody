@@ -1,0 +1,9 @@
+# Overrides for the restore drill (restore-drill.sh): the same services on their own project, volumes, and network,
+# publishing no ports and running no Caddy, so the drill can run beside the live log without touching it.
+services:
+  log:
+    ports: !reset []
+    environment:
+      AGENT_CUSTODY_CHECKPOINT_EVERY: "3600"
+  postgres:
+    ports: !reset []

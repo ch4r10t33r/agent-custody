@@ -1,4 +1,5 @@
 # TLS at the edge, certificate from Let's Encrypt, the log server behind it. LOG_HOST comes from .env.
+# A person who pastes the log's address into a browser gets a page saying what it is; the API is unchanged.
 {$LOG_HOST} {
 	encode gzip
 	header {
@@ -6,16 +7,78 @@
 		X-Content-Type-Options nosniff
 		-Server
 	}
+	@root path /
+	handle @root {
+		header Content-Type "text/html; charset=utf-8"
+		header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'"
+		respond <<HTML
+			<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>{$LOG_HOST}</title>
+			<style>body{margin:0;font:16px/1.55 system-ui,sans-serif;color:#1b2430;background:#fafbfc}@media(prefers-color-scheme:dark){body{color:#e6ecf0;background:#0e1418}a{color:#4fc3b0}}main{max-width:40rem;margin:0 auto;padding:3rem 1.25rem}h1{font-size:1.4rem;margin:0 0 .5rem}code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}a{color:#0f6e63}table{border-collapse:collapse;margin:1rem 0}td{padding:.3rem .8rem .3rem 0;vertical-align:top}</style>
+			<main>
+			<h1>{$LOG_HOST}</h1>
+			<p>An <a href="https://agent-custody.dev/">agent-custody</a> transparency log, run by Charioteer Consulting Ltd. It holds leaf hashes of receipts, never receipts, and signs tree heads that verifiers check against the keys published here. There is nothing to browse; the endpoints are for the gateway and the verifier.</p>
+			<table>
+			<tr><td><a href="/.well-known/agent-custody-log.json">/.well-known/agent-custody-log.json</a></td><td>the signing keys, current first, retired after</td></tr>
+			<tr><td><a href="/health">/health</a></td><td>liveness</td></tr>
+			<tr><td><a href="/head">/head</a></td><td>the current signed tree head of the default log</td></tr>
+			<tr><td><code>/t/&lt;tenant&gt;/append</code>, <code>/root</code>, <code>/consistency</code>, <code>/checkpoints</code></td><td>a tenant's log; appends need the tenant's token</td></tr>
+			<tr><td><a href="https://{$CHECKPOINTS_HOST}/">{$CHECKPOINTS_HOST}</a></td><td>signed checkpoints, published on a second host</td></tr>
+			</table>
+			<p>Status: <a href="https://github.com/ch4r10t33r/agent-custody/actions/workflows/monitor.yml">an outside probe every ten minutes</a>. Security: <a href="https://agent-custody.dev/security">the questionnaire</a>, <a href="/.well-known/security.txt">security.txt</a>. Terms: <a href="https://agent-custody.dev/terms">early access</a>, <a href="https://agent-custody.dev/privacy">privacy</a>.</p>
+			</main>
+			HTML 200
+	}
+	@sectxt path /.well-known/security.txt
+	handle @sectxt {
+		header Content-Type "text/plain; charset=utf-8"
+		respond <<TXT
+			Contact: mailto:partha@charioteerconsulting.com
+			Expires: 2027-09-09T00:00:00.000Z
+			Preferred-Languages: en
+			Canonical: https://{$LOG_HOST}/.well-known/security.txt
+			Policy: https://github.com/ch4r10t33r/agent-custody/blob/main/SECURITY.md
+			TXT 200
+	}
 	reverse_proxy log:8787
 }
 
-# The published checkpoints: plain files, one per tree size and a latest.json per log, served read-only.
+# The published checkpoints: plain files, one per tree size and a latest.json per log, served read-only. No directory
+# listing; the root says what the host is and where the files are.
 {$CHECKPOINTS_HOST} {
 	root * /srv/checkpoints
-	file_server browse
 	header {
 		Cache-Control "public, max-age=60"
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
 		-Server
 	}
+	@root path /
+	handle @root {
+		header Content-Type "text/html; charset=utf-8"
+		header Content-Security-Policy "default-src 'none'; style-src 'unsafe-inline'"
+		respond <<HTML
+			<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+			<title>{$CHECKPOINTS_HOST}</title>
+			<style>body{margin:0;font:16px/1.55 system-ui,sans-serif;color:#1b2430;background:#fafbfc}@media(prefers-color-scheme:dark){body{color:#e6ecf0;background:#0e1418}a{color:#4fc3b0}}main{max-width:40rem;margin:0 auto;padding:3rem 1.25rem}h1{font-size:1.4rem;margin:0 0 .5rem}code{font-family:ui-monospace,Menlo,monospace;font-size:.9em}a{color:#0f6e63}</style>
+			<main>
+			<h1>{$CHECKPOINTS_HOST}</h1>
+			<p>Signed checkpoints of the <a href="https://{$LOG_HOST}/">{$LOG_HOST}</a> transparency log, published here so the record of what the log signed does not depend on the log's API being up. Each is a tree head signed by the log's key.</p>
+			<p>Per log: <code>/&lt;tenant&gt;/latest.json</code> is the newest, <code>/&lt;tenant&gt;/&lt;treeSize&gt;.json</code> each one before it. The default log is at <a href="/default/latest.json">/default/latest.json</a>.</p>
+			<p>A verifier who kept an earlier head audits against a later checkpoint with <code>agent-custody audit --older &lt;bundle&gt; --newer &lt;checkpoint&gt; --log-url https://{$LOG_HOST}/</code>. Keys: <a href="https://{$LOG_HOST}/.well-known/agent-custody-log.json">the log's key document</a>.</p>
+			</main>
+			HTML 200
+	}
+	@sectxt path /.well-known/security.txt
+	handle @sectxt {
+		header Content-Type "text/plain; charset=utf-8"
+		respond <<TXT
+			Contact: mailto:partha@charioteerconsulting.com
+			Expires: 2027-09-09T00:00:00.000Z
+			Preferred-Languages: en
+			Canonical: https://{$CHECKPOINTS_HOST}/.well-known/security.txt
+			Policy: https://github.com/ch4r10t33r/agent-custody/blob/main/SECURITY.md
+			TXT 200
+	}
+	file_server
 }

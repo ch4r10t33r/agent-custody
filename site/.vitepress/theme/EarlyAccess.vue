@@ -12,6 +12,8 @@ const stores = ref("");
 const proof = ref("");
 const note = ref("");
 const sent = ref(false);
+/** the mail client was opened; whether the mail went is the visitor's to know, so the page does not claim it */
+const opened = ref(false);
 const error = ref("");
 const busy = ref(false);
 
@@ -41,8 +43,15 @@ async function submit() {
     return;
   }
   window.location.href = `mailto:${TO}?subject=${encodeURIComponent("agent-custody early access")}&body=${encodeURIComponent(body())}`;
-  sent.value = true;
+  opened.value = true;
 }
+
+async function copyRequest() {
+  await navigator.clipboard.writeText(`To: ${TO}\nSubject: agent-custody early access\n\n${body()}`);
+  error.value = "";
+  copied.value = true;
+}
+const copied = ref(false);
 </script>
 
 <template>
@@ -60,8 +69,9 @@ async function submit() {
     </label>
     <label>Anything else<textarea v-model="note" rows="2"></textarea></label>
     <div class="row">
-      <button type="submit" :disabled="busy || sent">{{ sent ? "Sent" : busy ? "Sending…" : "Request early access" }}</button>
+      <button type="submit" :disabled="busy || sent">{{ sent ? "Sent" : busy ? "Sending…" : opened ? "Open my mail app again" : "Request early access" }}</button>
       <span v-if="sent" class="ok">Thank you. We answer every request, and the first tenants set the price with us.</span>
+      <span v-else-if="opened" class="ok">Your mail app should have opened with the request filled in; send it from there. If nothing opened, <button type="button" class="link" @click="copyRequest">{{ copied ? "copied" : "copy the request" }}</button> and email it to {{ TO }}.</span>
       <span v-if="error" class="err">{{ error }}</span>
     </div>
     <p class="note">Your answers go to {{ TO }} and nowhere else. No account, no tracking.</p>
@@ -80,4 +90,5 @@ button:disabled { opacity: 0.6; cursor: default; }
 .ok { color: var(--vp-c-green-1); font-size: 0.9rem; }
 .err { color: var(--vp-c-danger-1); font-size: 0.9rem; }
 .note { font-size: 0.8rem; color: var(--vp-c-text-3); margin: 0; }
+  .link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
 </style>

@@ -35,18 +35,9 @@ find /var/backups/agent-custody -name 'db-*.sql.gz' -mtime +30 -delete
 
 The tarball is the key; the dump is everything else. Both land on the same disk as the data, so `backup-offsite.sh` copies the directory off the machine with rclone every night, an hour after the dump; `BACKUP_REMOTE` in `.env` names the destination (`hetzner:agent-custody-backups`, `s3:bucket/prefix`, or an sftp storage box) and the script refuses to run without it, so a missing destination is loud. Install: `cp backup-offsite.sh /etc/cron.daily/agent-custody-backup-offsite` after `rclone config` on the host. Check the directory has yesterday's two files whenever you log in, and that the remote listing matches.
 
-**Restore drill, quarterly.** On a fresh VM with Docker:
+**Restore drill, quarterly.** `./restore-drill.sh [YYYY-MM-DD]` on the log's host restores that night's dump and key tarball into a second compose project on its own volumes, with no ports and no Caddy, starts postgres, signer, and log there, checks the restored log's head against its own key document, requires the restored key id to equal the live log's, prints the leaf and tenant counts, and tears the project down. It touches nothing in the live project. Exit 0 is a pass; record the date and result below. To rebuild on a fresh VM for real, the same steps by hand: clone, `.env` with the same secrets, `up -d postgres`, pipe the dump into `psql`, untar the key into the `logdata` volume, `up -d`.
 
-```bash
-git clone https://github.com/ch4r10t33r/agent-custody.git && cd agent-custody/deploy
-cp .env.example .env                      # then set the same POSTGRES_PASSWORD, SIGNER_TOKEN, ADMIN_TOKEN, hosts as the original
-docker compose up -d postgres && sleep 5
-gunzip -c db-YYYY-MM-DD.sql.gz | docker compose exec -T postgres psql -U custody custody_log
-docker run --rm -v agent-custody_logdata:/data -v "$PWD":/backup alpine tar xzf /backup/log-YYYY-MM-DD.tgz -C /
-docker compose --profile public up -d
-```
-
-Then, from another machine, `agent-custody log-check --log-url https://<the drill host>/ ...` must pass, and the head's `keyid` must equal the live log's. A drill that does not end with the same key id restored the wrong tarball. Record the date and result of each drill.
+Drills: 2026-09-09, backups of 2026-09-08, PASS (first drill).
 
 **Disk and certificates.** Caddy renews certificates itself; `docker compose logs caddy | grep -i error` if a host stops answering on 443. Postgres grows by roughly a hundred bytes per leaf; `df -h /` is the check, and the nightly dumps are the first thing to prune if it fills.
 

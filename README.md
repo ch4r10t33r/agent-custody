@@ -112,6 +112,7 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 - Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
 - Write policies, for tools and for memory, with tested examples, and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
 - Answer a security questionnaire with a file: which artefact satisfies which SOC 2, ISO 27001, EU AI Act, and UK GDPR requirement. [compliance.md](packages/receipts/docs/compliance.md)
+- Give a security reviewer the attacker's view: who could make a receipt false, what stops them, and what is not defended. [threat-model.md](packages/receipts/docs/threat-model.md)
 - Log to a server the operator does not control, so tree heads are signed by a key that is not yours. [verification.md](packages/receipts/docs/verification.md)
 - Verify a receipt in the browser, nothing uploaded, and check a second implementation against the published conformance vectors. [agent-custody.dev/verify](https://agent-custody.dev/verify), [vectors](https://agent-custody.dev/receipt/vectors)
 - Prove a log was never rewritten: keep any receipt's tree head, later audit that the log still extends it. [verification.md](packages/receipts/docs/verification.md)

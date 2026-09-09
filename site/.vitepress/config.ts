@@ -83,6 +83,7 @@ export default withMermaid(
           { text: "Writing policies", link: "/receipts/policies" },
           { text: "Verifying a receipt", link: "/receipts/verification" },
           { text: "What the evidence satisfies", link: "/receipts/compliance" },
+          { text: "Threat model", link: "/receipts/threat-model" },
         ] },
         { text: "State", items: [{ text: "The fact ledger", link: "/state/" }] },
         { text: "Python", items: [{ text: "The Python client", link: "/python/" }] },

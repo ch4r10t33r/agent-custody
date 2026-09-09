@@ -14,7 +14,7 @@ Do not open a public issue for a security problem.
 - The hosted log at `log.agent-custody.dev` and its checkpoints host. Test only against a tenant that is yours.
 - The browser verifier at agent-custody.dev/verify.
 
-Issues of most interest: a receipt or tree head that verifies but should not, a way to make the gateway forward a call it should have denied or withheld, a way to append to another tenant's log or read its usage, a policy evaluation that allows what it should deny, and any way to reach the admin page or the signer without their tokens.
+The [threat model](packages/receipts/docs/threat-model.md) lists every attacker the design answers and what it does not defend; a way to break one of its "evidence" rows is the report we most want. Issues of most interest: a receipt or tree head that verifies but should not, a way to make the gateway forward a call it should have denied or withheld, a way to append to another tenant's log or read its usage, a policy evaluation that allows what it should deny, and any way to reach the admin page or the signer without their tokens.
 
 ## Supported versions
 

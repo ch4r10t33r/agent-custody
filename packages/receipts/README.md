@@ -227,6 +227,7 @@ src/config.ts      gateway and SDK config schemas, path resolution
 src/crypto.ts      canonical JSON, sha256, Ed25519 keys, DSSE sign/verify
 src/log.ts         Merkle log: append, root, inclusion and consistency proofs, verify, JSONL persistence
 src/log-check.ts   the outside monitor: verifies the head, checkpoints, and witness of a running log
+src/log-export.ts  a tenant's export of their own log, self-checked, as a log file the verifier reads
 src/witness.ts     the witness: countersigns the log's checkpoints from another operator's machine, or refuses with an alarm
 src/signer.ts      the signer: the log's key in its own process, the key document verifiers fetch
 src/checkpoints.ts signed heads published on a schedule, to files and to Postgres
@@ -284,6 +285,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - Remote log: the issuer can append to a log run by someone else over HTTP, whose key then signs the tree heads, so a verifier learns the receipt was in a log the operator could not rewrite. Includes the reference log server, bearer-token auth, and a root endpoint for auditors.
 - Framework adapters, each tested against the real package with a scripted model and no network: OpenAI Agents SDK (`wrapTools` enforces, `observeRunner` records from lifecycle events), Vercel AI SDK (`wrapTools` over a real `generateText` loop), LangChain (`ReceiptCallbackHandler` records, `issuer.wrap` enforces).
 
+- A tenant's export: `log-export` takes, with the tenant's own token, every leaf hash, the signed head, the published keys, the checkpoints, and their usage, checks that they add up, and writes a log copy the verifier reads offline; the evidence never depends on the operator staying in business.
 - Monitoring and metering: `log-check`, the outside probe that verifies the head, the checkpoints, and the witness and exits 1 on trouble, run every ten minutes by the `monitor` workflow; `GET /health`; and usage per tenant per month on the admin page and as CSV.
 - The witness: a second signer on a machine the log's operator does not control countersigns each checkpoint after proving it extends the last one it signed, refuses a rewritten or forked history with an alarm, and publishes its key; `audit --witness-url` requires it. Phase 6 of [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - The signer, keys, and checkpoints: the key in its own process (`signer`, `--signer-url`), the key document at `/.well-known/agent-custody-log.json` fetched and pinned by `verify --log-url` and `audit --log-url`, and signed checkpoints per log published to a directory and a table for a verifier who was not watching. Phase 3 of [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).

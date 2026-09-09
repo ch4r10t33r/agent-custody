@@ -12,6 +12,7 @@ import { bothCheckpoints, dirCheckpoints, postgresCheckpoints, type CheckpointSt
 import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey, type Signer } from "./signer.ts";
 import { fetchWitnessKeys, Witness } from "./witness.ts";
 import { checkLog, formatLogCheck } from "./log-check.ts";
+import { exportLog, formatExport } from "./log-export.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
 import { createRequire } from "node:module";
@@ -53,6 +54,9 @@ const USAGE = `agent-custody <command>
                                                  the operator's admin page at /admin and its API, behind the admin token: tenants, tokens shown once,
                                                  the welcome sheet; the public URLs fill the sheet in
   log-check --log-url <url> [--checkpoints-url <url>] [--witness-url <url>] [--tenant <name>]... [--max-lag <seconds>] [--json]
+  log-export --log-url <url> [--tenant <name>] --token-env NAME --out <dir> [--month YYYY-MM]... [--json]
+                                                   a tenant's own log, with their token: every leaf hash as a log file the verifier
+                                                   reads, the signed head, the published keys, the checkpoints, and their usage
                                                  the outside monitor: verifies the head against the published keys, that checkpoints keep up
                                                  with the head and the head extends them, and that the witness countersigns and raises no
                                                  alarm; exits 1 on any failure. Run it from cron or a scheduled workflow elsewhere.
@@ -173,6 +177,15 @@ async function main(argv: string[]): Promise<number> {
       const r = await checkLog({ logUrl: values["log-url"], ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}), ...(values["witness-url"] ? { witnessUrl: values["witness-url"] } : {}), tenants: values.tenant?.length ? values.tenant : ["default"], maxLagMs: Number(values["max-lag"]) * 1000 });
       console.log(values.json ? JSON.stringify(r, null, 2) : formatLogCheck(r));
       return r.ok ? 0 : 1;
+    }
+    case "log-export": {
+      const { values } = parseArgs({ args: rest, options: { "log-url": { type: "string" }, tenant: { type: "string" }, "token-env": { type: "string" }, out: { type: "string" }, month: { type: "string", multiple: true }, json: { type: "boolean", default: false } } });
+      if (!values["log-url"] || !values["token-env"] || !values.out) throw new Error("log-export needs --log-url, --token-env, and --out");
+      const token = process.env[values["token-env"]];
+      if (!token) throw new Error(`environment variable ${values["token-env"]} is not set`);
+      const r = await exportLog({ logUrl: values["log-url"], ...(values.tenant ? { tenant: values.tenant } : {}), token, outDir: values.out, ...(values.month?.length ? { months: values.month } : {}) });
+      console.log(values.json ? JSON.stringify(r, null, 2) : formatExport(r));
+      return r.problems.length ? 1 : 0;
     }
     case "witness": {
       const { values } = parseArgs({ args: rest, options: { key: { type: "string" }, "log-url": { type: "string" }, "checkpoints-url": { type: "string" }, out: { type: "string" }, tenant: { type: "string", multiple: true }, every: { type: "string", default: "300" }, once: { type: "boolean", default: false } } });

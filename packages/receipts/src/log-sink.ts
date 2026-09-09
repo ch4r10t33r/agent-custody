@@ -167,10 +167,19 @@ export function clientAddress(req: IncomingMessage, trustProxy = false): string 
 }
 
 /** One log as the handler sees it, whatever stands behind it. */
+export interface TenantUsage {
+  month: string;
+  appends: number;
+  totalLeaves: number;
+  liveTokens: number;
+}
+
 export interface ResolvedLog {
   backend: LogBackend;
   logId: string | undefined;
   authorize(token: string | null): Promise<boolean>;
+  /** this log's own metering for a month, where the store keeps it */
+  usage?(month: string): Promise<TenantUsage>;
 }
 
 /** Turns the tenant in a path, or null for the root paths, into a log. */
@@ -221,6 +230,11 @@ export function postgresResolver(tenancy: PostgresTenancy, opts: { defaultTenant
         backend,
         logId: t.logId,
         authorize: async (tok) => (tenant === null && (opts.staticTokens?.length ?? 0) > 0 && tokenMatches(opts.staticTokens!, tok)) || (await tenancy.authorize(id, tok)),
+        usage: async (month) => {
+          const u = await tenancy.usage(month);
+          const row = u.tenants.find((t) => t.id === id);
+          return { month, appends: row?.appends ?? 0, totalLeaves: row?.totalLeaves ?? 0, liveTokens: row?.liveTokens ?? 0 };
+        },
       };
     },
     async tenants() {
@@ -329,7 +343,7 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       }
     }
     // /t/<tenant>/<op> reaches that tenant's log; anything else is the default log.
-    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head|checkpoints)$/.exec(url.pathname);
+    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head|checkpoints|leaves|usage)$/.exec(url.pathname);
     let which: ResolvedLog | null;
     try {
       which = await resolver.resolve(m ? m[1]! : null);
@@ -363,6 +377,22 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
         return json(200, await appendSigned(log, signer, { leaf: parsed.leaf }, logId));
       }
       const current = await log.size();
+      // A tenant's own data, with their token: every leaf hash, in pages, and their metering. The export command
+      // pages through these and rebuilds a log file the verifier reads directly.
+      if (req.method === "GET" && (url.pathname.endsWith("/leaves") || url.pathname.endsWith("/usage"))) {
+        if (!(await which.authorize(bearer(req)))) return json(401, { error: "unauthorized" });
+        if (url.pathname.endsWith("/usage")) {
+          if (!which.usage) return json(404, { error: "this log keeps no usage" });
+          const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
+          if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return json(400, { error: "month must be YYYY-MM" });
+          return json(200, await which.usage(month), { "cache-control": "no-store" });
+        }
+        const since = url.searchParams.has("since") ? Number(url.searchParams.get("since")) : 0;
+        const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 10_000;
+        if (!Number.isInteger(since) || since < 0 || since > current) return json(400, { error: `since must be an integer in 0..${current}` });
+        if (!Number.isInteger(limit) || limit < 1 || limit > 10_000) return json(400, { error: "limit must be an integer in 1..10000" });
+        return json(200, { since, size: current, leaves: await log.leafHashes(since, since + limit) }, { "cache-control": "no-store" });
+      }
       if (req.method === "GET" && url.pathname.endsWith("/root")) {
         const size = url.searchParams.has("size") ? Number(url.searchParams.get("size")) : current;
         if (!Number.isInteger(size) || size < 0 || size > current) return json(400, { error: `size must be an integer in 0..${current}` });

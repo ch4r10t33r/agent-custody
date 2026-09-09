@@ -7,7 +7,7 @@
     },
     "packages/receipts": {
       "name": "@agent-custody/receipts",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "bin": {
         "agent-custody": "./dist/cli.js",
       },
@@ -41,7 +41,7 @@
     },
     "packages/state": {
       "name": "@agent-custody/state",
-      "version": "0.5.6",
+      "version": "0.5.7",
       "bin": {
         "agent-custody-memory": "./dist/cli.js",
       },

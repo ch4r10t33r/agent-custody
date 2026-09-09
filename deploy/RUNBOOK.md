@@ -33,7 +33,7 @@ find /var/backups/agent-custody -name 'log-*.tgz' -mtime +30 -delete
 find /var/backups/agent-custody -name 'db-*.sql.gz' -mtime +30 -delete
 ```
 
-The tarball is the key; the dump is everything else. Both land on the same disk as the data, so a second job must copy `/var/backups/agent-custody` off the machine (rclone to object storage, or scp to another host); until it does, a lost disk is a lost key. Check the directory has yesterday's two files whenever you log in.
+The tarball is the key; the dump is everything else. Both land on the same disk as the data, so `backup-offsite.sh` copies the directory off the machine with rclone every night, an hour after the dump; `BACKUP_REMOTE` in `.env` names the destination (`hetzner:agent-custody-backups`, `s3:bucket/prefix`, or an sftp storage box) and the script refuses to run without it, so a missing destination is loud. Install: `cp backup-offsite.sh /etc/cron.daily/agent-custody-backup-offsite` after `rclone config` on the host. Check the directory has yesterday's two files whenever you log in, and that the remote listing matches.
 
 **Restore drill, quarterly.** On a fresh VM with Docker:
 
@@ -62,6 +62,8 @@ docker compose exec log agent-custody log-admin --db-env DATABASE_URL token revo
 ```
 
 Hash prefixes are on the admin page and in `log-admin token list <id>` (the first eight characters of the stored hash; the plaintext is not recoverable). A revoked token gets 401 on its next append; the gateway behind it withholds pre-committed calls and errors on the rest, which is the tenant's signal that the switch missed a machine.
+
+**Export, theirs to run.** A tenant takes their own log with `agent-custody log-export --log-url https://log.example.com/ --tenant <id> --token-env AGENT_CUSTODY_LOG_TOKEN --out <dir>`: every leaf hash as a log file the verifier reads, the signed head, the keys, the checkpoints, their usage, self-checked. Put it in the welcome sheet and in the offboarding email; a tenant who runs it monthly never depends on this machine for their evidence.
 
 **Offboard.** `tenant disable <id>` refuses new appends and keeps the log readable, so receipts the tenant already holds keep verifying inclusion and their auditors can still fetch consistency proofs; this is the default and the honest one. The leaves themselves are hashes and stay: removing them would change every later root in that tenant's tree and break their own evidence. If a contract requires the tenant's log gone entirely, `DELETE FROM log_leaves WHERE tenant_id = '<id>'` and the rows in `log_heads`, `log_tokens`, and `log_tenants` for it, after telling them in writing that their receipts will no longer prove inclusion; take a dump first.
 

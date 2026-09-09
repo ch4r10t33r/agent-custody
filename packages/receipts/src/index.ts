@@ -5,6 +5,8 @@ export type { GatewayOptions } from "./gateway.ts";
 export { buildRequest, restUpstream } from "./rest.ts";
 export { openExporter, otlpExporter, spanFor } from "./otel.ts";
 export { hecEvent, splunkExporter } from "./splunk.ts";
+export { exportLog, formatExport } from "./log-export.ts";
+export type { ExportOptions, ExportResult } from "./log-export.ts";
 export { fileBackend, importLogFile, PostgresLog, PostgresTenancy, RateLimiter } from "./log-store.ts";
 export { connectSigner, fetchLogKeys, localSigner, serveSigner, signerHandler } from "./signer.ts";
 export type { KeyDocument, RemoteSignerOptions, RetiredKey, RunningSigner, Signer, SignerServerOptions } from "./signer.ts";

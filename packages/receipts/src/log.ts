@@ -176,6 +176,11 @@ export class MerkleLog {
     return this.hashes.length;
   }
 
+  /** Leaf hashes `from` (inclusive) to `to` (exclusive), as hex: what an export carries and what a copy is rebuilt from. */
+  leafHashes(from: number, to: number = this.hashes.length): string[] {
+    return this.hashes.slice(Math.max(0, from), Math.min(to, this.hashes.length)).map((h) => h.toString("hex"));
+  }
+
   /** Appends a leaf (an opaque string, typically a canonical JSON envelope). Returns its proof against the new root. */
   append(leaf: string): InclusionProof & { rootHash: string } {
     appendFileSync(this.file, JSON.stringify(leaf) + "\n");

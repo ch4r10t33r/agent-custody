@@ -15,4 +15,4 @@ resources:
   - ingress.yaml
 images:
   - name: ghcr.io/ch4r10t33r/agent-custody-log
-    newTag: "0.5.6"
+    newTag: "0.5.7"

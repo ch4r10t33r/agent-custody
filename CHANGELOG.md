@@ -2,6 +2,14 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.7 — 2026-09-09
+
+- **Receipts:** a tenant's export. `agent-custody log-export --log-url <url> --tenant <name> --token-env NAME --out <dir>` fetches, with the tenant's own token, every leaf hash (`GET /t/<name>/leaves`, paged), the signed head, the published keys, the signed checkpoints, and their usage (`GET /t/<name>/usage`), checks that the head and every checkpoint verify against the keys and that the leaves hash to their roots, and writes `log.jsonl` in the format `verify --log` and `audit --log` read. Both routes answer only to that tenant's token. The welcome sheet includes the command.
+- **Receipts:** every outbound request carries a timeout. The log client's is `log.timeoutMs` in either config, default ten seconds, so a log that accepts connections and never answers cannot hold a pre-committed call; the key, witness, and consistency fetches time out at ten seconds.
+- **Receipts:** the signer publishes retired keys from `/data/keys/retired/*.pub` in the container, so rotating the signing key is a copy and a restart with every old head still verifying.
+- **Deploy:** `RUNBOOK.md` (upgrade and rollback, backups and the restore drill, token rotation, tenant export and offboarding, key rotation, leaked secrets, a compromised host, what each monitor failure means) and `backup-offsite.sh`, which mirrors the nightly backups to an rclone remote named in `.env`. `SECURITY.md` at the repository root is the disclosure policy. Dependabot watches npm, pip, GitHub Actions, and the image base.
+- **State, Python:** unchanged; released in step.
+
 ## 0.5.6 — 2026-09-09
 
 - **Receipts:** `docs/compliance.md`, the mapping from each artefact (receipt, authorization, denial, remote log, checkpoint, witness, ledger event, forget record, custody pack, explain output) to the SOC 2 criteria, ISO 27001 Annex A controls, EU AI Act articles, and UK GDPR articles it is evidence for, and what no artefact claims.

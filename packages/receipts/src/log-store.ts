@@ -18,6 +18,8 @@ export interface LogBackend {
   appendHash(leafHashHex: string): Promise<AppendResult>;
   root(size?: number): Promise<string>;
   consistencyProof(oldSize: number, newSize?: number): Promise<string[]>;
+  /** leaf hashes from (inclusive) to (exclusive), hex */
+  leafHashes(from: number, to: number): Promise<string[]>;
 }
 
 /** The JSONL file log behind the asynchronous interface. */
@@ -35,6 +37,9 @@ export function fileBackend(file: string): LogBackend {
     },
     async root(size) {
       return log.root(size);
+    },
+    async leafHashes(from, to) {
+      return log.leafHashes(from, to);
     },
     async consistencyProof(oldSize, newSize) {
       return log.consistencyProof(oldSize, newSize);
@@ -179,6 +184,11 @@ export class PostgresLog implements LogBackend {
   async appendHash(leafHashHex: string): Promise<AppendResult> {
     if (!/^[0-9a-f]{64}$/.test(leafHashHex)) throw new Error("leafHash must be 64 lowercase hex characters");
     return this.commit(Buffer.from(leafHashHex, "hex"));
+  }
+
+  async leafHashes(from: number, to: number): Promise<string[]> {
+    const n = await this.size();
+    return this.hashes.slice(Math.max(0, from), Math.min(to, n)).map((h) => h.toString("hex"));
   }
 
   async root(size?: number): Promise<string> {

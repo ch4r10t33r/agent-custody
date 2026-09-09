@@ -52,6 +52,11 @@ export function welcomeSheet(o: { tenant: string; logId: string; publicUrl: stri
     `  npx agent-custody audit --older receipts/<earlier>.json --newer receipts/<later>.json --log-url ${url} --log-id ${o.logId}`,
     "--log-url fetches this log's published keys and pins them; --log-id makes sure the tree heads are this log's.",
     "",
+    "Your log is yours to take, any time, with your token:",
+    `  npx agent-custody log-export --log-url ${url} --tenant ${o.tenant} --token-env AGENT_CUSTODY_LOG_TOKEN --out custody-export/`,
+    "It fetches every leaf hash, the signed head, the keys, the checkpoints, and your usage, checks they add up, and writes",
+    "a log copy that verify --log and audit --log read with no server.",
+    "",
     "What this log does not do: hold receipt contents, forge a receipt (your gateway key signs those), or, today,",
     "countersign with a second independent witness. The proof table: https://agent-custody.dev/receipts/#what-a-receipt-proves-and-what-it-does-not",
   ];

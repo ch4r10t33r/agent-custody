@@ -106,6 +106,15 @@ describe("checkpoints", () => {
       expect(first.map((c) => [c.tenant, c.treeSize, c.logId])).toEqual([["default", 2, "cp-log"]]);
       expect(readdirSync(join(dir, "checkpoints", "default")).sort()).toEqual(["2.json", "latest.json"]);
       expect(await publisher.publishOnce()).toEqual([]); // unchanged since
+      // a quiet log still gets its head re-signed once the latest checkpoint is older than the heartbeat: same size,
+      // same root, fresh signature, so a monitor can tell a quiet log from a stalled publisher
+      const before = (await store.latest("default"))!;
+      await new Promise((r) => setTimeout(r, 5));
+      const beat = await new CheckpointPublisher(resolver, signer, store, 60_000, undefined, 1).publishOnce();
+      expect(beat.map((c) => [c.tenant, c.treeSize, c.rootHash])).toEqual([["default", 2, before.rootHash]]);
+      const after = (await store.latest("default"))!;
+      expect(after.signedAt > before.signedAt).toBe(true);
+      expect(readdirSync(join(dir, "checkpoints", "default")).sort()).toEqual(["2.json", "latest.json"]); // no new file, the same size rewritten
       await post("append", "c");
       await post("t/acme/append", "x");
       const second = await publisher.publishOnce();
@@ -150,6 +159,13 @@ describe("checkpoints", () => {
         expect(listed.checkpoints).toHaveLength(1);
         expect(listed.checkpoints[0]!.rootHash).toBe(await (await resolver.resolve(null))!.backend.root(1));
         expect(await store.latest("default")).toMatchObject({ treeSize: 1, logId: "pg-log" });
+        // a re-signed head at the same size replaces the signature only when the root is the same; a different root at
+        // the same size is a second history and the row is left alone
+        const first = (await store.latest("default"))!;
+        await store.save({ ...first, signedAt: "2030-01-01T00:00:00.000Z" });
+        expect((await store.latest("default"))!.signedAt).toBe("2030-01-01T00:00:00.000Z");
+        await store.save({ ...first, rootHash: "ff".repeat(32), signedAt: "2031-01-01T00:00:00.000Z" });
+        expect(await store.latest("default")).toMatchObject({ rootHash: first.rootHash, signedAt: "2030-01-01T00:00:00.000Z" });
         // a second store that missed the write is caught up on the next publication, because `latest` follows the store furthest behind
         const { bothCheckpoints, dirCheckpoints } = await import("../src/checkpoints.ts");
         const lagging = dirCheckpoints(mkdtempSync(join(tmpdir(), "lagging-")));

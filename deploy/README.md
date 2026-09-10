@@ -25,7 +25,7 @@ Operators who log here should set `"hashOnly": true` in their `log` config, so t
 | `AGENT_CUSTODY_SIGNER_URL`, `SIGNER_TOKEN` | the log signs through this signer with this shared secret instead of holding a key; the compose file sets them | unset |
 | `TRUST_PROXY` | `1` when a reverse proxy you run is the only way in, so per-address limits key on `X-Forwarded-For`; the compose file sets it for Caddy | unset |
 | `ADMIN_TOKEN` | turns on the operator's page at `/admin` and its API, behind this token; `LOG_HOST` and `CHECKPOINTS_HOST` fill the welcome sheet | unset |
-| `AGENT_CUSTODY_CHECKPOINT_DIR`, `AGENT_CUSTODY_CHECKPOINT_EVERY` | where and how often signed checkpoints are written; the compose file serves the directory from `CHECKPOINTS_HOST` | unset, 300 |
+| `AGENT_CUSTODY_CHECKPOINT_DIR`, `AGENT_CUSTODY_CHECKPOINT_EVERY`, `AGENT_CUSTODY_CHECKPOINT_HEARTBEAT` | where signed checkpoints are written, how often the publisher looks for growth, and how often a quiet log's head is re-signed anyway so the checkpoint stays fresh; the compose file serves the directory from `CHECKPOINTS_HOST` | unset, 300, 21600 |
 
 The volume at `/data` is the whole state: the log and the key. Back it up; a lost key means every tree head it signed is still verifiable, but new heads will be signed by a different key, which verifiers must be told about.
 

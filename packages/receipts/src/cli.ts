@@ -46,7 +46,7 @@ const USAGE = `agent-custody <command>
   verify  <bundle.json> --issuer-key <pub> [--principal-key <pub>] [--log-key <pub> | --log-url <url>] [--log-id <id>] [--upstream-key <pub>] [--stripe-secret-env NAME] [--github-secret-env NAME] [--log <log.jsonl>] [--json]
   log     ... --db-env NAME                     the same server over Postgres: tenants and tokens from the database, one writer per tenant,
                                                  root paths serve the tenant "default" (created with --log-id). Needs the pg package.
-  log     ... (--key <log.key> [--retired-key <pub>]... | --signer-url <url> [--signer-token-env NAME]) [--checkpoint-dir <dir>] [--checkpoint-every <seconds>]
+  log     ... (--key <log.key> [--retired-key <pub>]... | --signer-url <url> [--signer-token-env NAME]) [--checkpoint-dir <dir>] [--checkpoint-every <seconds>] [--checkpoint-heartbeat <seconds>]
                                                  sign with a key in this process, or through a signer process that holds it; publish a signed
                                                  checkpoint per log that has grown, every 300 s by default, to the directory (and, with a
                                                  database, to its heads table); serve the key document at /.well-known/agent-custody-log.json
@@ -265,7 +265,7 @@ async function main(argv: string[]): Promise<number> {
     case "log": {
       const { values } = parseArgs({
         args: rest,
-        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, "log-id": { type: "string" }, tenants: { type: "string" }, "db-env": { type: "string" }, "signer-url": { type: "string" }, "signer-token-env": { type: "string" }, "retired-key": { type: "string", multiple: true }, "checkpoint-dir": { type: "string" }, "checkpoint-every": { type: "string", default: "300" }, "admin-token-env": { type: "string" }, "public-url": { type: "string" }, "checkpoints-url": { type: "string" }, "trust-proxy": { type: "boolean", default: false } },
+        options: { file: { type: "string" }, key: { type: "string" }, port: { type: "string", default: "8787" }, host: { type: "string", default: "127.0.0.1" }, "token-env": { type: "string" }, "log-id": { type: "string" }, tenants: { type: "string" }, "db-env": { type: "string" }, "signer-url": { type: "string" }, "signer-token-env": { type: "string" }, "retired-key": { type: "string", multiple: true }, "checkpoint-dir": { type: "string" }, "checkpoint-every": { type: "string", default: "300" }, "checkpoint-heartbeat": { type: "string", default: "21600" }, "admin-token-env": { type: "string" }, "public-url": { type: "string" }, "checkpoints-url": { type: "string" }, "trust-proxy": { type: "boolean", default: false } },
       });
       if (!values.key === !values["signer-url"]) throw new Error("log needs exactly one of --key or --signer-url");
       const token = values["token-env"] ? process.env[values["token-env"]] : undefined;
@@ -280,6 +280,8 @@ async function main(argv: string[]): Promise<number> {
       }
       const everyMs = Number(values["checkpoint-every"]) * 1000;
       if (!(everyMs > 0)) throw new Error("--checkpoint-every must be a positive number of seconds");
+      const heartbeatMs = Number(values["checkpoint-heartbeat"]) * 1000;
+      if (!(heartbeatMs > 0)) throw new Error("--checkpoint-heartbeat must be a positive number of seconds");
       let resolver: LogResolver;
       let checkpoints: CheckpointStore | undefined = values["checkpoint-dir"] ? dirCheckpoints(values["checkpoint-dir"]) : undefined;
       let where: string;
@@ -308,7 +310,7 @@ async function main(argv: string[]): Promise<number> {
         where = `file=${values.file}${values["log-id"] ? ` log=${values["log-id"]}` : ""} ${token ? "bearer token required" : "open, anyone may append"}${tenants ? ` tenants=${Object.keys(tenants).join(",")}` : ""}`;
       }
       const running = await serveLog(resolver, signer, { port: Number(values.port), host: values.host, ...(checkpoints ? { checkpoints } : {}), ...(admin ? { admin } : {}), trustProxy: values["trust-proxy"] });
-      const publisher = checkpoints ? new CheckpointPublisher(resolver, signer, checkpoints, everyMs) : null;
+      const publisher = checkpoints ? new CheckpointPublisher(resolver, signer, checkpoints, everyMs, undefined, heartbeatMs) : null;
       publisher?.start();
       console.error(`agent-custody log: ${running.url} keyid=${signer.keyid} ${values["signer-url"] ? `signer=${values["signer-url"]} ` : ""}${where}${checkpoints ? ` checkpoints every ${values["checkpoint-every"]}s${values["checkpoint-dir"] ? ` to ${values["checkpoint-dir"]}` : ""}` : ""}${admin ? " admin page at /admin" : ""}`);
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));

@@ -256,16 +256,22 @@ export class CheckpointPublisher {
   private readonly signer: Signer;
   private readonly store: CheckpointStore;
   private readonly everyMs: number;
+  private readonly heartbeatMs: number;
   private readonly warn: (m: string) => void;
-  constructor(resolver: LogResolver, signer: Signer, store: CheckpointStore, everyMs = 300_000, warn: (m: string) => void = (m) => console.error(m)) {
+  /**
+   * `heartbeatMs`: a log that has not grown still gets its head re-signed this often (default six hours), so a fresh
+   * signature says "still this head, as of now" and a quiet log is not mistaken for a stalled publisher.
+   */
+  constructor(resolver: LogResolver, signer: Signer, store: CheckpointStore, everyMs = 300_000, warn: (m: string) => void = (m) => console.error(m), heartbeatMs = 6 * 3_600_000) {
     this.resolver = resolver;
     this.signer = signer;
     this.store = store;
     this.everyMs = everyMs;
+    this.heartbeatMs = heartbeatMs;
     this.warn = warn;
   }
 
-  /** Publishes for every log that has grown; returns the checkpoints written. */
+  /** Publishes for every log that has grown, or whose latest checkpoint is older than the heartbeat; returns the checkpoints written. */
   async publishOnce(): Promise<Checkpoint[]> {
     const out: Checkpoint[] = [];
     for (const tenant of await this.resolver.tenants()) {
@@ -276,7 +282,7 @@ export class CheckpointPublisher {
         const size = await r.backend.size();
         if (size === 0) continue; // an empty tree is not a checkpoint worth publishing
         const last = await this.store.latest(name);
-        if (last && last.treeSize >= size) continue;
+        if (last && last.treeSize >= size && Date.now() - Date.parse(last.signedAt) < this.heartbeatMs) continue;
         const rootHash = await r.backend.root(size);
         const envelope = await signHead({ treeSize: size, rootHash }, this.signer, r.logId);
         const c: Checkpoint = { tenant: name, logId: r.logId, treeSize: size, rootHash, signedAt: new Date().toISOString(), envelope };

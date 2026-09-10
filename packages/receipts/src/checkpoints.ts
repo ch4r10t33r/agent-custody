@@ -73,7 +73,7 @@ export function postgresCheckpoints(client: PostgresLike, prefix = "log_"): Chec
   return {
     async save(c) {
       await init();
-      await client.query(`INSERT INTO ${table} (tenant_id, tree_size, log_id, root_hash, signed_at, envelope) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant_id, tree_size) DO NOTHING`, [c.tenant, c.treeSize, c.logId ?? null, c.rootHash, c.signedAt, JSON.stringify(c.envelope)]);
+      await client.query(`INSERT INTO ${table} (tenant_id, tree_size, log_id, root_hash, signed_at, envelope) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (tenant_id, tree_size) DO UPDATE SET signed_at = EXCLUDED.signed_at, envelope = EXCLUDED.envelope WHERE ${table}.root_hash = EXCLUDED.root_hash`, [c.tenant, c.treeSize, c.logId ?? null, c.rootHash, c.signedAt, JSON.stringify(c.envelope)]);
     },
     async list(tenant, since = -1) {
       await init();

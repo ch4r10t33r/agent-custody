@@ -16,8 +16,8 @@ services:
     build:
       context: .
       args:
-        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.5.8}
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.8}
+        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.5.9}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.9}
     restart: unless-stopped
     environment:
       ROLE: signer
@@ -42,7 +42,7 @@ services:
       context: .
       args:
         AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.3.0}
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.8}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.9}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -58,6 +58,7 @@ services:
       # checkpoints as files for the checkpoints host, every five minutes
       AGENT_CUSTODY_CHECKPOINT_DIR: /checkpoints
       AGENT_CUSTODY_CHECKPOINT_EVERY: "${AGENT_CUSTODY_CHECKPOINT_EVERY:-300}"
+      AGENT_CUSTODY_CHECKPOINT_HEARTBEAT: "${AGENT_CUSTODY_CHECKPOINT_HEARTBEAT:-21600}"
       # the operator's page at /admin, behind this token; the hosts fill the welcome sheet in
       ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
       # Caddy is the only way in from outside, and it sets X-Forwarded-For; the log is on loopback otherwise
@@ -121,7 +122,7 @@ services:
   log-file:
     # The file-backed reference server alone: one tenant, no Postgres. What deploy/ was before phase 2.
     profiles: ["file"]
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.8}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.9}
     restart: unless-stopped
     env_file: .env
     environment:

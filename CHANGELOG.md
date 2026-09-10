@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.5.9 — 2026-09-10
+
+- **Receipts:** the checkpoint publisher re-signs a quiet log's head every `--checkpoint-heartbeat` seconds (default six hours; `AGENT_CUSTODY_CHECKPOINT_HEARTBEAT` in the container) even when the tree has not grown. Before this a log with no appends for a day tripped the monitor's "checkpoint keeps up with the head" check, which requires a checkpoint at the head to be signed within twenty-four hours: a quiet log looked like a stalled publisher, and the hosted log's status went red on 2026-09-10 for that reason alone. The Postgres checkpoint store now updates the signature at an existing size when the root is unchanged and never when it differs.
+- **Receipts:** the witness names each alarm file uniquely; two refusals in the same millisecond no longer overwrite one another.
+- **State, Python:** unchanged; released in step.
+
 ## 0.5.8 — 2026-09-09
 
 - **Receipts:** an audit trail of administrative actions. Every tenant created or disabled and every token minted or revoked is recorded with who did it (the name entered at the admin page's prompt and the address, `bearer` for an API client, the user and host for `log-admin`), what, which tenant, and the detail, never the token itself. The admin page shows it under Activity, `GET /admin/audit` and `log-admin audit` list it, a tenant reads their own rows at `GET /t/<name>/audit` with their token, and `log-export` writes them to `audit.json`.

@@ -4,7 +4,7 @@
 // to different people, and against the log's operator rewriting history, because the witness kept the earlier
 // head and refuses, loudly, when the new one does not extend it. It is the phase of the hosted log that makes the
 // log hold against us. It publishes what it signs as files, to be served from a host of its own.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dsseCountersign, dsseVerify, publicKeyFromPem, type Envelope, type KeyPair, type PublicKeyRef } from "./crypto.ts";
 import { verifyConsistency } from "./log.ts";
@@ -160,7 +160,11 @@ export class Witness {
   private refuse(tenant: string, reason: string, envelope: Envelope): WitnessOutcome {
     const dir = this.folder(tenant);
     const at = new Date().toISOString();
-    writeFileSync(join(dir, `ALARM-${at.replace(/[:.]/g, "-")}.json`), JSON.stringify({ tenant, at, reason, checkpoint: envelope }, null, 2));
+    // one file per alarm, never overwritten: two refusals in the same millisecond get distinct names
+    const stamp = at.replace(/[:.]/g, "-");
+    let file = join(dir, `ALARM-${stamp}.json`);
+    for (let n = 2; existsSync(file); n++) file = join(dir, `ALARM-${stamp}-${n}.json`);
+    writeFileSync(file, JSON.stringify({ tenant, at, reason, checkpoint: envelope }, null, 2));
     writeFileSync(join(dir, "ALARM.json"), JSON.stringify({ tenant, at, reason }, null, 2));
     this.warn(`agent-custody witness: REFUSED ${tenant}: ${reason}`);
     return { tenant, outcome: "refused", reason };

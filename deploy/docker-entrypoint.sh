@@ -22,7 +22,7 @@ if [ -n "${ADMIN_TOKEN:-}" ]; then
   [ -n "${CHECKPOINTS_HOST:-}" ] && log_id_args="$log_id_args --checkpoints-url https://$CHECKPOINTS_HOST/"
 fi
 # Checkpoints go to this directory (served by the checkpoints host) every AGENT_CUSTODY_CHECKPOINT_EVERY seconds.
-[ -n "${AGENT_CUSTODY_CHECKPOINT_DIR:-}" ] && log_id_args="$log_id_args --checkpoint-dir $AGENT_CUSTODY_CHECKPOINT_DIR --checkpoint-every ${AGENT_CUSTODY_CHECKPOINT_EVERY:-300}"
+[ -n "${AGENT_CUSTODY_CHECKPOINT_DIR:-}" ] && log_id_args="$log_id_args --checkpoint-dir $AGENT_CUSTODY_CHECKPOINT_DIR --checkpoint-every ${AGENT_CUSTODY_CHECKPOINT_EVERY:-300} --checkpoint-heartbeat ${AGENT_CUSTODY_CHECKPOINT_HEARTBEAT:-21600}"
 # ROLE=witness runs the witness: countersigns the log's checkpoints into /witnessed, served by the witness host.
 if [ "${ROLE:-log}" = "witness" ]; then
   key_dir=$(dirname "$AGENT_CUSTODY_LOG_KEY"); key_name=$(basename "$AGENT_CUSTODY_LOG_KEY" .key)

@@ -1,11 +1,12 @@
 // Generates the conformance vectors in vectors/. Run with `bun run vectors`; commit the result.
 // The vectors are a snapshot: keys, receipts, logs, and expected verdicts produced by this implementation, so that a
 // verifier written elsewhere can prove it agrees. Regenerate only when the format changes, never to make a test pass.
+import { createDelegation, delegateFrom } from "../src/delegation.ts";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { canonicalize, digestOf, dsseSign, generateKeyPair, loadPrivateKey, loadPublicKey, sha256Hex, type Envelope, type KeyPair } from "../src/crypto.ts";
-import { createGateway, RECEIPT_META_KEY } from "../src/gateway.ts";
+import { canonicalize, digestOf, dsseSign, generateKeyPair, loadPrivateKey, loadPublicKey, sha256Hex, type Envelope, type KeyPair, publicKeyToPem } from "../src/crypto.ts";
+import { createGateway, RECEIPT_META_KEY, createGatewayHost } from "../src/gateway.ts";
 import { loadConfig, loadSdkConfig } from "../src/config.ts";
 import { consistencyProof, inclusionProof, leafHash, rootOf } from "../src/log.ts";
 import { serveLog } from "../src/log-sink.ts";
@@ -97,6 +98,30 @@ addCase({ name: "resigned-policy-inconsistent", description: "Predicate edited s
 addCase({ name: "resigned-args-digest", description: "Request args edited without updating the digest, re-signed with the gateway key.", bundle: resigned(executed, gatewayKey, (st) => { (st.predicate.request.args as Record<string, unknown>).amount = 1; }), ...G, log: glog });
 addCase({ name: "inclusion-proof-wrong-index", description: "The inclusion proof's leaf index changed. The tree head still verifies; the proof does not.", bundle: { ...executed, inclusion: { ...executed.inclusion, leafIndex: executed.inclusion.leafIndex + 1 } }, ...G, log: glog });
 addCase({ name: "log-copy-from-another-log", description: "Verified against a copy of a different log. Everything passes except the recomputed root.", bundle: executed, ...G, log: ["not-the-same-leaf"] });
+
+// ---- a sub-agent under a delegation chain: principal -> planner -> refunder ----
+const dfx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-chain-")));
+key("gateway-chain", dfx.gatewayPub);
+key("principal-chain", dfx.principalPub);
+const dgatewayKey = loadPrivateKey(join(dfx.dir, "keys", "gateway.key"));
+{
+  const principalKey = loadPrivateKey(join(dfx.dir, "keys", "principal.key"));
+  const planner = generateKeyPair();
+  const t0 = Date.now();
+  const parent = createDelegation(principalKey, { version: "0.1", principal: "user_456", agent: "planner", scopes: ["stripe.refund", "customer.lookup"], issuedAt: new Date(t0 - 3600_000).toISOString(), expiresAt: new Date(t0 + 7200_000).toISOString(), agentKey: publicKeyToPem(planner.publicKey) });
+  const child = delegateFrom(parent, planner, { agent: "refunder", scopes: ["stripe.refund"] });
+  const host = await createGatewayHost(loadConfig(dfx.configFile));
+  const session = host.open(child);
+  const cok = await session.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 2500 } });
+  await host.close();
+  const chained = bundleFile(dfx.receiptsDir, String(cok._meta?.[RECEIPT_META_KEY]));
+  const dlog = logLines(dfx.logFile);
+  const D = { issuerKeys: ["gateway-chain"], principalKeys: ["principal-chain"], logKeys: [] as string[] };
+  // the same chain with the child's scope escalated beyond the parent's, signed by the planner's real key
+  const escalated = createDelegation(planner, { version: "0.1", principal: "user_456", agent: "refunder", scopes: ["stripe.refund", "stripe.payout"], issuedAt: new Date(t0).toISOString(), expiresAt: new Date(t0 + 3600_000).toISOString(), parent });
+  addCase({ name: "gateway-chain-executed", description: "A refund by a sub-agent under a two-link delegation chain: the principal granted the planner, whose key the grant names; the planner delegated the refund to the refunder. The chain verifies to the principal's key, the receipt names the refunder and the principal, and every check passes.", bundle: chained, ...D, log: dlog });
+  addCase({ name: "gateway-chain-escalated-resigned", description: "The same receipt with the chain's leaf replaced by one giving the refunder a scope the planner never held, signed with the planner's real key, then the receipt re-signed with the gateway key. The chain check fails on that link; the re-signed receipt also loses its inclusion.", bundle: resigned(chained, dgatewayKey, (st) => { st.predicate.delegation = { envelope: escalated, provenance: "attested" }; }), ...D, log: dlog });
+}
 
 // ---- a consequential tool: the authorization is committed to the log before the call is forwarded ----
 const cfx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-precommit-")));

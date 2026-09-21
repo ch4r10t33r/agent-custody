@@ -42,6 +42,8 @@ node src/cli.ts grant \
 
 The gateway refuses to start if the grant is outside its validity window, and every receipt records the grant so a verifier can re-check it.
 
+**Sub-agents.** A grant that names the agent's own public key (`--agent-key agent.pub`, carried as `agentKey`) lets that agent delegate: `agent-custody delegate --key agent.key --parent grant.json --agent refunder --scopes stripe.refund --out refunder.json` signs a narrower grant for the sub-agent with the parent grant embedded. The chain may go three delegations deep. A verifier walks it back to the principal: every link must be signed by the key its parent names, every scope must be one the parent holds, every window must sit inside the parent's, and the principal never changes; the gateway applies the same rule before opening a session, and the receipt names the sub-agent as the agent and the principal as the principal, with the whole chain inside, so `verify` reports `delegation chain to the principal: user_456 → planner → refunder`. Nothing about the tools changes: the sub-agent sees the scopes its own grant names and no more.
+
 **3. Write a policy.** A Cedar file. Default is deny. See [policies.md](policies.md).
 
 ```cedar

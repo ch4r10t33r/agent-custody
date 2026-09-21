@@ -1,6 +1,6 @@
 // Independent verification of a receipt bundle. Needs only public keys, and optionally a copy of the log.
 import { canonicalize, digestOf, dsseVerifiers, dsseVerify, type Envelope, type PublicKeyRef } from "./crypto.ts";
-import { delegationValidAt, verifyDelegation } from "./delegation.ts";
+import { decodeDelegation, delegationValidAt, describeChain, verifyDelegation } from "./delegation.ts";
 import { leafHash, MerkleLog, verifyConsistency, verifyInclusion } from "./log.ts";
 import { checkProvider, checkUpstream, contentDigest, isProviderAttestation, type ProviderSecrets } from "./upstream.ts";
 import { AUTHORIZATION_PREDICATE_TYPE, RECEIPT_PREDICATE_TYPE, RECEIPT_TYPE, TREEHEAD_TYPE, type AuthorizationStatement, type ReceiptBundle, type ReceiptStatement, type TreeHead } from "./receipt.ts";
@@ -64,6 +64,10 @@ export function verifyBundle(bundle: ReceiptBundle, opts: VerifyOptions): Verify
   if (p.delegation) {
     const del = verifyDelegation(p.delegation.envelope, opts.principalKeys);
     add("delegation signature (principal key)", del.ok, del.ok ? `signed by ${short(del.keyid)}` : del.error);
+    // A chained grant: every link signed by the key its parent names, scopes and windows nested, one principal
+    // throughout. The line appears only when the grant embeds a parent, and fails with the link that broke.
+    const chained = decodeDelegation(p.delegation.envelope)?.parent !== undefined;
+    if (chained) add("delegation chain to the principal", del.ok, del.ok ? `${describeChain(del.chain)} (${del.chain.length - 1} delegation(s))` : del.error);
     if (del.ok) {
       const d = del.delegation;
       const principalKeyid = p.principal.provenance === "attested" ? p.principal.keyid : null;

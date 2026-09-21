@@ -20,5 +20,9 @@
   },
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@langchain/langgraph": "1.4.16",
+    "@letta-ai/letta-client": "1.12.1"
   }
 }

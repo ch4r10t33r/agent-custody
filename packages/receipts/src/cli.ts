@@ -5,7 +5,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { loadConfig, loadSdkConfig } from "./config.ts";
 import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./crypto.ts";
-import { createDelegation } from "./delegation.ts";
+import type { Envelope } from "./crypto.ts";
+import { createDelegation, decodeDelegation, delegateFrom } from "./delegation.ts";
 import { createGateway, createGatewayHost, serveStdio } from "./gateway.ts";
 import { postgresResolver, serveLog } from "./log-sink.ts";
 import { importLogFile, PostgresTenancy, type PostgresLike } from "./log-store.ts";
@@ -21,7 +22,6 @@ import { createRequire } from "node:module";
 import { pruneLog } from "./retention.ts";
 import { serveSidecar } from "./sidecar.ts";
 import { TREEHEAD_TYPE, type ReceiptBundle, type TreeHead } from "./receipt.ts";
-import type { Envelope } from "./crypto.ts";
 import { MerkleLog } from "./log.ts";
 import { createSdkIssuer } from "./sdk/index.ts";
 import { handleHookEvent, type HookInput } from "./sdk/claude.ts";
@@ -37,7 +37,10 @@ function secretFrom(envName: string): string {
 const USAGE = `agent-custody <command>
 
   keygen  --dir <dir> --name <name>
-  grant   --key <principal.key> --principal <id> --agent <id> --scopes <a,b> [--ttl-hours 24] --out <file>
+  grant   --key <principal.key> --principal <id> --agent <id> --scopes <a,b> [--ttl-hours 24] [--agent-key <agent.pub>] --out <file>
+                                                   --agent-key names the agent's own key in the grant, so the agent may delegate
+  delegate --key <agent.key> --parent <grant.json> --agent <sub-agent> --scopes <a,b> [--ttl-hours N] [--agent-key <sub.pub>] --out <file>
+                                                   a narrower grant for a sub-agent, signed by the agent the parent names; the parent travels inside
   gateway --config <gateway.json> [--http [--port 8790] [--host 127.0.0.1] [--idle-minutes 30]]
                                                    stdio: one gateway for the grant the config names. --http: one shared gateway, MCP over
                                                    Streamable HTTP at /mcp, each connection presenting its own grant as Authorization: Bearer
@@ -131,6 +134,7 @@ async function main(argv: string[]): Promise<number> {
           agent: { type: "string" },
           scopes: { type: "string" },
           "ttl-hours": { type: "string", default: "24" },
+          "agent-key": { type: "string" },
           out: { type: "string" },
         },
       });
@@ -143,9 +147,25 @@ async function main(argv: string[]): Promise<number> {
         scopes: values.scopes.split(",").map((s) => s.trim()).filter(Boolean),
         issuedAt: new Date(now).toISOString(),
         expiresAt: new Date(now + Number(values["ttl-hours"]) * 3600_000).toISOString(),
+        ...(values["agent-key"] ? { agentKey: readFileSync(values["agent-key"], "utf8") } : {}),
       });
       writeFileSync(values.out, JSON.stringify(env, null, 2));
       console.log(`wrote ${values.out}`);
+      return 0;
+    }
+    case "delegate": {
+      const { values } = parseArgs({ args: rest, options: { key: { type: "string" }, parent: { type: "string" }, agent: { type: "string" }, scopes: { type: "string" }, "ttl-hours": { type: "string" }, "agent-key": { type: "string" }, out: { type: "string" } } });
+      if (!values.key || !values.parent || !values.agent || !values.scopes || !values.out) throw new Error("delegate needs --key --parent --agent --scopes --out");
+      const parent = JSON.parse(readFileSync(values.parent, "utf8")) as Envelope;
+      const env = delegateFrom(parent, loadPrivateKey(values.key), {
+        agent: values.agent,
+        scopes: values.scopes.split(",").map((s) => s.trim()).filter(Boolean),
+        ...(values["ttl-hours"] ? { expiresAt: new Date(Date.now() + Number(values["ttl-hours"]) * 3600_000).toISOString() } : {}),
+        ...(values["agent-key"] ? { agentKey: readFileSync(values["agent-key"], "utf8") } : {}),
+      });
+      writeFileSync(values.out, JSON.stringify(env, null, 2));
+      const chain = decodeDelegation(env)!;
+      console.log(`delegated to ${chain.agent}: scopes [${chain.scopes.join(", ")}] until ${chain.expiresAt}, under ${decodeDelegation(parent)!.agent}'s grant from ${chain.principal}`);
       return 0;
     }
     case "gateway": {

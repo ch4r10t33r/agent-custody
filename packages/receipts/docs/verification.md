@@ -70,6 +70,7 @@ execution       observed    executed
 | gateway receipt carries a delegation | gateway receipts always embed the signed grant they enforced | an SDK receipt relabelled as gateway |
 | gateway receipt carries a policy decision | gateway receipts always record the Cedar decision | same |
 | delegation signature (principal key) | the embedded grant was signed by a key you trust as a principal | a grant the principal never issued |
+| delegation chain to the principal | only when the grant embeds a parent: every link is signed by the key its parent names, holds no scope its parent lacks, sits inside its parent's window, and names the same principal, up to three delegations deep | a sub-agent given more than its delegator had, a link signed by the wrong key, a chain that never reaches a trusted principal |
 | delegation binds principal and agent | the grant names the same principal and agent the receipt names, and the principal keyid matches | a valid grant for someone else, spliced in |
 | delegation valid at receipt time | the receipt's timestamp is inside the grant's window | expired or not-yet-valid authority |
 | executed tool within delegated scope | if the tool ran, the grant covered it. Denied calls pass this check by construction | a gateway that forwarded out of scope |
@@ -88,7 +89,7 @@ execution       observed    executed
 | log inclusion proof | this exact envelope is a leaf of the tree with that root | receipt never logged, or logged then changed |
 | log file root matches tree head | recomputing the root from your copy of the log at that size gives the same value | your log copy and the issuer's history diverge: deletion, reordering, or edit |
 
-Gateway receipts run seventeen checks, eighteen with a log file, and five more when the tool was committed before it ran (`precommit` in the gateway config). SDK receipts run fewer, because there is no delegation to check, and the report says so on the `principal is claimed` line.
+Gateway receipts run seventeen checks, eighteen with a log file, and five more when the tool was committed before it ran (`precommit` in the gateway config). SDK receipts run fewer, because there is no delegation to check, and the report says so on the `principal is claimed` line. A receipt issued to a sub-agent under a delegation chain runs one more, `delegation chain to the principal`.
 
 ## What a verified receipt lets you conclude
 

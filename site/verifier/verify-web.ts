@@ -58,6 +58,43 @@ export async function dsseVerify(env: Envelope, trusted: PublicKey[]): Promise<{
   return { ok: false, error: `no trusted key matches keyids [${env.signatures.map((s) => s.keyid.slice(0, 12)).join(", ")}]` };
 }
 
+// ---- delegation chains ----
+const delegationShape = (d: any) => !!d && d.version === "0.1" && typeof d.principal === "string" && typeof d.agent === "string" && Array.isArray(d.scopes) && typeof d.issuedAt === "string" && typeof d.expiresAt === "string";
+function decodeDelegationPayload(env: Envelope): any {
+  try { const d = JSON.parse(new TextDecoder().decode(b64.decode(env.payload))); return delegationShape(d) ? d : null; } catch { return null; }
+}
+export function delegationHasParent(env: Envelope): boolean {
+  return decodeDelegationPayload(env)?.parent !== undefined;
+}
+/** Mirrors verifyDelegation in the package: walks a chain to a grant signed by a trusted principal key. */
+export async function verifyDelegationChain(env: Envelope, trusted: PublicKey[], depth = 1): Promise<{ ok: true; delegation: any; keyid: string; chain: any[] } | { ok: false; error: string }> {
+  if (env.payloadType !== DELEGATION_TYPE) return { ok: false, error: `unexpected payloadType ${env.payloadType}` };
+  if (depth > 4) return { ok: false, error: "delegation chain deeper than 4" };
+  const unverified = decodeDelegationPayload(env);
+  if (!unverified) return { ok: false, error: "malformed delegation" };
+  if (unverified.parent === undefined) {
+    const r = await dsseVerify(env, trusted);
+    if (!r.ok) return r;
+    if (!delegationShape(r.payload)) return { ok: false, error: "malformed delegation" };
+    return { ok: true, delegation: r.payload, keyid: r.keyid, chain: [r.payload] };
+  }
+  const up = await verifyDelegationChain(unverified.parent, trusted, depth + 1);
+  if (!up.ok) return { ok: false, error: `link ${depth}: ${up.error}` };
+  const parent = up.delegation;
+  if (typeof parent.agentKey !== "string") return { ok: false, error: `link ${depth}: ${parent.agent} holds no agent key and cannot delegate` };
+  let parentKey: PublicKey;
+  try { parentKey = await publicKeyFromPem(parent.agentKey); } catch { return { ok: false, error: `link ${depth}: the agent key named for ${parent.agent} is not a public key` }; }
+  const r = await dsseVerify(env, [parentKey]);
+  if (!r.ok) return { ok: false, error: `link ${depth}: not signed by ${parent.agent}'s key: ${r.error}` };
+  const d = r.payload;
+  if (!delegationShape(d)) return { ok: false, error: "malformed delegation" };
+  if (d.principal !== parent.principal) return { ok: false, error: `link ${depth}: principal changed from ${parent.principal} to ${d.principal}` };
+  const extra = (d.scopes as string[]).filter((s) => !parent.scopes.includes(s));
+  if (extra.length) return { ok: false, error: `link ${depth}: ${d.agent} was given scopes ${parent.agent} does not hold: ${extra.join(", ")}` };
+  if (d.issuedAt < parent.issuedAt || d.expiresAt > parent.expiresAt) return { ok: false, error: `link ${depth}: ${d.agent}'s window is not inside ${parent.agent}'s` };
+  return { ok: true, delegation: d, keyid: up.keyid, chain: [...up.chain, d] };
+}
+
 // ---- RFC 6962 / 9162 ----
 const leafHash = (data: string) => sha256(concat(new Uint8Array([0]), enc.encode(data)));
 const nodeHash = (l: Bytes, r: Bytes) => sha256(concat(new Uint8Array([1]), l, r));
@@ -147,10 +184,11 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
     add("gateway receipt carries a policy decision", p.policy !== null);
   }
   if (p.delegation) {
-    const del = await dsseVerify(p.delegation.envelope, opts.principalKeys);
-    const d = del.ok ? del.payload : null;
-    const shape = d && d.version === "0.1" && typeof d.principal === "string" && typeof d.agent === "string" && Array.isArray(d.scopes) && typeof d.issuedAt === "string" && typeof d.expiresAt === "string";
-    add("delegation signature (principal key)", del.ok && p.delegation.envelope.payloadType === DELEGATION_TYPE && shape, del.ok ? (shape ? `signed by ${short(del.keyid)}` : "malformed delegation") : del.error);
+    const del = await verifyDelegationChain(p.delegation.envelope, opts.principalKeys);
+    const d = del.ok ? del.delegation : null;
+    const shape = !!d;
+    add("delegation signature (principal key)", del.ok, del.ok ? `signed by ${short(del.keyid)}` : del.error);
+    if (delegationHasParent(p.delegation.envelope)) add("delegation chain to the principal", del.ok, del.ok ? `${[del.chain[0].principal, ...del.chain.map((c) => c.agent)].join(" → ")} (${del.chain.length - 1} delegation(s))` : del.error);
     if (del.ok && shape) {
       const principalKeyid = p.principal.provenance === "attested" ? p.principal.keyid : null;
       add("delegation binds principal and agent", d.principal === p.principal.id && d.agent === p.agent.id && del.keyid === principalKeyid);

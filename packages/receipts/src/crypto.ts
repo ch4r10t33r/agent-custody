@@ -71,6 +71,11 @@ export function loadPublicKey(path: string): PublicKeyRef {
 }
 
 /** A public key from its SPKI PEM text, as found in a .pub file or a conformance vector. */
+/** The SPKI PEM of a public key: what a grant carries as `agentKey`, and what `.pub` files hold. */
+export function publicKeyToPem(publicKey: KeyObject): string {
+  return publicKey.export({ type: "spki", format: "pem" }).toString();
+}
+
 export function publicKeyFromPem(pem: string): PublicKeyRef {
   const publicKey = createPublicKey(pem);
   return { publicKey, keyid: keyidOf(publicKey) };

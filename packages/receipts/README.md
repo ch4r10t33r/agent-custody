@@ -238,7 +238,8 @@ src/policy.ts      Cedar evaluation wrapper, fail-closed
 src/delegation.ts  signed delegation grants
 src/receipt.ts     receipt and authorization statement types and provenance labels
 src/issue.ts       sign, log, and write a receipt, or commit an authorization first; shared by both producers
-src/gateway.ts     the MCP proxy: scope check, facts, policy, forward, receipt
+src/gateway.ts     the MCP proxy: a host (key, policy, upstreams, log) and a session per grant; scope check, facts, policy, forward, receipt
+src/gateway-http.ts the gateway over Streamable HTTP: one process, a session per connection, each under the grant it presents
 src/sdk/index.ts   the interceptor: policy decision, record, wrap(tool fn)
 src/sdk/claude.ts  Claude Code command hook and Claude Agent SDK in-process hooks
 src/sdk/openai-agents.ts, vercel-ai.ts, langchain.ts   framework adapters, tested against the real packages
@@ -294,6 +295,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - The log over Postgres: `log --db-env`, leaves as hashes in one table keyed by tenant, one writer per tenant by advisory lock, tenants and hashed tokens in tables managed by `log-admin`, rate limits and a body cap, retries in the sink, and `import` for an existing file log. Phase 2 of [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - A log for someone else: `hashOnly` sends leaf hashes so the log never holds a receipt; the reference server runs several tenant logs at `/t/<tenant>/` with their own tokens and ids; tree heads name their log and the verifier checks it with `--log-id`. Phase 1 of the hosted log, [issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 - OpenTelemetry export: with `otel` in either config, every receipt is also one span at the collector the team already runs, trace id equal to the receipt id, attributes for tool, agent, principal, status, decision, and log position; after the receipt, best effort, never on the evidence path.
+- One gateway for many agents: `gateway --http` serves the gateway over Streamable HTTP, one session per connection under the grant that connection presents, sessions sharing the upstreams and the policy and nothing else; a platform team runs one gateway in front of the tools instead of one process per agent.
 - Splunk export: with `splunk` in either config, every receipt is also one event at the HTTP Event Collector, with the receipt id, tool, agent, principal, status, decision, and log position as searchable fields and the token from the environment; the same best-effort rule.
 - The REST connector: a plain HTTP API described as tools in the gateway config, credentials from the environment, so an agent's direct API calls become receipted, policy-checked tool calls through the gateway.
 - Pre-commit authorization for consequential tools: named in `precommit`, a call is signed and logged before it is forwarded, withheld if the log will not take it, and its receipt carries the committed authorization with proof that it precedes the execution.
@@ -302,9 +304,8 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 
 1. Run the witness for log.agent-custody.dev on a machine and under an account that is not ours, and require it in the welcome sheet. The code is done; what it needs is a second operator. [Issue #6](https://github.com/ch4r10t33r/agent-custody/issues/6).
 2. Post-quantum signatures: ML-DSA beside Ed25519 in the same DSSE envelope, hybrid by default when a PQ key is present, in every signed artefact and in the browser verifier. [Issue #11](https://github.com/ch4r10t33r/agent-custody/issues/11).
-3. An HTTP transport for the gateway, with the grant presented per connection, for a shared deployment rather than one process per agent session.
-4. Delegation chains for sub-agents.
-5. Receiver-attested receipts for agent-to-agent calls.
-6. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
+3. Delegation chains for sub-agents.
+4. Receiver-attested receipts for agent-to-agent calls.
+5. A TEE-hosted signer, then SD-JWT redaction, then ZK proofs of policy compliance. Not before.
 
 A Python SDK follows the same shape once the TypeScript adapters have settled.

@@ -123,6 +123,10 @@ node src/cli.ts gateway --config ./gateway.json
 
 You will not normally run this by hand. The agent host spawns it, as below.
 
+## One gateway for many agents, over HTTP
+
+`agent-custody gateway --config gateway.json --http --port 8790` serves the same gateway as an MCP server over Streamable HTTP at `/mcp`, and every connection presents its own grant: the delegation envelope, base64url-encoded, as `Authorization: Bearer <value>` or `X-Agent-Custody-Grant` on the initialize request. The gateway verifies it against `trustedPrincipalKeys` and its validity window, and opens a session for exactly that grant; a grant signed by a stranger, an expired one, or none at all gets 403 with the reason and no session (403 rather than 401, because MCP clients treat 401 as an OAuth challenge and hide the body). Sessions share the key, the policy, the upstreams, the log, and the fact lookups; each has its own tools (the scopes its grant names), its own receipts (its own principal and agent, attested), and its own consumed facts. `grantFile` in the config is then optional and ignored. A session ends when the client terminates it or after `--idle-minutes` (default 30) without a request; `GET /health` reports the live count and the gateway's key id. The transport is plain HTTP: bind to loopback, a private network, or put TLS in front. From JavaScript, `grantHeader(envelope)` builds the header value; from any language it is `base64url(JSON.stringify(envelope))`. Tutorial 20 runs two agents against one gateway.
+
 ## Wiring it into an agent host
 
 The gateway is an ordinary MCP server, so any host that can launch a stdio MCP server can use it. Point the host at the gateway instead of at the upstream server.

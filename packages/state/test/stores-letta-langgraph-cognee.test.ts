@@ -34,7 +34,7 @@ function fake(routes: (req: Seen) => { status: number; body: unknown } | undefin
 }
 const value = (r: CallToolResult) => JSON.parse((r.content[0] as { text: string }).text);
 
-async function serverWith(stores: Parameters<typeof createMemoryServer>[1]["stores"]) {
+async function serverWith(stores: NonNullable<Parameters<typeof createMemoryServer>[1]>["stores"]) {
   const ledger = new Ledger(join(mkdtempSync(join(tmpdir(), "stores3-")), "ledger.jsonl"));
   const [a, b] = InMemoryTransport.createLinkedPair();
   await createMemoryServer(ledger, { stores, verify: { attempts: 3, delayMs: 1 } }).connect(a);

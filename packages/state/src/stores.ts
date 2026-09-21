@@ -169,7 +169,7 @@ export function pgvectorStore(client: PgLike, opts: PgvectorOptions): Store {
 export interface LettaLike {
   agents: {
     passages: {
-      create(agentId: string, body: { text: string; tags?: string[] | null }): Promise<{ id: string }[]>;
+      create(agentId: string, body: { text: string; tags?: string[] | null }): Promise<{ id?: string | undefined }[]>;
       delete(memoryId: string, params: { agent_id: string }): Promise<unknown>;
       search?(agentId: string, query: { query: string; tags?: string[] | null; tag_match_mode?: "any" | "all" }): Promise<{ results: { id: string; content: string }[] }>;
     };

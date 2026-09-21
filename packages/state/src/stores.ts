@@ -163,3 +163,163 @@ export function pgvectorStore(client: PgLike, opts: PgvectorOptions): Store {
   };
 }
 
+
+// ---- Letta ----
+/** The subset of @letta-ai/letta-client's Letta this adapter uses: an agent's archival memory. */
+export interface LettaLike {
+  agents: {
+    passages: {
+      create(agentId: string, body: { text: string; tags?: string[] | null }): Promise<{ id: string }[]>;
+      delete(memoryId: string, params: { agent_id: string }): Promise<unknown>;
+      search?(agentId: string, query: { query: string; tags?: string[] | null; tag_match_mode?: "any" | "all" }): Promise<{ results: { id: string; content: string }[] }>;
+    };
+  };
+}
+
+export interface LettaOptions {
+  /** the agent whose archival memory receives the fact */
+  agentId: string;
+  /** tags attached to every passage, beside the custody tags; default none */
+  tags?: string[];
+}
+
+/**
+ * Letta keeps archival memory as passages with text and tags, no free metadata. Custody travels as tags
+ * (`agent-custody`, `fact:<id>`, `space:<name>`, `receipt:<id>`) so a passage always leads back to its fact.
+ */
+export function lettaStore(client: LettaLike, opts: LettaOptions): Store {
+  const tagsFor = (f: Fact) => ["agent-custody", `fact:${f.factId}`, `space:${f.space}`, ...(f.source.receiptId ? [`receipt:${f.source.receiptId}`] : []), ...(opts.tags ?? [])];
+  return {
+    name: "letta",
+    async put(fact) {
+      const passages = await client.agents.passages.create(opts.agentId, { text: factText(fact), tags: tagsFor(fact) });
+      const id = passages.find((p) => typeof p.id === "string")?.id;
+      if (!id) throw new Error("letta returned no passage id");
+      return id;
+    },
+    async remove(externalId) {
+      await client.agents.passages.delete(externalId, { agent_id: opts.agentId });
+    },
+    ...(client.agents.passages.search
+      ? {
+          async verifyRemoved(externalId, fact) {
+            const { results } = await client.agents.passages.search!(opts.agentId, { query: factText(fact), tags: [`fact:${fact.factId}`], tag_match_mode: "any" });
+            return !results.some((r) => r.id === externalId || r.content === factText(fact));
+          },
+        }
+      : {}),
+  };
+}
+
+// ---- LangGraph store (LangMem) ----
+/**
+ * The subset of LangGraph's BaseStore this adapter uses. LangMem's memories live in this store, so custody over a
+ * LangMem deployment is custody over its store: one item per fact, keyed by the fact id, in the namespace given.
+ */
+export interface LangGraphStoreLike {
+  put(namespace: string[], key: string, value: Record<string, unknown>): Promise<void>;
+  get(namespace: string[], key: string): Promise<{ key: string; value: Record<string, unknown> } | null>;
+  delete(namespace: string[], key: string): Promise<void>;
+  search?(namespacePrefix: string[], options?: { filter?: Record<string, unknown>; limit?: number; query?: string }): Promise<{ key: string; namespace: string[]; value: Record<string, unknown> }[]>;
+}
+
+export interface LangGraphStoreOptions {
+  /** the namespace the memories live under, e.g. ["memories", userId] */
+  namespace: string[];
+}
+
+export function langgraphStore(store: LangGraphStoreLike, opts: LangGraphStoreOptions): Store {
+  return {
+    name: "langgraph",
+    async put(fact) {
+      await store.put(opts.namespace, fact.factId, { content: factText(fact), subject: fact.subject, predicate: fact.predicate, value: fact.value, ...factMetadata(fact) });
+      return fact.factId;
+    },
+    async remove(externalId) {
+      await store.delete(opts.namespace, externalId);
+    },
+    async verifyRemoved(externalId, fact) {
+      if ((await store.get(opts.namespace, externalId)) !== null) return false;
+      if (!store.search) return true;
+      const hits = await store.search(opts.namespace, { filter: { factId: fact.factId }, limit: 10 });
+      return !hits.some((h) => h.key === externalId);
+    },
+  };
+}
+
+// ---- Cognee ----
+export interface CogneeOptions {
+  /** the Cognee server, e.g. http://localhost:8000 */
+  url: string;
+  /** the dataset the facts go into, by id */
+  datasetId: string;
+  /** environment variable holding an API key (sent as X-Api-Key) */
+  apiKeyEnv?: string;
+  /** environment variable holding a bearer token (sent as Authorization: Bearer) */
+  tokenEnv?: string;
+  fetch?: typeof fetch;
+  env?: Record<string, string | undefined>;
+}
+
+/**
+ * Cognee has no JavaScript client; this adapter speaks its REST API directly, built against the add and datasets
+ * routers of cognee 0.3: `POST /api/v1/add` (multipart, `raw_data` and `external_metadata`), `GET
+ * /api/v1/datasets/{id}/data`, `DELETE /api/v1/datasets/{id}/data/{dataId}`. The add call returns a pipeline run,
+ * not the data id, so the id is found by listing the dataset and matching the fact id written into the item's
+ * external metadata. Tested against a stand-in of those three routes, not against a running Cognee.
+ */
+export function cogneeStore(opts: CogneeOptions): Store {
+  const f = opts.fetch ?? fetch;
+  const env = opts.env ?? process.env;
+  const headers: Record<string, string> = {};
+  if (opts.apiKeyEnv) {
+    const v = env[opts.apiKeyEnv];
+    if (!v) throw new Error(`cognee: environment variable ${opts.apiKeyEnv} is not set`);
+    headers["x-api-key"] = v;
+  }
+  if (opts.tokenEnv) {
+    const v = env[opts.tokenEnv];
+    if (!v) throw new Error(`cognee: environment variable ${opts.tokenEnv} is not set`);
+    headers.authorization = `Bearer ${v}`;
+  }
+  const base = opts.url.endsWith("/") ? opts.url : `${opts.url}/`;
+  const call = async (method: string, path: string, body?: BodyInit): Promise<unknown> => {
+    const res = await f(new URL(path, base), { method, headers, ...(body ? { body } : {}), signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`cognee ${method} ${path}: ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  };
+  interface Item { id: string; external_metadata?: unknown; name?: string }
+  const list = async (): Promise<Item[]> => (await call("GET", `api/v1/datasets/${opts.datasetId}/data`)) as Item[];
+  const metadataOf = (item: Item): Record<string, unknown> => {
+    const m = item.external_metadata;
+    if (typeof m === "string") {
+      try {
+        return JSON.parse(m) as Record<string, unknown>;
+      } catch {
+        return {};
+      }
+    }
+    return (m ?? {}) as Record<string, unknown>;
+  };
+  return {
+    name: "cognee",
+    async put(fact) {
+      const form = new FormData();
+      form.append("raw_data", factText(fact));
+      form.append("datasetId", opts.datasetId);
+      form.append("external_metadata", JSON.stringify([factMetadata(fact)]));
+      form.append("labels", JSON.stringify(["agent-custody", `fact:${fact.factId}`]));
+      await call("POST", "api/v1/add", form);
+      const item = (await list()).reverse().find((i) => metadataOf(i).factId === fact.factId);
+      if (!item) throw new Error(`cognee accepted the add but the dataset lists no item carrying fact ${fact.factId}`);
+      return item.id;
+    },
+    async remove(externalId) {
+      await call("DELETE", `api/v1/datasets/${opts.datasetId}/data/${externalId}`);
+    },
+    async verifyRemoved(externalId, fact) {
+      return !(await list()).some((i) => i.id === externalId || metadataOf(i).factId === fact.factId);
+    },
+  };
+}

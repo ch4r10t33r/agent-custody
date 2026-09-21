@@ -6,13 +6,14 @@ import { dirname, resolve } from "node:path";
 import { loadConfig, loadSdkConfig } from "./config.ts";
 import { generateKeyPair, loadPrivateKey, loadPublicKey, writeKeyPair } from "./crypto.ts";
 import { createDelegation } from "./delegation.ts";
-import { createGateway, serveStdio } from "./gateway.ts";
+import { createGateway, createGatewayHost, serveStdio } from "./gateway.ts";
 import { postgresResolver, serveLog } from "./log-sink.ts";
 import { importLogFile, PostgresTenancy, type PostgresLike } from "./log-store.ts";
 import { bothCheckpoints, dirCheckpoints, postgresCheckpoints, type CheckpointStore } from "./checkpoints.ts";
 import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey, type Signer } from "./signer.ts";
 import { fetchWitnessKeys, Witness } from "./witness.ts";
 import { checkLog, formatLogCheck } from "./log-check.ts";
+import { serveHttp } from "./gateway-http.ts";
 import { exportLog, formatExport } from "./log-export.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
@@ -37,7 +38,9 @@ const USAGE = `agent-custody <command>
 
   keygen  --dir <dir> --name <name>
   grant   --key <principal.key> --principal <id> --agent <id> --scopes <a,b> [--ttl-hours 24] --out <file>
-  gateway --config <gateway.json>
+  gateway --config <gateway.json> [--http [--port 8790] [--host 127.0.0.1] [--idle-minutes 30]]
+                                                   stdio: one gateway for the grant the config names. --http: one shared gateway, MCP over
+                                                   Streamable HTTP at /mcp, each connection presenting its own grant as Authorization: Bearer
   hook    [--config <sdk.json>]        Claude Code hook command; reads the event on stdin (or AGENT_CUSTODY_CONFIG)
   serve   --config <sdk.json> [--port 8788] [--host 127.0.0.1]   the SDK as a local HTTP API for agents in other languages
   prune   --log <log.jsonl> --before <ISO instant> [--receipts <dir>]
@@ -146,8 +149,17 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "gateway": {
-      const { values } = parseArgs({ args: rest, options: { config: { type: "string" } } });
+      const { values } = parseArgs({ args: rest, options: { config: { type: "string" }, http: { type: "boolean", default: false }, port: { type: "string", default: "8790" }, host: { type: "string", default: "127.0.0.1" }, "idle-minutes": { type: "string", default: "30" } } });
       if (!values.config) throw new Error("gateway needs --config");
+      if (values.http) {
+        const host = await createGatewayHost(loadConfig(values.config));
+        const running = await serveHttp(host, { port: Number(values.port), host: values.host, idleMs: Number(values["idle-minutes"]) * 60_000 });
+        console.error(`agent-custody gateway: ${running.url} keyid=${host.keyid} one session per grant; GET /health`);
+        await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+        await running.close();
+        await host.close();
+        return 0;
+      }
       const gw = await createGateway(loadConfig(values.config));
       console.error(`agent-custody gateway: agent=${gw.agentId} principal=${gw.delegation.principal} scopes=[${gw.delegation.scopes.join(", ")}]`);
       await serveStdio(gw);

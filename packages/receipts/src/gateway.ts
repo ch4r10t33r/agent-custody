@@ -80,24 +80,29 @@ export interface GatewayOptions {
   exporter?: ReceiptExporter;
 }
 
-export async function createGateway(cfg: GatewayConfig, options: GatewayOptions = {}): Promise<Gateway> {
+/**
+ * The shared part of a gateway: the key, the policy, the issuer, the log, the upstreams, and the fact lookups. One host
+ * serves many sessions, each opened with its own grant; over stdio there is exactly one, over HTTP one per connection.
+ */
+export interface GatewayHost {
+  keyid: string;
+  /** a session for this grant: the grant is verified against the trusted principal keys and its validity window first */
+  open(grantEnvelope: Envelope): Gateway;
+  /** closes the upstreams; every session opened from this host is finished with */
+  close(): Promise<void>;
+}
+
+export async function createGatewayHost(cfg: GatewayConfig, options: GatewayOptions = {}): Promise<GatewayHost> {
   const gatewayKey = loadPrivateKey(cfg.identity.keyFile);
   const trusted = cfg.trustedPrincipalKeys.map(loadPublicKey);
-  const grantEnvelope = JSON.parse(readFileSync(cfg.grantFile, "utf8")) as Envelope;
-  const grant = verifyDelegation(grantEnvelope, trusted);
-  if (!grant.ok) throw new Error(`delegation grant rejected: ${grant.error}`);
-  if (!delegationValidAt(grant.delegation, new Date().toISOString())) throw new Error("delegation grant is outside its validity window");
-  const delegation = grant.delegation;
-  const principalKeyid = grant.keyid;
-
   const policyText = readFileSync(cfg.policyFile, "utf8");
   const pDigest = policyDigest(policyText);
   const issuer = createIssuer(gatewayKey, cfg.receiptsDir, options.log ?? openLog(cfg, gatewayKey), { exporter: options.exporter ?? openExporter(cfg) });
   const precommit = new Set(cfg.precommit);
   const consequential = (tool: string) => precommit.has("*") || precommit.has(tool);
 
-  // One gateway, one grant, one session, and as many upstreams as the agent's job needs. Each tool name belongs to
-  // exactly one upstream, decided at startup, so a receipt's tool is unambiguous and consumed facts flow across them.
+  // One host, as many upstreams as the agents' jobs need. Each tool name belongs to exactly one upstream, decided at
+  // startup, so a receipt's tool is unambiguous and consumed facts flow across them.
   const upstreamConfigs: { name: string; cfg: UpstreamConfig }[] = cfg.upstreams ? cfg.upstreams.map((u) => ({ name: u.name, cfg: u })) : [{ name: "upstream", cfg: cfg.upstream! }];
   const upstreams = new Map<string, UpstreamClient>();
   const owner = new Map<string, string>();
@@ -147,120 +152,156 @@ export async function createGateway(cfg: GatewayConfig, options: GatewayOptions 
     return facts;
   }
 
-  /** Every fact id an upstream has declared it served, in order of first sight. One gateway process is one agent session. */
-  const consumed: string[] = [];
-  const noteServedFacts = (result: CallToolResult) => {
-    const ids = result._meta?.[FACTS_META_KEY];
-    if (!Array.isArray(ids)) return;
-    for (const id of ids) if (typeof id === "string" && !consumed.includes(id)) consumed.push(id);
-  };
+  function open(grantEnvelope: Envelope): Gateway {
+    const grant = verifyDelegation(grantEnvelope, trusted);
+    if (!grant.ok) throw new Error(`delegation grant rejected: ${grant.error}`);
+    if (!delegationValidAt(grant.delegation, new Date().toISOString())) throw new Error("delegation grant is outside its validity window");
+    const delegation = grant.delegation;
+    const principalKeyid = grant.keyid;
 
-  async function handleCall(params: CallParams): Promise<CallToolResult> {
-    const tool = params.name;
-    const args = params.arguments ?? {};
-    const receiptId = randomUUID();
-    const timestamp = new Date().toISOString();
-    const modelClaim = params._meta?.[MODEL_META_KEY];
-    // What the agent had been shown before this call; recorded before this call's own result is seen.
-    const consumedNow = [...consumed];
-    const upstreamMeta = { [RECEIPT_META_KEY]: receiptId, [AGENT_META_KEY]: delegation.agent, [PRINCIPAL_META_KEY]: delegation.principal };
-
-    let facts: Record<string, FactRecord> = {};
-    let policy: PolicyDecision;
-    let execution: ReceiptPredicate["execution"] | undefined;
-    let authorization: AuthorizationBundle | undefined;
-
-    if (!delegation.scopes.includes(tool)) {
-      policy = { decision: "deny", reasons: [], errors: [`tool "${tool}" is not in the delegation scopes`], policyDigest: pDigest };
-    } else {
-      try {
-        facts = await gatherFacts(tool, args, upstreamMeta);
-        const factValues = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.value]));
-        policy = evaluate(policyText, {
-          agentId: delegation.agent,
-          tool,
-          context: { args, facts: factValues, grant: { principal: delegation.principal, scopes: delegation.scopes } },
-        });
-      } catch (e) {
-        policy = { decision: "deny", reasons: [], errors: [String(e instanceof Error ? e.message : e)], policyDigest: pDigest };
-      }
-    }
-
-    const head = {
-      receiptId,
-      timestamp,
-      issuer: { kind: "gateway" as const, keyid: issuer.keyid, version: GATEWAY_VERSION },
-      principal: { id: delegation.principal, keyid: principalKeyid, provenance: "attested" as const },
-      agent: { id: delegation.agent, provenance: "attested" as const },
-      delegation: { envelope: grantEnvelope, provenance: "attested" as const },
-      tool: { name: tool, provenance: "observed" as const, ...(owner.has(tool) && upstreamConfigs.length > 1 ? { upstream: owner.get(tool)! } : {}) },
-      request: { args, argsDigest: digestOf(args), provenance: "claimed" as const },
-      facts,
-      consumed: { factIds: consumedNow, provenance: "observed" as const },
+    /** Every fact id an upstream has declared it served to this session, in order of first sight. A session is one agent under one grant. */
+    const consumed: string[] = [];
+    const noteServedFacts = (result: CallToolResult) => {
+      const ids = result._meta?.[FACTS_META_KEY];
+      if (!Array.isArray(ids)) return;
+      for (const id of ids) if (typeof id === "string" && !consumed.includes(id)) consumed.push(id);
     };
 
-    if (policy.decision === "allow" && consequential(tool)) {
-      // A consequential call is committed to the log before it goes out, so that evidence of the side effect exists
-      // before the side effect does. If the log will not take the authorization, the call is not forwarded.
-      try {
-        authorization = await issuer.authorize({ ...head, policy: { ...policy, provenance: "observed" } });
-      } catch (e) {
-        execution = { status: "withheld", reason: `the log did not commit the authorization, so the call was not forwarded: ${String(e instanceof Error ? e.message : e)}`, provenance: "observed" };
+    async function handleCall(params: CallParams): Promise<CallToolResult> {
+      const tool = params.name;
+      const args = params.arguments ?? {};
+      const receiptId = randomUUID();
+      const timestamp = new Date().toISOString();
+      const modelClaim = params._meta?.[MODEL_META_KEY];
+      // What the agent had been shown before this call; recorded before this call's own result is seen.
+      const consumedNow = [...consumed];
+      const upstreamMeta = { [RECEIPT_META_KEY]: receiptId, [AGENT_META_KEY]: delegation.agent, [PRINCIPAL_META_KEY]: delegation.principal };
+
+      let facts: Record<string, FactRecord> = {};
+      let policy: PolicyDecision;
+      let execution: ReceiptPredicate["execution"] | undefined;
+      let authorization: AuthorizationBundle | undefined;
+
+      if (!delegation.scopes.includes(tool)) {
+        policy = { decision: "deny", reasons: [], errors: [`tool "${tool}" is not in the delegation scopes`], policyDigest: pDigest };
+      } else {
+        try {
+          facts = await gatherFacts(tool, args, upstreamMeta);
+          const factValues = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.value]));
+          policy = evaluate(policyText, {
+            agentId: delegation.agent,
+            tool,
+            context: { args, facts: factValues, grant: { principal: delegation.principal, scopes: delegation.scopes } },
+          });
+        } catch (e) {
+          policy = { decision: "deny", reasons: [], errors: [String(e instanceof Error ? e.message : e)], policyDigest: pDigest };
+        }
+      }
+
+      const head = {
+        receiptId,
+        timestamp,
+        issuer: { kind: "gateway" as const, keyid: issuer.keyid, version: GATEWAY_VERSION },
+        principal: { id: delegation.principal, keyid: principalKeyid, provenance: "attested" as const },
+        agent: { id: delegation.agent, provenance: "attested" as const },
+        delegation: { envelope: grantEnvelope, provenance: "attested" as const },
+        tool: { name: tool, provenance: "observed" as const, ...(owner.has(tool) && upstreamConfigs.length > 1 ? { upstream: owner.get(tool)! } : {}) },
+        request: { args, argsDigest: digestOf(args), provenance: "claimed" as const },
+        facts,
+        consumed: { factIds: consumedNow, provenance: "observed" as const },
+      };
+
+      if (policy.decision === "allow" && consequential(tool)) {
+        // A consequential call is committed to the log before it goes out, so that evidence of the side effect exists
+        // before the side effect does. If the log will not take the authorization, the call is not forwarded.
+        try {
+          authorization = await issuer.authorize({ ...head, policy: { ...policy, provenance: "observed" } });
+        } catch (e) {
+          execution = { status: "withheld", reason: `the log did not commit the authorization, so the call was not forwarded: ${String(e instanceof Error ? e.message : e)}`, provenance: "observed" };
+        }
+      }
+
+      if (execution) {
+        // withheld: nothing was forwarded
+      } else if (policy.decision === "allow") {
+        try {
+          // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
+          // state, such as the memory server, cites the receipt as the source of what it stores.
+          const observed = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.value]));
+          const result = await callUpstream(tool, args, { ...upstreamMeta, [OBSERVED_META_KEY]: observed });
+          const evidence = upstreamEvidenceOf(result);
+          execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed", ...(evidence ? { upstream: evidence } : {}) };
+          noteServedFacts(result);
+        } catch (e) {
+          execution = { status: "error", error: String(e instanceof Error ? e.message : e), provenance: "observed" };
+        }
+      } else {
+        execution = { status: "denied", reason: [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched", provenance: "observed" };
+      }
+
+      await issuer.issue({
+        ...head,
+        session: { id: null, toolUseId: null, provenance: "claimed" },
+        model: { id: typeof modelClaim === "string" ? modelClaim : null, provenance: "claimed" },
+        policy: { ...policy, provenance: "observed" },
+        ...(authorization ? { authorization } : {}),
+        execution,
+      });
+
+      const meta = { [RECEIPT_META_KEY]: receiptId };
+      const refuse = (text: string): CallToolResult => ({ isError: true, content: [{ type: "text", text: `${text} (receipt ${receiptId})` }], _meta: meta });
+      switch (execution.status) {
+        case "denied":
+          return refuse(`Denied by policy: ${execution.reason}`);
+        case "error":
+          return refuse(`Upstream error: ${execution.error}`);
+        case "withheld":
+          return refuse(`Not executed: ${execution.reason}`);
+        default: {
+          const result = execution.result as CallToolResult;
+          return { ...result, _meta: { ...result._meta, ...meta } };
+        }
       }
     }
 
-    if (execution) {
-      // withheld: nothing was forwarded
-    } else if (policy.decision === "allow") {
-      try {
-        // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
-        // state, such as the memory server, cites the receipt as the source of what it stores.
-        const observed = Object.fromEntries(Object.entries(facts).map(([k, f]) => [k, f.value]));
-        const result = await callUpstream(tool, args, { ...upstreamMeta, [OBSERVED_META_KEY]: observed });
-        const evidence = upstreamEvidenceOf(result);
-        execution = { status: result.isError ? "failed" : "executed", result, resultDigest: digestOf(result), provenance: "observed", ...(evidence ? { upstream: evidence } : {}) };
-        noteServedFacts(result);
-      } catch (e) {
-        execution = { status: "error", error: String(e instanceof Error ? e.message : e), provenance: "observed" };
-      }
-    } else {
-      execution = { status: "denied", reason: [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched", provenance: "observed" };
-    }
-
-    await issuer.issue({
-      ...head,
-      session: { id: null, toolUseId: null, provenance: "claimed" },
-      model: { id: typeof modelClaim === "string" ? modelClaim : null, provenance: "claimed" },
-      policy: { ...policy, provenance: "observed" },
-      ...(authorization ? { authorization } : {}),
-      execution,
-    });
-
-    const meta = { [RECEIPT_META_KEY]: receiptId };
-    const refuse = (text: string): CallToolResult => ({ isError: true, content: [{ type: "text", text: `${text} (receipt ${receiptId})` }], _meta: meta });
-    switch (execution.status) {
-      case "denied":
-        return refuse(`Denied by policy: ${execution.reason}`);
-      case "error":
-        return refuse(`Upstream error: ${execution.error}`);
-      case "withheld":
-        return refuse(`Not executed: ${execution.reason}`);
-      default: {
-        const result = execution.result as CallToolResult;
-        return { ...result, _meta: { ...result._meta, ...meta } };
-      }
-    }
+    return {
+      agentId: delegation.agent,
+      delegation,
+      async listTools() {
+        return advertised.filter((t) => delegation.scopes.includes(t.name));
+      },
+      handleCall,
+      async close() {
+        // a session holds nothing of its own beyond what it consumed; the host owns the upstreams
+      },
+    };
   }
 
   return {
-    agentId: delegation.agent,
-    delegation,
-    async listTools() {
-      return advertised.filter((t) => delegation.scopes.includes(t.name));
-    },
-    handleCall,
+    keyid: issuer.keyid,
+    open,
     async close() {
       for (const c of upstreams.values()) await c.close();
+    },
+  };
+}
+
+/** One gateway for the grant the config names: what `agent-custody gateway` serves over stdio. Closing it closes the host. */
+export async function createGateway(cfg: GatewayConfig, options: GatewayOptions = {}): Promise<Gateway> {
+  if (!cfg.grantFile) throw new Error("config needs grantFile for a single-grant gateway; over HTTP each connection presents its own grant");
+  const host = await createGatewayHost(cfg, options);
+  let session: Gateway;
+  try {
+    session = host.open(JSON.parse(readFileSync(cfg.grantFile, "utf8")) as Envelope);
+  } catch (e) {
+    await host.close();
+    throw e;
+  }
+  return {
+    ...session,
+    async close() {
+      await session.close();
+      await host.close();
     },
   };
 }

@@ -62,7 +62,8 @@ export const GatewayConfigSchema = z.object({
   upstream: UpstreamSchema.optional(),
   /** several upstreams behind one gateway and one grant; each tool name must belong to exactly one of them */
   upstreams: z.array(UpstreamSchema.and(z.object({ name: z.string().min(1) }))).min(1).optional(),
-  grantFile: z.string(),
+  /** the one grant a stdio gateway serves; over HTTP each connection presents its own, and this is not needed */
+  grantFile: z.string().optional(),
   trustedPrincipalKeys: z.array(z.string()).min(1),
   policyFile: z.string(),
   facts: z.array(FactSchema).default([]),
@@ -88,7 +89,7 @@ export function loadConfig(path: string): GatewayConfig {
   return {
     ...cfg,
     identity: { keyFile: r(cfg.identity.keyFile) },
-    grantFile: r(cfg.grantFile),
+    ...(cfg.grantFile ? { grantFile: r(cfg.grantFile) } : {}),
     trustedPrincipalKeys: cfg.trustedPrincipalKeys.map(r),
     policyFile: r(cfg.policyFile),
     receiptsDir: r(cfg.receiptsDir),

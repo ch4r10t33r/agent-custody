@@ -29,6 +29,7 @@ Suggested reading order is the numbering. Output lands in `examples-out/`, which
 | 17 | a REST API as an upstream | [17-rest-upstream.ts](../examples/17-rest-upstream.ts) | a stand-in payments API described as two tools, the token from the environment, a refund allowed on the gateway's own lookup and one denied before reaching the API, the receipt verified | `src/rest.ts`, `src/gateway.ts` |
 | 18 | OpenTelemetry export | [18-opentelemetry.ts](../examples/18-opentelemetry.ts) | a stand-in OTLP collector, `otel` in the config, one span per receipt with the receipt id as trace id, the collector going away and the next receipt still issued | `src/otel.ts`, `src/issue.ts` |
 | 19 | Splunk export | [19-splunk.ts](../examples/19-splunk.ts) | a stand-in HTTP Event Collector, `splunk` in the config with the token from the environment, one event per receipt with the receipt id and log position as fields, the collector going away and the next receipt still issued | `src/splunk.ts`, `src/otel.ts` |
+| 20 | one gateway for many agents, over HTTP | [20-http-gateway.ts](../examples/20-http-gateway.ts) | a gateway host served over Streamable HTTP, two agents connecting with their own grants and seeing their own tools, receipts naming the right agent, a refusal by grant, and a stranger's grant getting no session | `src/gateway-http.ts`, `src/gateway.ts` |
 
 ## How policies are defined, in one paragraph
 

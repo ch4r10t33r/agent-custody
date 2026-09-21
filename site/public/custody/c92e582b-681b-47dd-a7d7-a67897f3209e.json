@@ -1,0 +1,29 @@
+{
+  "envelope": {
+    "payloadType": "application/vnd.in-toto+json",
+    "payload": "eyJfdHlwZSI6Imh0dHBzOi8vaW4tdG90by5pby9TdGF0ZW1lbnQvdjEiLCJwcmVkaWNhdGUiOnsiYWdlbnQiOnsiaWQiOiJjbGF1ZGUtY29kZSIsInByb3ZlbmFuY2UiOiJjbGFpbWVkIn0sImV4ZWN1dGlvbiI6eyJwcm92ZW5hbmNlIjoiY2xhaW1lZCIsInJlc3VsdCI6eyJpbnRlcnJ1cHRlZCI6ZmFsc2UsInN0ZGVyciI6IiIsInN0ZG91dCI6IiJ9LCJyZXN1bHREaWdlc3QiOiI0YzRjY2JhM2JhNGM5M2Y1NDNjMTBmZThiZTQ1ZDNlNTU3OWNjMzY4YTI0NWExOTU4ZmU4Y2UzMWMxYzI0NjdlIiwic3RhdHVzIjoiZXhlY3V0ZWQifSwiZmFjdHMiOnt9LCJpc3N1ZXIiOnsiZnJhbWV3b3JrIjoiY2xhdWRlLWNvZGUiLCJrZXlpZCI6IjAyNzk4MDE3ZGY4ZDk5Njg3MThlZTEwNjEzYzgxM2Q0NDJkMjIzYTFhYWRkNTIzODFiMjZhOGMyMjhjNDcwM2EiLCJraW5kIjoic2RrIiwidmVyc2lvbiI6IjAuMS4wIn0sIm1vZGVsIjp7ImlkIjpudWxsLCJwcm92ZW5hbmNlIjoiY2xhaW1lZCJ9LCJwb2xpY3kiOnsiZGVjaXNpb24iOiJhbGxvdyIsImVycm9ycyI6W10sInBvbGljeURpZ2VzdCI6IjBlNTY4ZDZlNjNiYTlkM2ZlZDAxMjNkYWZhMTQ2ZmVkZTQwNjMxYjIxMzE3YjhiMWFiODY4M2FhZGMxMWRlYTYiLCJwcm92ZW5hbmNlIjoiY2xhaW1lZCIsInJlYXNvbnMiOlsicG9saWN5MCJdfSwicHJpbmNpcGFsIjp7ImlkIjoicGFydGhhQGNoYXJpb3RlZXJjb25zdWx0aW5nLmNvbSIsInByb3ZlbmFuY2UiOiJjbGFpbWVkIn0sInJlY2VpcHRJZCI6ImM5MmU1ODJiLTY4MWItNDdkZC1hN2Q3LWE2Nzg5N2YzMjA5ZSIsInJlcXVlc3QiOnsiYXJncyI6eyJjb21tYW5kIjoiZ2l0IHN0YXR1cyAtLXNob3J0In0sImFyZ3NEaWdlc3QiOiJlNGY5ZGFkOTE3YWY3ZTQ5MzA3YmU0MjFkMTc0M2YxYzVlYjVmMmU0NDgxMDM1N2QxNTA3MjFkNjU5YjY4ZWY2IiwicHJvdmVuYW5jZSI6ImNsYWltZWQifSwic2Vzc2lvbiI6eyJpZCI6Imhvb2stdGVzdCIsInByb3ZlbmFuY2UiOiJjbGFpbWVkIiwidG9vbFVzZUlkIjoidDEifSwidGltZXN0YW1wIjoiMjAyNi0wOS0yMVQwODo0OTozNS45MTVaIiwidG9vbCI6eyJuYW1lIjoiQmFzaCIsInByb3ZlbmFuY2UiOiJjbGFpbWVkIn19LCJwcmVkaWNhdGVUeXBlIjoiaHR0cHM6Ly9hZ2VudC1jdXN0b2R5LmRldi9yZWNlaXB0L3YwLjIiLCJzdWJqZWN0IjpbeyJkaWdlc3QiOnsic2hhMjU2IjoiZTRmOWRhZDkxN2FmN2U0OTMwN2JlNDIxZDE3NDNmMWM1ZWI1ZjJlNDQ4MTAzNTdkMTUwNzIxZDY1OWI2OGVmNiJ9LCJuYW1lIjoidG9vbC1jYWxsOkJhc2g6YzkyZTU4MmItNjgxYi00N2RkLWE3ZDctYTY3ODk3ZjMyMDllIn1dfQ==",
+    "signatures": [
+      {
+        "keyid": "02798017df8d9968718ee10613c813d442d223a1aadd52381b26a8c228c4703a",
+        "sig": "Ae2+kTZmKwp56ipJJejiyb6LgvOqhGNvJWlrdl+WUcHOFK2G9J3wt8KA4XK3iI6jtv1OCh1IiP0GxAEki5SABw=="
+      }
+    ]
+  },
+  "treeHead": {
+    "payloadType": "application/vnd.agent-custody.treehead+json",
+    "payload": "eyJsb2ciOiJhZ2VudC1jdXN0b2R5Iiwicm9vdEhhc2giOiJhNDA2Y2Y5YTBhM2EyMDdhZTdjY2I0NTI0MjY2NWY4MmYzYzMyNDA5ZGFlMTkxYzcwNTFlOWQ0YzQyZmE5NzlhIiwidGltZXN0YW1wIjoiMjAyNi0wOS0yMVQwODo0OTozNi40OTVaIiwidHJlZVNpemUiOjV9",
+    "signatures": [
+      {
+        "keyid": "6ddde6466f23859fe1633d7d62a0393c1dc685d81aac731d843033e349efd5b0",
+        "sig": "yb7QieQ1VY5kGzhmHn9C6ztMlHlJMFDpnITa6n5j2zWAmKOudPPZPUtZ6uupIPdOBXJHBOl5X5YPoEliSnInBg=="
+      }
+    ]
+  },
+  "inclusion": {
+    "leafIndex": 4,
+    "treeSize": 5,
+    "hashes": [
+      "9c15426416f82738ea1c7ef57baf3dc8bbafa13b1b2810e6dfbabca323f7a257"
+    ]
+  }
+}

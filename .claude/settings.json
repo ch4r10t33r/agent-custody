@@ -1,0 +1,13 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*", "hooks": [{ "type": "command", "command": "sh .claude/custody-hook.sh" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*", "hooks": [{ "type": "command", "command": "sh .claude/custody-hook.sh" }] }
+    ],
+    "PostToolUseFailure": [
+      { "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|mcp__.*", "hooks": [{ "type": "command", "command": "sh .claude/custody-hook.sh" }] }
+    ]
+  }
+}

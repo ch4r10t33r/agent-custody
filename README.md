@@ -123,6 +123,10 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 - Agents in Python, Go, Java, Rust, or anything else: the gateway is an MCP server and needs nothing from your language; for in-process receipts run the sidecar and use the Python package or a forty-line client. [sdk.md](packages/receipts/docs/sdk.md#other-languages-the-sidecar)
 - Seventeen step-by-step examples across the packages: [receipts tutorials](packages/receipts/docs/tutorials.md), [state examples](packages/state/examples).
 
+## This repository is built under custody
+
+Every tool call an agent makes in a Claude Code session in this repository becomes a signed receipt, its hash committed to our tenant on the hosted log within seconds; a force push is refused by policy and the refusal is a receipt too. The hook is committed in `.claude/`, the receipts and keys stay outside the repository, and [agent-custody.dev/custody](https://agent-custody.dev/custody) shows the live tenant and sample receipts anyone can verify.
+
 ## Security
 
 Report a vulnerability privately to partha@charioteerconsulting.com; [SECURITY.md](SECURITY.md) has the scope, the response times, and how keys and tokens are protected.

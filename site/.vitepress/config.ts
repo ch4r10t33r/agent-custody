@@ -34,6 +34,7 @@ export default withMermaid(
       "site/privacy.md": "privacy.md",
       "site/terms.md": "terms.md",
       "site/contact.md": "contact.md",
+      "site/custody.md": "custody.md",
       "site/guide/:page": "guide/:page",
       "site/receipt/:page": "receipt/:page",
       "README.md": "repo.md",
@@ -78,6 +79,7 @@ export default withMermaid(
           { text: "What each piece is for", link: "/guide/pieces" },
           { text: "Getting started", link: "/guide/getting-started" },
           { text: "Deployment", link: "/guide/deployment" },
+          { text: "This repository, under custody", link: "/custody" },
           { text: "Changelog", link: "/changelog" },
         ] },
         { text: "Receipts", items: [

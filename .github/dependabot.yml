@@ -6,6 +6,10 @@ updates:
     directory: /
     schedule: { interval: weekly }
     groups: { npm: { patterns: ["*"] } }
+    ignore:
+      # vitepress-plugin-mermaid declares mermaid 10 || 11 as its peer; take mermaid 12 when the plugin does
+      - dependency-name: mermaid
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: pip
     directory: /packages/python
     schedule: { interval: weekly }
@@ -15,3 +19,7 @@ updates:
   - package-ecosystem: docker
     directory: /deploy
     schedule: { interval: weekly }
+    ignore:
+      # the image tracks the current Node LTS line by hand; a major bump lands when that line changes
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

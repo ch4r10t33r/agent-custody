@@ -16,8 +16,8 @@ services:
     build:
       context: .
       args:
-        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.5.9}
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.9}
+        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.6.0}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.0}
     restart: unless-stopped
     environment:
       ROLE: signer
@@ -42,7 +42,7 @@ services:
       context: .
       args:
         AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.3.0}
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.9}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.0}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -122,7 +122,7 @@ services:
   log-file:
     # The file-backed reference server alone: one tenant, no Postgres. What deploy/ was before phase 2.
     profiles: ["file"]
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.5.9}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.0}
     restart: unless-stopped
     env_file: .env
     environment:

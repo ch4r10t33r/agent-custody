@@ -2,6 +2,14 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.0 — 2026-09-21
+
+- **Receipts:** one gateway for many agents. `gateway --http` serves the gateway as an MCP server over Streamable HTTP; every connection presents its own grant (base64url in `Authorization: Bearer` or `X-Agent-Custody-Grant`) and gets a session under exactly that grant, sharing the upstreams, the policy, the key, and the log with the others and nothing else. `createGatewayHost` and `host.open(grant)` are the library form; `grantFile` in the config is now optional. A stranger's, an expired, or a missing grant gets 403 with the reason. Tutorial 20.
+- **Receipts:** delegation chains for sub-agents. A grant that names the agent's own key (`grant --agent-key`) lets the agent delegate a narrower grant to a sub-agent (`delegate`), parent embedded, up to three deep. The verifier, the browser verifier, and the gateway walk the chain back to a trusted principal key and refuse any link that escalates scope, widens the window, changes the principal, or is signed by the wrong key; the receipt names the sub-agent and the principal and carries the chain. New check `delegation chain to the principal`; vectors `gateway-chain-executed` and `gateway-chain-escalated-resigned`. Existing grants are unchanged.
+- **State:** write-through adapters for Letta (archival passages, custody as tags), any LangGraph store, where LangMem keeps its memories (one item per fact under a namespace), and Cognee (its REST API, the data id found by listing the dataset, tested against a stand-in of its routes only). Closes #4.
+- **Repository:** built under custody. `.claude/settings.json` records every tool call an agent makes here as a receipt, hash-logged to our tenant on the hosted log; the site's [custody page](https://agent-custody.dev/custody) shows the live tenant and two verifiable receipts. The container image base moves to Node 24; Dependabot skips mermaid and Node majors.
+- **Python:** unchanged; released in step.
+
 ## 0.5.9 — 2026-09-10
 
 - **Receipts:** the checkpoint publisher re-signs a quiet log's head every `--checkpoint-heartbeat` seconds (default six hours; `AGENT_CUSTODY_CHECKPOINT_HEARTBEAT` in the container) even when the tree has not grown. Before this a log with no appends for a day tripped the monitor's "checkpoint keeps up with the head" check, which requires a checkpoint at the head to be signed within twenty-four hours: a quiet log looked like a stalled publisher, and the hosted log's status went red on 2026-09-10 for that reason alone. The Postgres checkpoint store now updates the signature at an existing size when the root is unchanged and never when it differs.

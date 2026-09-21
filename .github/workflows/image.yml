@@ -56,7 +56,7 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           echo "${{ steps.build.outputs.digest }}" | sed 's/^sha256://' > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr / -)"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: digest-${{ strategy.job-index }}
           path: /tmp/digests/*

@@ -1,6 +1,6 @@
 # Security questionnaire
 
-The answers a procurement or security team asks for, written once, dated, and kept honest. Every "no" is a no. Where a control is planned, the answer says planned, not done. Last reviewed 2026-09-09; the [changelog](/changelog) records what has changed since.
+The answers a procurement or security team asks for, written once, dated, and kept honest. Every "no" is a no. Where a control is planned, the answer says planned, not done. Last reviewed 2026-09-26; the [changelog](/changelog) records what has changed since.
 
 The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-custody/state`, `agent-custody` on PyPI), which run on your machines, and the **hosted log** at log.agent-custody.dev, which we run. Receipts, arguments, results, and the memory ledger never leave your machines in either case; the hosted log receives leaf hashes.
 
@@ -25,7 +25,7 @@ The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-cu
 | Is data encrypted at rest? | The disk is not encrypted by us; the data it holds is hashes and public signatures. Tenant tokens are stored as SHA-256 hashes. The log's private key is on the volume and read only by the signer process. |
 | Retention and deletion? | Leaves are kept for the life of the tenant's log, since removing one changes every later root and breaks the tenant's own evidence. On offboarding the tenant is disabled and their log stays readable so their receipts keep verifying; deletion of the whole log is available on written request and is irreversible. Backups are kept thirty days. |
 | Can a tenant take their data? | Yes, any time, with their own token: `agent-custody log-export` fetches every leaf hash, the signed head, the published keys, the checkpoints, their usage, and their audit rows, checks that they add up, and writes a log copy the verifier reads offline. |
-| Subprocessors | Hetzner Online GmbH (hosting, Finland); GitHub (source, CI, container images, the website, the outside monitor); npm and PyPI (package distribution); Let's Encrypt (certificates); GoDaddy (DNS). No analytics or telemetry in the packages or the log. |
+| Subprocessors | Hetzner Online GmbH (hosting, Finland); GitHub (source, CI, container images, the website, the outside monitor); npm and PyPI (package distribution); Let's Encrypt (certificates); GoDaddy (DNS); Stripe Payments Europe Ltd (card payments for the Team plan; card details never reach us). No analytics or telemetry in the packages, the log, or the portal. |
 
 ## Access control
 
@@ -33,7 +33,7 @@ The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-cu
 | --- | --- |
 | Who can administer the hosted log? | The operator, with the admin token, through the admin page or the command line on the server. The admin token is a single shared secret; the page asks for a name that is recorded with every action. There is no SSO or per-user credential yet. |
 | Is administrative access logged? | Yes. Every tenant created or disabled and every token minted or revoked is recorded with who, from where, what, and when, never the token; tenants see the rows that concern them in their export. |
-| How do tenants authenticate? | A bearer token per fleet, shown once, stored hashed, revocable individually, rate-limited per token. Tenants cannot see or affect other tenants. |
+| How do tenants authenticate? | A bearer token per fleet, shown once, stored hashed, revocable individually, rate-limited per token. Tenants cannot see or affect other tenants. The portal, where tenants register and manage keys, uses an email and a password hashed with scrypt, a signed session cookie (HttpOnly, SameSite=Strict, fourteen days), and throttled sign-in; there is no multi-factor authentication or SSO on it yet. |
 | How is the server accessed? | SSH with a key; root password login is disabled. Password authentication for other accounts is currently enabled by the OS default and is being turned off. Ports open: 22, 80, 443. |
 | Multi-factor authentication? | Publishing to npm requires it on the publishing account. The admin page has none beyond the token and the recorded name. |
 

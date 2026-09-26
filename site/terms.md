@@ -1,6 +1,6 @@
 # Terms for early access
 
-Version 0.1, 2026-09-09. These are the terms on which Charioteer Consulting Ltd ("we") gives early-access tenants ("you") the use of the hosted log at log.agent-custody.dev. They are written in plain language and have not yet been reviewed by counsel; a tenant who needs a signed agreement gets one, and where the two differ the signed one wins. The packages themselves are Apache-2.0 and these terms do not touch them.
+Version 0.2, 2026-09-26. These are the terms on which Charioteer Consulting Ltd ("we") gives early-access tenants ("you") the use of the hosted log at log.agent-custody.dev. They are written in plain language and have not yet been reviewed by counsel; a tenant who needs a signed agreement gets one, and where the two differ the signed one wins. The packages themselves are Apache-2.0 and these terms do not touch them.
 
 ## What you get
 
@@ -13,7 +13,7 @@ Version 0.1, 2026-09-09. These are the terms on which Charioteer Consulting Ltd 
 1. Send leaf hashes only. The service is designed for `hashOnly`; a tenant who sends whole receipts has chosen to place their contents with us, and we will disable that tenant's tokens and say why.
 2. Keep your tokens to yourselves and tell us when one may have leaked; we revoke it and mint another.
 3. Use the service for logging your own agents' receipts, within the rate limits, and not to probe or load other tenants' paths.
-4. Tell us, when you are ready, what the service is worth to you. Early access is free, and the first tenants set the price with us.
+4. Pay for what you use. The Free plan is ten thousand appends a calendar month at no charge. The Team plan is $50 a month, billed monthly in advance by card through Stripe, for a million appends a month; it renews until you cancel from the billing page, and a cancellation takes effect at the end of the paid month, after which the tenant is on Free and the log is untouched. A month already paid is not refunded, except where the service was unavailable for most of it, in which case we credit it. Enterprise is invoiced under a signed agreement. Prices may change with thirty days' notice by email; a change never applies to a month already paid.
 
 ## What we do not promise
 

@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 import { dsseSign, type Envelope, type KeyPair } from "./crypto.ts";
 import { createHash } from "node:crypto";
 import { leafHash, MerkleLog, type InclusionProof } from "./log.ts";
-import { type AuditEntry, fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
+import { type AuditEntry, type QuotaState, fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
 import { localSigner, type Signer } from "./signer.ts";
 import type { Checkpoint, CheckpointStore } from "./checkpoints.ts";
 import { adminRoutes, type AdminOptions } from "./log-admin.ts";
@@ -182,6 +182,10 @@ export interface ResolvedLog {
   usage?(month: string): Promise<TenantUsage>;
   /** administrative actions on this log, newest first, where the store keeps them */
   audit?(limit: number): Promise<AuditEntry[]>;
+  /** the plan's monthly allowance and what is used, where the store keeps plans */
+  quota?(): Promise<QuotaState>;
+  /** told after an append lands, so a cached quota count stays honest */
+  appended?(): void;
 }
 
 /** Turns the tenant in a path, or null for the root paths, into a log. */
@@ -238,6 +242,8 @@ export function postgresResolver(tenancy: PostgresTenancy, opts: { defaultTenant
           return { month, appends: row?.appends ?? 0, totalLeaves: row?.totalLeaves ?? 0, liveTokens: row?.liveTokens ?? 0 };
         },
         audit: (limit) => tenancy.audit({ tenant: id, limit }),
+        quota: () => tenancy.quota(id),
+        appended: () => tenancy.noteAppend(id),
       };
     },
     async tenants() {
@@ -365,6 +371,16 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       if (req.method === "POST" && url.pathname.endsWith("/append")) {
         const token = bearer(req);
         if (!(await which.authorize(token))) return json(401, { error: "unauthorized" });
+        if (which.quota) {
+          // The plan's monthly allowance. Over it, the append is refused with the numbers, and the gateway behind it
+          // withholds pre-committed calls: a tenant out of quota never acts without evidence.
+          const q = await which.quota();
+          if (q.quota !== null && q.used >= q.quota) {
+            const now = new Date();
+            const monthEnd = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
+            return json(429, { error: `monthly quota reached: ${q.used} of ${q.quota} appends on the ${q.plan} plan; it resets at the start of next month, or move to a larger plan` }, { "retry-after": String(Math.max(1, Math.ceil((monthEnd - now.getTime()) / 1000))) });
+          }
+        }
         const limitKey = token ? createHash("sha256").update(token).digest("hex").slice(0, 16) : `addr:${clientAddress(req, opts.trustProxy)}`;
         if (!limiter.take(limitKey)) return json(429, { error: "too many appends; retry shortly" }, { "retry-after": "1" });
         let body = "";
@@ -380,10 +396,14 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
         }
         if (typeof parsed.leafHash === "string") {
           if (!/^[0-9a-f]{64}$/.test(parsed.leafHash)) return json(400, { error: "leafHash must be 64 lowercase hex characters" });
-          return json(200, await appendSigned(log, signer, { leafHash: parsed.leafHash }, logId));
+          const r = await appendSigned(log, signer, { leafHash: parsed.leafHash }, logId);
+          which.appended?.();
+          return json(200, r);
         }
         if (typeof parsed.leaf !== "string" || parsed.leaf.length === 0) return json(400, { error: "leaf must be a non-empty string, or send leafHash" });
-        return json(200, await appendSigned(log, signer, { leaf: parsed.leaf }, logId));
+        const r = await appendSigned(log, signer, { leaf: parsed.leaf }, logId);
+        which.appended?.();
+        return json(200, r);
       }
       const current = await log.size();
       // A tenant's own data, with their token: every leaf hash, in pages, and their metering. The export command
@@ -400,7 +420,9 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
           if (!which.usage) return json(404, { error: "this log keeps no usage" });
           const month = url.searchParams.get("month") ?? new Date().toISOString().slice(0, 7);
           if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return json(400, { error: "month must be YYYY-MM" });
-          return json(200, await which.usage(month), { "cache-control": "no-store" });
+          const u = await which.usage(month);
+          const q = which.quota ? await which.quota() : null;
+          return json(200, { ...u, ...(q ? { plan: q.plan, quota: q.quota } : {}) }, { "cache-control": "no-store" });
         }
         const since = url.searchParams.has("since") ? Number(url.searchParams.get("since")) : 0;
         const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 10_000;

@@ -45,6 +45,8 @@ Drills: 2026-09-09, backups of 2026-09-08, PASS (first drill).
 
 **Onboard.** `./onboard-tenant.sh <id> --log-id <id> --label "<team>"` creates the tenant and its first token, keeps the token in `/root/agent-custody-tenants/<id>.token`, and prints the welcome sheet to hand over. Or the admin page at `/admin`.
 
+**Change a tenant's plan.** `docker compose exec log agent-custody log-admin --db-env DATABASE_URL tenant plan <id> team`, or the plan column on the admin page. The new allowance applies from the next append; the change is in the audit trail. Free allows ten thousand appends a month, team a million, enterprise has no allowance.
+
 **Rotate a tenant's token.** Mint the new one first, hand it over, let them switch, then revoke the old:
 
 ```bash

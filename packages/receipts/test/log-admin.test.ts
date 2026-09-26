@@ -145,3 +145,49 @@ describe("the audit trail", () => {
     expect((await call("GET", "admin/audit?limit=0")).status).toBe(400);
   });
 });
+
+describe("plans and quotas", () => {
+  it("a tenant starts on free, the operator moves it, the move is audited, and an append past the plan's monthly allowance is refused with the numbers until the plan grows", async () => {
+    const db2 = new PGlite();
+    await db2.query("SELECT 1");
+    // quotas overridden so the test does not need ten thousand appends
+    const t2 = new PostgresTenancy(db2, { prefix: "plan_", quotas: { free: 2, team: 5 } });
+    await t2.addTenant("default", "log.example.test");
+    await t2.addTenant("acme", "acme-eu", "cli:test@host");
+    const tok = (await t2.addToken("acme", "fleet")).token;
+    const srv = await serveLog(postgresResolver(t2), generateKeyPair(), { port: 0, admin: { tenancy: t2, token: ADMIN } });
+    try {
+      expect((await t2.tenant("acme"))!.plan).toBe("free");
+      const append = () => fetch(new URL("t/acme/append", srv.url), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tok}` }, body: JSON.stringify({ leafHash: "cd".repeat(32) }) });
+      expect((await append()).status).toBe(200);
+      expect((await append()).status).toBe(200);
+      const over = await append();
+      expect(over.status).toBe(429);
+      expect(Number(over.headers.get("retry-after"))).toBeGreaterThan(0);
+      expect(((await over.json()) as { error: string }).error).toMatch(/monthly quota reached: 2 of 2 appends on the free plan/);
+      expect(await t2.quota("acme")).toEqual({ plan: "free", used: 2, quota: 2 });
+      // the tenant sees its plan and quota on its usage route
+      const usage = (await (await fetch(new URL("t/acme/usage", srv.url), { headers: { authorization: `Bearer ${tok}` } })).json()) as { plan: string; quota: number; appends: number };
+      expect(usage).toMatchObject({ plan: "free", quota: 2, appends: 2 });
+      // the operator moves the tenant up; the next append lands; the change is in the audit trail and the usage table
+      const set = await fetch(new URL("admin/tenants/acme/plan", srv.url), { method: "POST", headers: { authorization: `Bearer ${ADMIN}`, "content-type": "application/json" }, body: JSON.stringify({ plan: "team" }) });
+      expect(set.status).toBe(200);
+      expect(((await set.json()) as { plan: string }).plan).toBe("team");
+      expect((await append()).status).toBe(200);
+      const audit = ((await (await fetch(new URL("admin/audit?tenant=acme&limit=5", srv.url), { headers: { authorization: `Bearer ${ADMIN}` } })).json()) as { entries: { action: string; detail: unknown }[] }).entries;
+      expect(audit[0]).toMatchObject({ action: "tenant.plan", detail: { plan: "team" } });
+      const u = (await (await fetch(new URL(`admin/usage?month=${new Date().toISOString().slice(0, 7)}`, srv.url), { headers: { authorization: `Bearer ${ADMIN}` } })).json()) as { tenants: { id: string; plan: string; quota: number | null; appends: number }[] };
+      expect(u.tenants.find((x) => x.id === "acme")).toMatchObject({ plan: "team", quota: 5, appends: 3 });
+      // an unknown plan is refused
+      expect((await fetch(new URL("admin/tenants/acme/plan", srv.url), { method: "POST", headers: { authorization: `Bearer ${ADMIN}`, "content-type": "application/json" }, body: JSON.stringify({ plan: "gold" }) })).status).toBe(400);
+      // enterprise has no allowance
+      await t2.setPlan("acme", "enterprise");
+      expect(await t2.quota("acme")).toMatchObject({ plan: "enterprise", quota: null });
+      const html = await (await fetch(new URL("admin", srv.url), { headers: { authorization: `Bearer ${ADMIN}` } })).text();
+      expect(html).toContain("<th>plan</th>");
+    } finally {
+      await srv.close();
+      await db2.close();
+    }
+  });
+});

@@ -29,6 +29,8 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site/.vitepress/dist
+          # v4 stopped shipping dotfiles; without this, /.well-known/security.txt vanishes from the site
+          include-hidden-files: true
 
   deploy:
     needs: build

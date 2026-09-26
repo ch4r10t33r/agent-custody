@@ -228,6 +228,7 @@ src/config.ts      gateway and SDK config schemas, path resolution
 src/crypto.ts      canonical JSON, sha256, Ed25519 keys, DSSE sign/verify
 src/log.ts         Merkle log: append, root, inclusion and consistency proofs, verify, JSONL persistence
 src/log-check.ts   the outside monitor: verifies the head, checkpoints, and witness of a running log
+src/portal.ts      the tenant portal: register, first key, usage against plan, keys, Stripe billing, export, on the log's Postgres
 src/log-export.ts  a tenant's export of their own log, self-checked, as a log file the verifier reads
 src/witness.ts     the witness: countersigns the log's checkpoints from another operator's machine, or refuses with an alarm
 src/signer.ts      the signer: the log's key in its own process, the key document verifiers fetch
@@ -287,6 +288,7 @@ The design is two producers feeding one verifier. The SDK is the top of the funn
 - Remote log: the issuer can append to a log run by someone else over HTTP, whose key then signs the tree heads, so a verifier learns the receipt was in a log the operator could not rewrite. Includes the reference log server, bearer-token auth, and a root endpoint for auditors.
 - Framework adapters, each tested against the real package with a scripted model and no network: OpenAI Agents SDK (`wrapTools` enforces, `observeRunner` records from lifecycle events), Vercel AI SDK (`wrapTools` over a real `generateText` loop), LangChain (`ReceiptCallbackHandler` records, `issuer.wrap` enforces).
 
+- Plans and the tenant portal: every tenant is on a plan (free, ten thousand appends a month; team, a million; enterprise, no allowance) enforced at append with a clear 429; the portal at the operator's `PORTAL_HOST` lets a team register, get its tenant and first key, watch usage against the plan, mint and revoke keys, buy the team plan through Stripe, and copy the export command, with every action in the audit trail.
 - An audit trail of administrative actions: every tenant created or disabled and every token minted or revoked is recorded with who did it, from the admin page or the command line, shown on the page and carried in the tenant's export.
 - A tenant's export: `log-export` takes, with the tenant's own token, every leaf hash, the signed head, the published keys, the checkpoints, and their usage, checks that they add up, and writes a log copy the verifier reads offline; the evidence never depends on the operator staying in business.
 - Monitoring and metering: `log-check`, the outside probe that verifies the head, the checkpoints, and the witness and exits 1 on trouble, run every ten minutes by the `monitor` workflow; `GET /health`; and usage per tenant per month on the admin page and as CSV.

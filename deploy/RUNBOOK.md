@@ -60,6 +60,18 @@ Every one of these commands is recorded in the audit trail with your user and ho
 
 **Offboard.** `tenant disable <id>` refuses new appends and keeps the log readable, so receipts the tenant already holds keep verifying inclusion and their auditors can still fetch consistency proofs; this is the default and the honest one. The leaves themselves are hashes and stay: removing them would change every later root in that tenant's tree and break their own evidence. If a contract requires the tenant's log gone entirely, `DELETE FROM log_leaves WHERE tenant_id = '<id>'` and the rows in `log_heads`, `log_tokens`, and `log_tenants` for it, after telling them in writing that their receipts will no longer prove inclusion; take a dump first.
 
+## The portal and billing
+
+**What it is.** `app.<your domain>`, the `portal` service: a team registers with an email, a password, and a tenant id, and gets the tenant and its first key at once; the dashboard shows appends against the plan, the tree size, the latest checkpoint, keys, and the audit rows; keys are minted and revoked there, and the team plan is bought there through Stripe Checkout. Every action the portal takes on a tenant is in the audit trail as `portal:<email>`, and every plan change by Stripe as `stripe:<event>`.
+
+**Stripe setup, once.** In Stripe: a product "Team" with a recurring monthly price of $50; a webhook endpoint at `https://<PORTAL_HOST>/stripe/webhook` for the events `checkout.session.completed`, `customer.subscription.updated`, and `customer.subscription.deleted`; the customer portal enabled. Put the secret key, the webhook signing secret, and the price id in `.env` as `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRICE_TEAM`, then `docker compose --profile public up -d portal`. Test mode first: the same three variables from the test dashboard, a checkout with card 4242 4242 4242 4242, the tenant's plan moving to team on the admin page and in the audit trail, then swap to live keys.
+
+**A tenant says they paid and are still on free.** The webhook did not arrive or was refused: check Stripe's webhook log for the endpoint and the portal's log for `bad signature`; a wrong `STRIPE_WEBHOOK_SECRET` is the usual cause. Move the plan by hand (`tenant plan <id> team`) and fix the secret.
+
+**A lost password.** There is no reset flow until an email provider is configured. Verify the person by another channel, then `docker compose exec portal agent-custody log-admin --db-env DATABASE_URL audit --tenant <id>` shows which email registered the tenant; a new password is set by deleting the row in `portal_users` for that email and letting them register the same email again against the existing tenant is not supported, so instead update `password_hash` with a hash from `PortalStore.hashPassword` in a node one-liner inside the container. Write down that you did it.
+
+**Sign everyone out.** Rotate `PORTAL_SECRET` and restart the portal.
+
 ## Keys and secrets
 
 **Rotating the signing key.** Heads signed by the old key must keep verifying, so the old public key stays published as retired. The entrypoint lists every `.pub` in `/data/keys/retired/` in the key document.

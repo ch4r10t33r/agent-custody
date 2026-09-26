@@ -15,6 +15,8 @@ log_id_args=""
 [ -n "${DATABASE_URL:-}" ] && log_id_args="$log_id_args --db-env DATABASE_URL"
 # TRUST_PROXY=1 when a reverse proxy you run (the compose Caddy) is the only way in: limits are then per real client.
 [ "${TRUST_PROXY:-0}" = "1" ] && log_id_args="$log_id_args --trust-proxy"
+# AGENT_CUSTODY_HASH_ONLY=1 refuses full leaves at append: a log run for other people never receives a receipt.
+[ "${AGENT_CUSTODY_HASH_ONLY:-0}" = "1" ] && log_id_args="$log_id_args --hash-only"
 # ADMIN_TOKEN turns on the operator's page at /admin; the public URLs fill the welcome sheet in.
 if [ -n "${ADMIN_TOKEN:-}" ]; then
   log_id_args="$log_id_args --admin-token-env ADMIN_TOKEN"

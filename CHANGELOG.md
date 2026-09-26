@@ -2,6 +2,18 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.2 — 2026-09-27
+
+Six vulnerabilities reported as issues #41 to #46, all fixed here.
+
+- **Receipts, #42:** arguments reach Cedar as data only. A value shaped as a Cedar entity or extension (`__entity`, `__extn`) is a deny before evaluation, with the argument's path in the receipt's errors, so an agent cannot satisfy a policy comparison by the shape of what it sends.
+- **Receipts, #46:** a stdio upstream is started with a minimal environment (the path, home, and temp directories, the locale, and what its config's `env` names), never the gateway's own, so the tokens other upstreams and the log are given do not reach a tool process.
+- **Receipts, #41:** a fact tool named in `precommit` is refused at startup: a lookup runs before the policy decides and must be a read. `"*"` covers the tools the agent calls, not the gateway's lookups.
+- **Receipts, #45:** `log --hash-only` (`AGENT_CUSTODY_HASH_ONLY=1`, set by the compose file for the tenanted log) refuses `{ leaf }` at append and accepts only `{ leafHash }`, so a log run for other people never receives a receipt regardless of the client's configuration.
+- **Receipts, #44:** behind a trusted proxy, per-address limits key on the rightmost `X-Forwarded-For` entry, the one the proxy appended, never on one the client supplied.
+- **Receipts and the browser verifier, #43:** delegation windows are compared as instants in both verifiers; the package's grant schema accepts ISO offsets so both reach the same comparison. New vector `gateway-chain-offset-window-resigned`, which both must refuse.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.1 — 2026-09-26
 
 - **Receipts:** plans and monthly quotas. Every tenant is on a plan, free (ten thousand appends a calendar month), team (a million), or enterprise (no allowance); an append past the allowance is refused with 429, the numbers, and a `retry-after` reaching the start of next month, so the gateway behind it withholds pre-committed calls rather than acting without evidence. The plan is set on the admin page or with `log-admin tenant plan`, audited, and reported with the quota on the tenant's usage route, the admin usage table, and the CSV. Existing tenants read as free.

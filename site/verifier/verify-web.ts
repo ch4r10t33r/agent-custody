@@ -91,7 +91,9 @@ export async function verifyDelegationChain(env: Envelope, trusted: PublicKey[],
   if (d.principal !== parent.principal) return { ok: false, error: `link ${depth}: principal changed from ${parent.principal} to ${d.principal}` };
   const extra = (d.scopes as string[]).filter((s) => !parent.scopes.includes(s));
   if (extra.length) return { ok: false, error: `link ${depth}: ${d.agent} was given scopes ${parent.agent} does not hold: ${extra.join(", ")}` };
-  if (d.issuedAt < parent.issuedAt || d.expiresAt > parent.expiresAt) return { ok: false, error: `link ${depth}: ${d.agent}'s window is not inside ${parent.agent}'s` };
+  const [ci, ce, pi, pe] = [d.issuedAt, d.expiresAt, parent.issuedAt, parent.expiresAt].map((x) => Date.parse(x));
+  if ([ci, ce, pi, pe].some(Number.isNaN)) return { ok: false, error: `link ${depth}: a window timestamp is not a date` };
+  if (ci < pi || ce > pe) return { ok: false, error: `link ${depth}: ${d.agent}'s window is not inside ${parent.agent}'s` };
   return { ok: true, delegation: d, keyid: up.keyid, chain: [...up.chain, d] };
 }
 
@@ -192,7 +194,8 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
     if (del.ok && shape) {
       const principalKeyid = p.principal.provenance === "attested" ? p.principal.keyid : null;
       add("delegation binds principal and agent", d.principal === p.principal.id && d.agent === p.agent.id && del.keyid === principalKeyid);
-      add("delegation valid at receipt time", d.issuedAt <= p.timestamp && p.timestamp <= d.expiresAt, `${d.issuedAt} .. ${d.expiresAt}`);
+      const at = Date.parse(p.timestamp);
+      add("delegation valid at receipt time", !Number.isNaN(at) && Date.parse(d.issuedAt) <= at && at <= Date.parse(d.expiresAt), `${d.issuedAt} .. ${d.expiresAt}`);
       const inScope = d.scopes.includes(p.tool.name);
       const executed = p.execution.status === "executed" || p.execution.status === "failed";
       add("executed tool within delegated scope", !executed || inScope, inScope ? p.tool.name : `${p.tool.name} not in [${d.scopes.join(", ")}]`);

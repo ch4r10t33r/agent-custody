@@ -73,6 +73,20 @@ function extractValue(result: CallToolResult): unknown {
   }
 }
 
+/**
+ * The environment a stdio upstream is started with: what a child process needs to run, plus what the config names.
+ * Never the gateway's own environment, which holds the tokens other upstreams and the log are given. An explicit
+ * `env` in the config is added to this base, not to the gateway's variables.
+ */
+export function upstreamEnv(extra?: Record<string, string>): Record<string, string> {
+  const base: Record<string, string> = {};
+  for (const k of ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "SystemRoot", "SYSTEMROOT", "USERPROFILE", "APPDATA", "NODE_OPTIONS"]) {
+    const v = process.env[k];
+    if (v !== undefined) base[k] = v;
+  }
+  return { ...base, ...(extra ?? {}) };
+}
+
 export interface GatewayOptions {
   /** the log to append to, in place of the one the config names; for embedding and tests */
   log?: LogSink;
@@ -100,6 +114,12 @@ export async function createGatewayHost(cfg: GatewayConfig, options: GatewayOpti
   const issuer = createIssuer(gatewayKey, cfg.receiptsDir, options.log ?? openLog(cfg, gatewayKey), { exporter: options.exporter ?? openExporter(cfg) });
   const precommit = new Set(cfg.precommit);
   const consequential = (tool: string) => precommit.has("*") || precommit.has(tool);
+  // A fact lookup runs before the policy can decide, because the policy decides on it. It is therefore a read the
+  // gateway makes on the agent's request, never a consequential call: a fact tool named in precommit is a config error.
+  // "*" covers the tools the agent calls; a lookup is the gateway's own read, so only an explicit name makes it consequential.
+  for (const f of cfg.facts) {
+    if (precommit.has(f.tool)) throw new Error(`fact "${f.name}" uses tool ${f.tool}, which precommit names as consequential; a fact lookup runs before the policy decides and must be a read`);
+  }
 
   // One host, as many upstreams as the agents' jobs need. Each tool name belongs to exactly one upstream, decided at
   // startup, so a receipt's tool is unambiguous and consumed facts flow across them.
@@ -118,7 +138,7 @@ export async function createGatewayHost(cfg: GatewayConfig, options: GatewayOpti
       await (client as Client).connect(new StreamableHTTPClientTransport(new URL(u.url), token ? { requestInit: { headers: { authorization: `Bearer ${token}` } } } : {}));
     } else {
       client = new Client({ name: "agent-custody-gateway", version: GATEWAY_VERSION });
-      await (client as Client).connect(new StdioClientTransport({ command: u.command, args: u.args, env: u.env, stderr: "inherit" }));
+      await (client as Client).connect(new StdioClientTransport({ command: u.command, args: u.args, env: upstreamEnv(u.env), stderr: "inherit" }));
     }
     upstreams.set(name, client);
     const { tools } = await client.listTools();

@@ -3,7 +3,7 @@
 	root * /srv
 	encode gzip
 	@root path /
-	redir @root /reference/ 302
+	redir @root /guide/getting-started 302
 	try_files {path} {path}.html {path}/index.html
 	file_server
 }

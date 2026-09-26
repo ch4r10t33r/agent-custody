@@ -386,7 +386,8 @@ const PORTAL_PAGE = `<!doctype html>
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
   .top { display: flex; align-items: center; gap: 1rem; padding: .7rem 1.25rem; border-bottom: 1px solid var(--line); background: var(--panel); }
   .brand { font-weight: 700; letter-spacing: .04em; } .brand b { color: var(--accent); }
-  .top .who { margin-left: auto; color: var(--ink2); font-size: .9rem; }
+  .top .links { margin-left: auto; display: flex; gap: .9rem; font-size: .9rem; } .top .links a { color: var(--accent); text-decoration: none; }
+  .top .who { color: var(--ink2); font-size: .9rem; margin-left: .5rem; }
   .pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font: 600 .72rem/1.6 var(--mono); letter-spacing: .06em; text-transform: uppercase; background: var(--accent-bg); color: var(--accent); }
   .layout { display: grid; grid-template-columns: 15rem 1fr; min-height: calc(100vh - 3.3rem); }
   nav { border-right: 1px solid var(--line); background: var(--panel); padding: 1rem 0; }
@@ -425,7 +426,7 @@ const PORTAL_PAGE = `<!doctype html>
   [hidden] { display: none !important; }
   @media (max-width: 48rem) { .layout { grid-template-columns: 1fr; } nav { display: flex; flex-wrap: wrap; padding: .3rem; border-right: 0; border-bottom: 1px solid var(--line); } nav .group { display: none; } nav a { border-left: 0; border-bottom: 3px solid transparent; } nav a.on { border-bottom-color: var(--accent); } }
 </style>
-<div class="top"><span class="brand"><b>◆</b> agent-custody</span><span id="tenantTag" class="pill" hidden></span><span id="planTag" class="pill" hidden></span><span class="who" id="who"></span></div>
+<div class="top"><span class="brand"><b>◆</b> agent-custody</span><span id="tenantTag" class="pill" hidden></span><span id="planTag" class="pill" hidden></span><span class="links"><a href="https://agent-custody.dev/guide/getting-started">Guide</a><a href="https://docs.agent-custody.dev/reference/">Docs</a><a href="https://agent-custody.dev/verify">Verify a receipt</a></span><span class="who" id="who"></span></div>
 <section id="auth" class="auth" hidden>
   <h1 id="authTitle">Sign in</h1>
   <form id="authForm">

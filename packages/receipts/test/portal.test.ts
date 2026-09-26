@@ -102,7 +102,10 @@ describe("the tenant portal", () => {
     expect(noJson.status).toBe(415);
     const page = await fetch(portal.url);
     expect(page.headers.get("content-security-policy")).toMatch(/default-src 'none'/);
-    expect(await page.text()).toContain("API keys");
+    const html = await page.text();
+    expect(html).toContain("API keys");
+    expect(html).toContain("https://docs.agent-custody.dev/reference/");
+    expect(html).toContain("https://agent-custody.dev/verify");
   });
 
   it("mints and revokes keys with the portal user as the actor, and a revoked key stops appending", async () => {

@@ -44,7 +44,9 @@ services:
         AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.3.0}
     image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.0}
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       AGENT_CUSTODY_LOG_FILE: /data/log.jsonl
       AGENT_CUSTODY_LOG_KEY: /data/keys/log.key
@@ -73,6 +75,39 @@ services:
       - "127.0.0.1:8787:8787"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/head"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # The tenant portal: registration, first key, usage against plan, keys, billing, export. Same image, its own
+  # tables on the same Postgres. Public through Caddy at PORTAL_HOST; on loopback otherwise.
+  portal:
+    depends_on:
+      postgres:
+        condition: service_healthy
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.0}
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ROLE: portal
+      DATABASE_URL: postgres://custody:${POSTGRES_PASSWORD:-}@postgres:5432/custody_log
+      PORTAL_SECRET: "${PORTAL_SECRET:-}"
+      LOG_HOST: "${LOG_HOST:-}"
+      CHECKPOINTS_HOST: "${CHECKPOINTS_HOST:-}"
+      PORTAL_HOST: "${PORTAL_HOST:-}"
+      STRIPE_SECRET_KEY: "${STRIPE_SECRET_KEY:-}"
+      STRIPE_WEBHOOK_SECRET: "${STRIPE_WEBHOOK_SECRET:-}"
+      STRIPE_PRICE_TEAM: "${STRIPE_PRICE_TEAM:-}"
+      TRUST_PROXY: "1"
+    ports:
+      - "127.0.0.1:8792:8792"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8792/health"]
       interval: 15s
       timeout: 3s
       retries: 3
@@ -124,7 +159,9 @@ services:
     profiles: ["file"]
     image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.0}
     restart: unless-stopped
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       AGENT_CUSTODY_LOG_FILE: /data/log.jsonl
       AGENT_CUSTODY_LOG_KEY: /data/keys/log.key

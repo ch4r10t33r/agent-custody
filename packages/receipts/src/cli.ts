@@ -15,6 +15,7 @@ import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey,
 import { fetchWitnessKeys, Witness } from "./witness.ts";
 import { checkLog, formatLogCheck } from "./log-check.ts";
 import { serveHttp } from "./gateway-http.ts";
+import { servePortal, type StripeOptions } from "./portal.ts";
 import { exportLog, formatExport } from "./log-export.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
@@ -75,7 +76,10 @@ const USAGE = `agent-custody <command>
                                                  the one process that holds the log's key: POST /sign, GET /keys
   log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id> | tenant plan <id> <free|team|enterprise>
   log-admin --db-env NAME token add <tenant> --label <text> | token list <tenant> | token revoke <tenant> <hash-prefix>
-  log-admin --db-env NAME audit [--tenant <id>]   who did what to tenants and tokens, newest first
+  log-admin --db-env NAME audit [--tenant <id>]
+  portal  --db-env NAME --secret-env NAME --public-url <log url> [--checkpoints-url <url>] [--portal-url <url>] [--port 8792] [--host 127.0.0.1]
+          [--stripe-key-env NAME --stripe-webhook-env NAME --stripe-price-team <price id>] [--trust-proxy]
+                                                   the tenant portal: register, first key, usage against plan, keys, billing, export   who did what to tenants and tokens, newest first
   log-admin --db-env NAME import --file <log.jsonl> [--tenant default]      copies a file log into the database as hashes
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) [--issuer-key <pub>] [--log-key <pub>] [--log-id <id>] [--witness-key <pub> | --witness-url <url>] [--json]
                                                  with --log-url the log's published keys are fetched and pinned by keyid; with a witness key or
@@ -246,6 +250,33 @@ async function main(argv: string[]): Promise<number> {
       const kp = loadPrivateKey(values.key);
       const running = await serveSigner(kp, { port: Number(values.port), host: values.host, ...(token ? { token } : {}), retired: (values["retired-key"] ?? []).map(retiredKey) });
       console.error(`agent-custody signer: ${running.url} keyid=${kp.keyid} ${token ? "token required" : "open: bind this to a private network"}${values["retired-key"]?.length ? ` retired=${values["retired-key"].length}` : ""}`);
+      await new Promise<void>((resolve) => process.once("SIGINT", resolve));
+      await running.close();
+      return 0;
+    }
+    case "portal": {
+      const { values } = parseArgs({ args: rest, options: { "db-env": { type: "string" }, "secret-env": { type: "string" }, "public-url": { type: "string" }, "checkpoints-url": { type: "string" }, "portal-url": { type: "string" }, port: { type: "string", default: "8792" }, host: { type: "string", default: "127.0.0.1" }, "stripe-key-env": { type: "string" }, "stripe-webhook-env": { type: "string" }, "stripe-price-team": { type: "string" }, "trust-proxy": { type: "boolean", default: false } } });
+      if (!values["db-env"] || !values["secret-env"] || !values["public-url"]) throw new Error("portal needs --db-env, --secret-env, and --public-url");
+      const secret = process.env[values["secret-env"]];
+      if (!secret || secret.length < 32) throw new Error(`environment variable ${values["secret-env"]} must hold a secret of at least 32 characters`);
+      let stripe: StripeOptions | undefined;
+      if (values["stripe-key-env"] || values["stripe-webhook-env"] || values["stripe-price-team"]) {
+        if (!values["stripe-key-env"] || !values["stripe-webhook-env"] || !values["stripe-price-team"]) throw new Error("billing needs all three of --stripe-key-env, --stripe-webhook-env, --stripe-price-team");
+        const secretKey = process.env[values["stripe-key-env"]];
+        const webhookSecret = process.env[values["stripe-webhook-env"]];
+        if (!secretKey || !webhookSecret) throw new Error("the Stripe key and webhook secret variables must both be set");
+        stripe = { secretKey, webhookSecret, priceTeam: values["stripe-price-team"] };
+      }
+      const client = openPostgres(values["db-env"]);
+      const tenancy = new PostgresTenancy(client);
+      let keyid: string | undefined;
+      try {
+        keyid = (await fetchLogKeys(values["public-url"])).keys[0]?.keyid;
+      } catch {
+        // the log may not be reachable from here at start; the sheet then omits the keyid
+      }
+      const running = await servePortal({ tenancy, client, secret, publicUrl: values["public-url"], ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}), ...(values["portal-url"] ? { portalUrl: values["portal-url"] } : {}), ...(keyid ? { keyid } : {}), ...(stripe ? { stripe } : {}), trustProxy: values["trust-proxy"] }, { port: Number(values.port), host: values.host });
+      console.error(`agent-custody portal: ${running.url} log=${values["public-url"]} billing=${stripe ? "stripe" : "off"}${values["trust-proxy"] ? " trust-proxy" : ""}`);
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       await running.close();
       return 0;

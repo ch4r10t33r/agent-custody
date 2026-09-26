@@ -34,6 +34,16 @@ if [ "${ROLE:-log}" = "witness" ]; then
   for t in $(printf '%s' "${WITNESS_TENANTS:-default}" | tr ',' ' '); do tenant_args="$tenant_args --tenant $t"; done
   exec agent-custody witness --key "$AGENT_CUSTODY_LOG_KEY" --log-url "$WITNESS_LOG_URL" --checkpoints-url "$WITNESS_CHECKPOINTS_URL" --out /witnessed --every "${WITNESS_EVERY:-300}" $tenant_args
 fi
+# ROLE=portal runs the tenant portal: registration, keys, usage, billing, on the same Postgres as the log.
+if [ "${ROLE:-log}" = "portal" ]; then
+  portal_args="--db-env DATABASE_URL --secret-env PORTAL_SECRET --public-url https://${LOG_HOST:?LOG_HOST is required for the portal}/ --host 0.0.0.0 --port ${AGENT_CUSTODY_PORTAL_PORT:-8792}"
+  [ -n "${CHECKPOINTS_HOST:-}" ] && portal_args="$portal_args --checkpoints-url https://$CHECKPOINTS_HOST/"
+  [ -n "${PORTAL_HOST:-}" ] && portal_args="$portal_args --portal-url https://$PORTAL_HOST/"
+  [ -n "${STRIPE_SECRET_KEY:-}" ] && portal_args="$portal_args --stripe-key-env STRIPE_SECRET_KEY --stripe-webhook-env STRIPE_WEBHOOK_SECRET --stripe-price-team ${STRIPE_PRICE_TEAM:?STRIPE_PRICE_TEAM is required with STRIPE_SECRET_KEY}"
+  [ "${TRUST_PROXY:-}" = "1" ] && portal_args="$portal_args --trust-proxy"
+  # shellcheck disable=SC2086
+  exec agent-custody portal $portal_args
+fi
 # ROLE=signer runs the signer instead of the log; the log then signs through AGENT_CUSTODY_SIGNER_URL.
 if [ "${ROLE:-log}" = "signer" ]; then
   key_dir=$(dirname "$AGENT_CUSTODY_LOG_KEY"); key_name=$(basename "$AGENT_CUSTODY_LOG_KEY" .key)

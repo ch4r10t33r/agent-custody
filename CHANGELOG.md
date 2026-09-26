@@ -2,6 +2,13 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.1 — 2026-09-26
+
+- **Receipts:** plans and monthly quotas. Every tenant is on a plan, free (ten thousand appends a calendar month), team (a million), or enterprise (no allowance); an append past the allowance is refused with 429, the numbers, and a `retry-after` reaching the start of next month, so the gateway behind it withholds pre-committed calls rather than acting without evidence. The plan is set on the admin page or with `log-admin tenant plan`, audited, and reported with the quota on the tenant's usage route, the admin usage table, and the CSV. Existing tenants read as free.
+- **Receipts:** the tenant portal. `agent-custody portal` (`ROLE=portal`, compose service `portal`, Caddy at `PORTAL_HOST`): a team registers with an email, a password, and a tenant id and gets the tenant and its first key shown once with the welcome sheet; the dashboard shows appends against the plan, the tree size and root, the latest checkpoint, the log's URLs, keys, and the audit rows; keys are minted and revoked there; the export command is on the page; and with `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, and `STRIPE_PRICE_TEAM` the team plan is bought through Stripe Checkout, the signed webhook moving the plan. One inline page, no framework, strict content-security policy, signed-cookie sessions.
+- **Deploy:** the compose env file is optional, so the file validates without one.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.0 — 2026-09-21
 
 - **Receipts:** one gateway for many agents. `gateway --http` serves the gateway as an MCP server over Streamable HTTP; every connection presents its own grant (base64url in `Authorization: Bearer` or `X-Agent-Custody-Grant`) and gets a session under exactly that grant, sharing the upstreams, the policy, the key, and the log with the others and nothing else. `createGatewayHost` and `host.open(grant)` are the library form; `grantFile` in the config is now optional. A stranger's, an expired, or a missing grant gets 403 with the reason. Tutorial 20.

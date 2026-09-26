@@ -43,8 +43,9 @@
 	reverse_proxy log:8787
 }
 
-# The tenant portal. PORTAL_HOST comes from .env; left empty, this block serves nothing.
-{$PORTAL_HOST} {
+# The tenant portal. PORTAL_HOST comes from .env; unset, the block binds a *.localhost name Caddy serves with an
+# internal certificate and nobody reaches. An empty key would be read as global configuration and refuse the file.
+{$PORTAL_HOST:portal.localhost} {
 	encode gzip
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"

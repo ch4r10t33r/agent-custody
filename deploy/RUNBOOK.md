@@ -96,7 +96,7 @@ The `monitor` workflow, or your own cron running `log-check`, fails for one of t
 
 | check that failed | likely cause | do |
 | --- | --- | --- |
-| key document served | log down, Caddy down, certificate | `docker compose --profile public ps`, `logs log`, `logs caddy` |
+| key document served | log down, Caddy down, certificate | `docker compose --profile public ps`, `logs log`, `logs caddy`; a Caddy that restarts with `server block without any key` means a host variable the Caddyfile names is not in the caddy service's environment |
 | head verifies against the published keys | the signer restarted with a key not in the document | check `/data/keys`; a rotation done without copying the `.pub` into `retired/` looks like this |
 | latest checkpoint verifies | the checkpoints volume was edited or served stale | `docker compose restart log` republishes; compare with Postgres `log_heads` |
 | checkpoint keeps up with the head | the publisher stopped, or `--max-lag` is shorter than `AGENT_CUSTODY_CHECKPOINT_EVERY` | `logs log \| grep checkpoint` |

@@ -23,6 +23,8 @@ docker compose --profile public ps
 
 Both `log` and `signer` restart on the new image; Postgres and Caddy do not. Roll back by setting the previous version and running the same two commands. Then confirm from outside: `agent-custody log-check --log-url https://log.example.com/ --checkpoints-url https://checkpoints.example.com/ --tenant default`.
 
+**Docs.** `docs.<domain>` is the site built from the checkout on this host. After `git pull`, `./update-docs.sh` rebuilds the image and restarts the container; nothing else changes.
+
 **Backups.** `/etc/cron.daily/agent-custody-log-backup` runs nightly:
 
 ```bash

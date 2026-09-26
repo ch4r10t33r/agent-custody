@@ -1,0 +1,9 @@
+# Inside the docs container: plain files, the reference as the front page. TLS is the outer Caddy's job.
+:80 {
+	root * /srv
+	encode gzip
+	@root path /
+	redir @root /reference/ 302
+	try_files {path} {path}.html {path}/index.html
+	file_server
+}

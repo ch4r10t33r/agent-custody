@@ -43,6 +43,17 @@
 	reverse_proxy log:8787
 }
 
+# The documentation site. DOCS_HOST comes from .env; the docs container serves the built pages.
+{$DOCS_HOST} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	reverse_proxy docs:80
+}
+
 # The tenant portal. PORTAL_HOST comes from .env; left empty, this block serves nothing.
 {$PORTAL_HOST} {
 	encode gzip

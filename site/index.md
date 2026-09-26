@@ -63,8 +63,8 @@ npm install @agent-custody/receipts @agent-custody/state
 ```
 
 ```bash [Python]
-npm install -g @agent-custody/receipts      # the sidecar and the CLI
-pip install agent-custody
+npm install -g @agent-custody/receipts      # the command line and the sidecar, a Node process the Python package talks to
+pip install agent-custody                    # the Python package: the sidecar client, the adapters, the memory client
 ```
 
 :::

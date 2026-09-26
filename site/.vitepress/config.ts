@@ -138,8 +138,11 @@ export default withMermaid(
             const [path, hash = ""] = href.split("#");
             // Included fragments keep their source file's links, which are relative to the including file's original
             // location; when the link resolves to nothing next to the including file, try it from the repository root.
+            // A link may name the page without its .md, as the reference pages do (`./gateway#grants`); resolve that
+            // to the file, or the link becomes a repository URL that does not exist.
             const beside = resolve(dirname(file), path!);
-            const abs = existsSync(beside) ? beside : existsSync(resolve(root, path!)) ? resolve(root, path!) : beside;
+            const candidates = [beside, `${beside}.md`, resolve(root, path!), `${resolve(root, path!)}.md`];
+            const abs = candidates.find((c) => existsSync(c)) ?? beside;
             const target = posix.normalize(relative(root, abs).split("\\").join("/"));
             const page = sitePath(target);
             if (page) {

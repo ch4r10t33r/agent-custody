@@ -1,0 +1,11 @@
+# for deploy/docs.Dockerfile, whose context is the repository root
+.git
+**/node_modules
+**/.venv
+**/dist
+**/*.tgz
+**/examples-out
+**/demo-out
+site/.vitepress/cache
+site/.vitepress/.temp
+packages/python/dist

@@ -1,0 +1,89 @@
+# The log API
+
+The transparency log is an RFC 6962 Merkle tree of receipt leaf hashes whose heads are signed. It exists in three forms with one contract: a local file (`logFile`), a server you run (`agent-custody log`), and the hosted one. The gateway and SDK append to it; verifiers read from it.
+
+## Files
+
+A log file is one JSON value per line: a leaf string, `{"hash":"<64 hex>"}` for a leaf appended by hash, or `{"pruned":"<64 hex>"}` for a leaf whose content was removed by retention. The tree is rebuilt from the file on open. `MerkleLog` in `@agent-custody/receipts`: `append(leaf)`, `appendHash(hex)`, `root(size?)`, `inclusionProof(leafIndex, treeSize?)`, `consistencyProof(oldSize, newSize?)`, `leafHashes(from, to)`; `leafHash(data)`, `rootOf(hashes, size?)`, `verifyInclusion(leaf, proof, root)`, `verifyConsistency(oldSize, oldRoot, newSize, newRoot, proof)` are the primitives.
+
+## The server
+
+```bash
+agent-custody log --db-env DATABASE_URL --signer-url http://signer:8790/ --signer-token-env SIGNER_TOKEN --log-id log.example.com --checkpoint-dir /checkpoints --admin-token-env ADMIN_TOKEN --public-url https://log.example.com/ --checkpoints-url https://checkpoints.example.com/ --trust-proxy --port 8787
+```
+
+Or `--file log.jsonl --key log.key [--token-env NAME] [--tenants tenants.json]` for one file log and no database. The root paths serve the tenant `default`; every other tenant is under `/t/<tenant>/`. Bearer tokens are `Authorization: Bearer <token>`.
+
+### Public routes
+
+| route | response |
+| --- | --- |
+| `GET /health` | `{ "ok": true, "keyid": "6ddd…", "checkpoints": true }`; `503` when the signer or the default log does not answer |
+| `GET /.well-known/agent-custody-log.json` | the key document, below |
+| `GET /head`, `GET /t/<tenant>/head` | `{ "treeHead": <signed envelope> }`, the current head, signed on request |
+| `GET /root?size=N` | `{ "treeSize": N, "rootHash": "<hex>" }`; `400` if `size` is not in `0..current` |
+| `GET /consistency?old=M&new=N` | `{ "oldSize": M, "newSize": N, "hashes": ["<hex>", …] }`, the RFC 6962 consistency proof; `new` defaults to the current size |
+| `GET /checkpoints?since=S` | `{ "checkpoints": [{ "treeSize", "rootHash", "signedAt", "treeHead": <signed envelope> }, …] }` with `treeSize > S` |
+
+The key document:
+
+```json
+{ "log": "log.example.com", "keys": [
+  { "keyid": "6ddde646…", "alg": "ed25519", "publicKeyPem": "-----BEGIN PUBLIC KEY-----…", "validFrom": "2026-09-08T00:00:00.000Z" },
+  { "keyid": "a1b2…", "alg": "ed25519", "publicKeyPem": "…", "validFrom": "1970-01-01T00:00:00.000Z", "validTo": "2026-09-08T00:00:00.000Z" }
+] }
+```
+
+Current key first, retired keys after it, so heads they signed keep verifying. A tree head payload is `{ "treeSize": 5, "rootHash": "<hex>", "timestamp": "…", "log": "log.example.com" }` in an envelope of type `application/vnd.agent-custody.treehead+json`.
+
+### Appending
+
+`POST /append` or `POST /t/<tenant>/append`, token required when the log has one.
+
+**Request** `{ "leaf": "<the canonical receipt envelope>" }` or, with `hashOnly`, `{ "leafHash": "<64 hex>" }`. Body at most 64 KB.
+
+**Response** `200`
+
+```json
+{ "inclusion": { "leafIndex": 6, "treeSize": 7, "hashes": ["<hex>", "<hex>"] }, "treeHead": { "payloadType": "application/vnd.agent-custody.treehead+json", "payload": "…", "signatures": [{ "keyid": "6ddd…", "sig": "…" }] } }
+```
+
+| status | meaning |
+| --- | --- |
+| `401 { "error": "unauthorized" }` | no token, or not this tenant's |
+| `413` | body over the cap |
+| `429 { "error": "too many appends; retry shortly" }` with `Retry-After: 1` | rate limit: 50 a second, burst 100, per token |
+| `429 { "error": "monthly quota reached: …" }` with `Retry-After: <seconds to month end>` | the tenant's [plan allowance](./hosted#plans) is used |
+| `503 { "error": "log unavailable: …" }` | the store or the signer did not answer |
+
+The client retries 429 and 5xx three times with backoff and then fails the call; nothing is issued for a leaf the log did not take.
+
+### A tenant's own routes
+
+Token required. What the [export](./verify#log-export) fetches.
+
+| route | response |
+| --- | --- |
+| `GET /t/<tenant>/leaves?since=N&limit=M` | `{ "since": N, "size": <tree size>, "leaves": ["<hex>", …] }`, at most 10,000 per page |
+| `GET /t/<tenant>/usage?month=YYYY-MM` | `{ "month", "appends", "totalLeaves", "liveTokens", "plan", "quota" }` |
+| `GET /t/<tenant>/audit?limit=N` | `{ "entries": [{ "id", "at", "actor", "action", "tenantId", "detail" }, …] }`, newest first |
+
+### Checkpoints
+
+Every `--checkpoint-every` seconds (default 300) the server signs the head of each log that has grown, and every `--checkpoint-heartbeat` seconds (default 21600) re-signs a quiet log's head so a checkpoint is never stale. Checkpoints are written as `<dir>/<tenant>/<treeSize>.json` and `latest.json`, each `{ "tenant", "logId", "treeSize", "rootHash", "signedAt", "envelope": <signed tree head> }`, served from a second host so the record of what the log signed does not depend on the log's API. A [witness](#the-witness) countersigns them.
+
+### The signer
+
+`agent-custody signer --key log.key --port 8790 --token-env SIGNER_TOKEN [--retired-key old.pub]…` is the one process that holds the key. `POST /sign` `{ "payloadType", "payload" }` with the shared token → the signed envelope; `GET /keys` → the key document. The log runs with `--signer-url` and never holds the key.
+
+### The admin API
+
+Behind `--admin-token-env`, token as `Authorization: Bearer` or as the password of HTTP Basic. `GET /admin` is the page. `GET /admin/tenants`, `POST /admin/tenants { id, logId? }`, `POST /admin/tenants/<id>/disable`, `POST /admin/tenants/<id>/plan { plan }`, `GET /admin/tenants/<id>/tokens`, `POST /admin/tenants/<id>/tokens { label }` → `{ token, tokenHash, welcome }`, `POST /admin/tenants/<id>/tokens/<hash prefix>/revoke` → `{ revoked }`, `GET /admin/usage?month=` and `/admin/usage.csv`, `GET /admin/audit?tenant=&limit=`, `GET /admin/info`. Wrong tokens from one address are throttled.
+
+## The witness
+
+`agent-custody witness --key witness.key --log-url <url> --checkpoints-url <url> --out <dir> [--tenant <name>]… [--every 300] [--once]` runs on a machine the log's operator does not control. Each cycle, per watched log: fetch `latest.json`, verify it against the log's published keys, prove with `GET /consistency` that it extends the last head this witness signed, countersign it into `<dir>/<tenant>/<treeSize>.json` and `latest.json` (the same checkpoint, one more signature). A checkpoint that does not extend, a second history at the same size, or a signature by an unpublished key gets `<dir>/<tenant>/ALARM.json` and `ALARM-<time>.json` instead. The witness's key document is `<dir>/.well-known/agent-custody-witness.json`; verifiers give `audit --witness-url` and the newer head must then carry the witness's signature.
+
+## Monitoring
+
+`agent-custody log-check --log-url <url> [--checkpoints-url <url>] [--witness-url <url>] [--tenant <name>]… [--max-lag 900] [--json]` is the outside probe: key document served; per tenant, head verifies against the published keys, latest checkpoint verifies, checkpoint keeps up with the head (within `--max-lag` when the tree grew, within a day when it did not), head extends the checkpoint; with a witness, witness countersigned, keeps up, and raised no alarm. `--json` prints `{ "ok": boolean, "checks": [{ "tenant", "name", "ok", "detail"? }] }`; exit 1 on any failure. `checkLog(options): Promise<LogCheckResult>` in code.

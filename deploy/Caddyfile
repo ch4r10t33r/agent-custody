@@ -43,6 +43,17 @@
 	reverse_proxy log:8787
 }
 
+# The documentation site. DOCS_HOST comes from .env; unset, a *.localhost name nobody reaches, never an empty key.
+{$DOCS_HOST:docs.localhost} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	reverse_proxy docs:80
+}
+
 # The tenant portal. PORTAL_HOST comes from .env; unset, the block binds a *.localhost name Caddy serves with an
 # internal certificate and nobody reaches. An empty key would be read as global configuration and refuse the file.
 {$PORTAL_HOST:portal.localhost} {

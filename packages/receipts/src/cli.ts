@@ -76,10 +76,10 @@ const USAGE = `agent-custody <command>
                                                  the one process that holds the log's key: POST /sign, GET /keys
   log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id> | tenant plan <id> <free|team|enterprise>
   log-admin --db-env NAME token add <tenant> --label <text> | token list <tenant> | token revoke <tenant> <hash-prefix>
-  log-admin --db-env NAME audit [--tenant <id>]
+  log-admin --db-env NAME audit [--tenant <id>]   who did what to tenants and tokens, newest first
   portal  --db-env NAME --secret-env NAME --public-url <log url> [--checkpoints-url <url>] [--portal-url <url>] [--port 8792] [--host 127.0.0.1]
           [--stripe-key-env NAME --stripe-webhook-env NAME --stripe-price-team <price id>] [--trust-proxy]
-                                                   the tenant portal: register, first key, usage against plan, keys, billing, export   who did what to tenants and tokens, newest first
+                                                   the tenant portal: register, first key, usage against plan, keys, billing, export
   log-admin --db-env NAME import --file <log.jsonl> [--tenant default]      copies a file log into the database as hashes
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) [--issuer-key <pub>] [--log-key <pub>] [--log-id <id>] [--witness-key <pub> | --witness-url <url>] [--json]
                                                  with --log-url the log's published keys are fetched and pinned by keyid; with a witness key or

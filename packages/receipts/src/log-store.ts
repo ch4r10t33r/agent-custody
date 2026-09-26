@@ -207,11 +207,25 @@ export class PostgresLog implements LogBackend {
   }
 }
 
+/** A tenant's plan decides its monthly append quota; enterprise has none. The names are what the pricing page sells. */
+export type Plan = "free" | "team" | "enterprise";
+export const PLANS: readonly Plan[] = ["free", "team", "enterprise"];
+export const PLAN_QUOTAS: Readonly<Record<Plan, number | null>> = { free: 10_000, team: 1_000_000, enterprise: null };
+
 export interface Tenant {
   id: string;
   logId: string;
+  plan: Plan;
   createdAt: string;
   disabledAt: string | null;
+}
+
+export interface QuotaState {
+  plan: Plan;
+  /** appends so far this calendar month, UTC */
+  used: number;
+  /** the plan's monthly allowance, or null for none */
+  quota: number | null;
 }
 
 export interface TokenRecord {
@@ -230,7 +244,7 @@ export interface AuditEntry {
   id: number;
   at: string;
   actor: string;
-  action: "tenant.add" | "tenant.disable" | "token.add" | "token.revoke";
+  action: "tenant.add" | "tenant.disable" | "tenant.plan" | "token.add" | "token.revoke";
   tenantId: string | null;
   detail: Record<string, unknown>;
 }
@@ -242,11 +256,14 @@ export class PostgresTenancy {
   private readonly logs = new Map<string, PostgresLog>();
   private readonly tenantCache = new Map<string, { at: number; tenant: Tenant | null }>();
   private readonly tokenCache = new Map<string, number>();
+  private readonly quotaCache = new Map<string, { at: number; used: number }>();
+  private readonly quotas: Readonly<Record<Plan, number | null>>;
   private ready: Promise<void> | null = null;
 
-  constructor(client: PostgresLike, opts: PostgresLogOptions = {}) {
+  constructor(client: PostgresLike, opts: PostgresLogOptions & { quotas?: Partial<Record<Plan, number | null>> } = {}) {
     this.client = client;
     this.prefix = ident(opts.prefix ?? "log_", "prefix");
+    this.quotas = { ...PLAN_QUOTAS, ...(opts.quotas ?? {}) };
   }
 
   private init(): Promise<void> {
@@ -255,6 +272,7 @@ export class PostgresTenancy {
       this.ready = (async () => {
         await PostgresLog.ensureSchema(this.client, p);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}tenants (id TEXT PRIMARY KEY, log_id TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), disabled_at TIMESTAMPTZ)`);
+        await this.client.query(`ALTER TABLE ${p}tenants ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'`);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}tokens (token_hash TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES ${p}tenants(id), label TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), revoked_at TIMESTAMPTZ)`);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}audit (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), actor TEXT NOT NULL, action TEXT NOT NULL, tenant_id TEXT, detail JSONB NOT NULL DEFAULT '{}')`);
       })();
@@ -277,7 +295,7 @@ export class PostgresTenancy {
   }
 
   private row(r: Record<string, unknown>): Tenant {
-    return { id: String(r.id), logId: String(r.log_id), createdAt: new Date(r.created_at as string).toISOString(), disabledAt: r.disabled_at ? new Date(r.disabled_at as string).toISOString() : null };
+    return { id: String(r.id), logId: String(r.log_id), plan: (PLANS as readonly string[]).includes(String(r.plan)) ? (String(r.plan) as Plan) : "free", createdAt: new Date(r.created_at as string).toISOString(), disabledAt: r.disabled_at ? new Date(r.disabled_at as string).toISOString() : null };
   }
 
   /** The tenant, or null. Answers from a ten-second cache, so a disabled tenant is refused within that. */
@@ -285,7 +303,7 @@ export class PostgresTenancy {
     await this.init();
     const hit = this.tenantCache.get(id);
     if (hit && Date.now() - hit.at < 10_000) return hit.tenant;
-    const rows = (await this.client.query(`SELECT id, log_id, created_at, disabled_at FROM ${this.prefix}tenants WHERE id = $1`, [id])).rows as Record<string, unknown>[];
+    const rows = (await this.client.query(`SELECT id, log_id, plan, created_at, disabled_at FROM ${this.prefix}tenants WHERE id = $1`, [id])).rows as Record<string, unknown>[];
     const tenant = rows[0] ? this.row(rows[0]) : null;
     this.tenantCache.set(id, { at: Date.now(), tenant });
     return tenant;
@@ -319,10 +337,44 @@ export class PostgresTenancy {
   async addTenant(id: string, logId = id, by?: string): Promise<Tenant> {
     if (!/^[A-Za-z0-9_.-]+$/.test(id)) throw new Error(`tenant id must be a plain identifier; got "${id}"`);
     await this.init();
-    const rows = (await this.client.query(`INSERT INTO ${this.prefix}tenants (id, log_id) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET log_id = EXCLUDED.log_id RETURNING id, log_id, created_at, disabled_at`, [id, logId])).rows as Record<string, unknown>[];
+    const rows = (await this.client.query(`INSERT INTO ${this.prefix}tenants (id, log_id) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET log_id = EXCLUDED.log_id RETURNING id, log_id, plan, created_at, disabled_at`, [id, logId])).rows as Record<string, unknown>[];
     this.tenantCache.delete(id);
     await this.record(by, "tenant.add", id, { logId });
     return this.row(rows[0]!);
+  }
+
+  /** Moves a tenant to a plan; the quota applies from the next append. */
+  async setPlan(id: string, plan: Plan, by?: string): Promise<Tenant> {
+    if (!PLANS.includes(plan)) throw new Error(`unknown plan ${plan}; one of ${PLANS.join(", ")}`);
+    await this.init();
+    const rows = (await this.client.query(`UPDATE ${this.prefix}tenants SET plan = $2 WHERE id = $1 RETURNING id, log_id, plan, created_at, disabled_at`, [id, plan])).rows as Record<string, unknown>[];
+    if (!rows[0]) throw new Error(`unknown tenant ${id}`);
+    this.tenantCache.delete(id);
+    await this.record(by, "tenant.plan", id, { plan });
+    return this.row(rows[0]);
+  }
+
+  /** The tenant's plan, appends this month, and the plan's quota. Cached ten seconds, so a burst may overshoot slightly. */
+  async quota(id: string): Promise<QuotaState> {
+    const t = await this.tenant(id);
+    if (!t) throw new Error(`unknown tenant ${id}`);
+    const cached = this.quotaCache.get(id);
+    let used: number;
+    if (cached && Date.now() - cached.at < 10_000) {
+      used = cached.used;
+    } else {
+      const start = `${new Date().toISOString().slice(0, 7)}-01T00:00:00Z`;
+      const rows = (await this.client.query(`SELECT COUNT(*) AS n FROM ${this.prefix}leaves WHERE tenant_id = $1 AND appended_at >= $2::timestamptz`, [id, start])).rows as { n: string | number }[];
+      used = Number(rows[0]?.n ?? 0);
+      this.quotaCache.set(id, { at: Date.now(), used });
+    }
+    return { plan: t.plan, used, quota: this.quotas[t.plan] };
+  }
+
+  /** Called after an append lands, so the cached count stays honest between refreshes. */
+  noteAppend(id: string): void {
+    const c = this.quotaCache.get(id);
+    if (c) c.used += 1;
   }
 
   async disableTenant(id: string, by?: string): Promise<void> {
@@ -334,7 +386,7 @@ export class PostgresTenancy {
 
   async listTenants(): Promise<Tenant[]> {
     await this.init();
-    return ((await this.client.query(`SELECT id, log_id, created_at, disabled_at FROM ${this.prefix}tenants ORDER BY created_at`)).rows as Record<string, unknown>[]).map((r) => this.row(r));
+    return ((await this.client.query(`SELECT id, log_id, plan, created_at, disabled_at FROM ${this.prefix}tenants ORDER BY created_at`)).rows as Record<string, unknown>[]).map((r) => this.row(r));
   }
 
   /** Mints a token for a tenant. The token is returned once and stored only as its hash. */
@@ -363,7 +415,7 @@ export class PostgresTenancy {
    * Appends per tenant for one month, YYYY-MM in UTC, plus each tenant's total leaves and live tokens: the numbers
    * any pricing rests on. One query on the leaves table, grouped; tenants with no appends that month show zero.
    */
-  async usage(month: string): Promise<{ month: string; tenants: { id: string; logId: string; appends: number; totalLeaves: number; liveTokens: number; disabled: boolean }[] }> {
+  async usage(month: string): Promise<{ month: string; tenants: { id: string; logId: string; plan: Plan; quota: number | null; appends: number; totalLeaves: number; liveTokens: number; disabled: boolean }[] }> {
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error("month must be YYYY-MM");
     await this.init();
     const start = `${month}-01T00:00:00Z`;
@@ -371,14 +423,14 @@ export class PostgresTenancy {
     const end = `${m === 12 ? y + 1 : y}-${String(m === 12 ? 1 : m + 1).padStart(2, "0")}-01T00:00:00Z`;
     const p = this.prefix;
     const rows = (await this.client.query(
-      `SELECT t.id, t.log_id, t.disabled_at,
+      `SELECT t.id, t.log_id, t.plan, t.disabled_at,
               (SELECT COUNT(*) FROM ${p}leaves l WHERE l.tenant_id = t.id AND l.appended_at >= $1::timestamptz AND l.appended_at < $2::timestamptz) AS appends,
               (SELECT COUNT(*) FROM ${p}leaves l WHERE l.tenant_id = t.id) AS total,
               (SELECT COUNT(*) FROM ${p}tokens k WHERE k.tenant_id = t.id AND k.revoked_at IS NULL) AS live
        FROM ${p}tenants t ORDER BY t.created_at`,
       [start, end],
     )).rows as Record<string, unknown>[];
-    return { month, tenants: rows.map((r) => ({ id: String(r.id), logId: String(r.log_id), appends: Number(r.appends), totalLeaves: Number(r.total), liveTokens: Number(r.live), disabled: !!r.disabled_at })) };
+    return { month, tenants: rows.map((r) => { const plan = (PLANS as readonly string[]).includes(String(r.plan)) ? (String(r.plan) as Plan) : "free"; return { id: String(r.id), logId: String(r.log_id), plan, quota: this.quotas[plan], appends: Number(r.appends), totalLeaves: Number(r.total), liveTokens: Number(r.live), disabled: !!r.disabled_at }; }) };
   }
 
   async listTokens(tenantId: string): Promise<TokenRecord[]> {

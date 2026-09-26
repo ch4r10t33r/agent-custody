@@ -6,7 +6,7 @@
 // receipts; the log holds hashes and the panel holds names.
 import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { RateLimiter, type PostgresTenancy } from "./log-store.ts";
+import { RateLimiter, type PostgresTenancy, PLANS, type Plan } from "./log-store.ts";
 import { clientAddress } from "./log-sink.ts";
 
 export interface AdminOptions {
@@ -127,7 +127,7 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
         json(200, await t.usage(month));
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "usage.csv") {
         const u = await t.usage(month);
-        const csv = ["month,tenant,log_id,appends,total_leaves,live_tokens,disabled", ...u.tenants.map((x) => [u.month, x.id, x.logId, x.appends, x.totalLeaves, x.liveTokens, x.disabled].join(","))].join("\n") + "\n";
+        const csv = ["month,tenant,log_id,plan,quota,appends,total_leaves,live_tokens,disabled", ...u.tenants.map((x) => [u.month, x.id, x.logId, x.plan, x.quota ?? "", x.appends, x.totalLeaves, x.liveTokens, x.disabled].join(","))].join("\n") + "\n";
         res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="agent-custody-usage-${u.month}.csv"`, "cache-control": "no-store" });
         res.end(csv);
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "audit") {
@@ -144,6 +144,10 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
         const b = await body();
         if (typeof b.id !== "string" || !/^[A-Za-z0-9_.-]+$/.test(b.id)) return json(400, { error: "id must be a plain identifier" }), true;
         json(200, await t.addTenant(b.id, typeof b.logId === "string" && b.logId ? b.logId : b.id, actor));
+      } else if (req.method === "POST" && parts.length === 4 && parts[1] === "tenants" && parts[3] === "plan") {
+        const b = await body();
+        if (typeof b.plan !== "string" || !(PLANS as readonly string[]).includes(b.plan)) return json(400, { error: `plan must be one of ${PLANS.join(", ")}` }), true;
+        json(200, await t.setPlan(parts[2]!, b.plan as Plan, actor));
       } else if (req.method === "POST" && parts.length === 4 && parts[1] === "tenants" && parts[3] === "disable") {
         await t.disableTenant(parts[2]!, actor);
         json(200, { disabled: parts[2] });
@@ -201,7 +205,7 @@ const ADMIN_PAGE = `<!doctype html>
   <p class="sub" id="where">Tenants and tokens on this log.</p>
   <section id="app">
     <h2>Tenants</h2>
-    <table><thead><tr><th>tenant</th><th>log id</th><th>live tokens</th><th>created</th><th></th></tr></thead><tbody id="tenants"></tbody></table>
+    <table><thead><tr><th>tenant</th><th>log id</th><th>plan</th><th>live tokens</th><th>created</th><th></th></tr></thead><tbody id="tenants"></tbody></table>
     <h2>New tenant</h2>
     <div class="row">
       <label>tenant id (in the URL)<input id="tid" placeholder="acme" autocomplete="off"></label>
@@ -222,7 +226,7 @@ const ADMIN_PAGE = `<!doctype html>
     </div>
     <h2>Usage</h2>
     <div class="row"><label>month<input id="month" type="month"></label><button class="quiet" id="loadUsage">Show</button><a id="csv" class="quiet" href="#" style="align-self:center">Download CSV</a></div>
-    <table><thead><tr><th>tenant</th><th>log id</th><th>appends this month</th><th>leaves in total</th><th>live tokens</th></tr></thead><tbody id="usage"></tbody></table>
+    <table><thead><tr><th>tenant</th><th>log id</th><th>plan</th><th>appends this month</th><th>quota</th><th>leaves in total</th><th>live tokens</th></tr></thead><tbody id="usage"></tbody></table>
     <h2>Tokens of a tenant</h2>
     <div class="row"><label>tenant<input id="ltid" placeholder="acme" autocomplete="off"></label><button class="quiet" id="listTokens">List</button></div>
     <table><thead><tr><th>label</th><th>hash</th><th>created</th><th>state</th><th></th></tr></thead><tbody id="tokens"></tbody></table>
@@ -247,7 +251,8 @@ const ADMIN_PAGE = `<!doctype html>
   const say = (t, cls) => { $("msg").textContent = t; $("msg").className = cls || "muted"; };
   const loadTenants = async () => {
     const list = await api("GET", "/admin/tenants");
-    $("tenants").innerHTML = list.map((t) => "<tr><td><code>" + esc(t.id) + "</code></td><td><code>" + esc(t.logId) + "</code></td><td>" + t.tokens + "</td><td>" + esc(t.createdAt.slice(0, 10)) + "</td><td>" + (t.disabledAt ? "<span class=muted>disabled</span>" : "<button class=quiet data-disable=\\"" + esc(t.id) + "\\">Disable</button>") + "</td></tr>").join("") || "<tr><td colspan=5 class=muted>none yet</td></tr>";
+    const planPick = (t) => "<select data-plan=\\"" + esc(t.id) + "\\">" + ["free", "team", "enterprise"].map((p) => "<option" + (p === t.plan ? " selected" : "") + ">" + p + "</option>").join("") + "</select>";
+    $("tenants").innerHTML = list.map((t) => "<tr><td><code>" + esc(t.id) + "</code></td><td><code>" + esc(t.logId) + "</code></td><td>" + planPick(t) + "</td><td>" + t.tokens + "</td><td>" + esc(t.createdAt.slice(0, 10)) + "</td><td>" + (t.disabledAt ? "<span class=muted>disabled</span>" : "<button class=quiet data-disable=\\"" + esc(t.id) + "\\">Disable</button>") + "</td></tr>").join("") || "<tr><td colspan=6 class=muted>none yet</td></tr>";
   };
   const loadTokens = async (id) => {
     const list = await api("GET", "/admin/tenants/" + encodeURIComponent(id) + "/tokens");
@@ -279,7 +284,7 @@ const ADMIN_PAGE = `<!doctype html>
     const month = $("month").value || new Date().toISOString().slice(0, 7);
     const u = await api("GET", "/admin/usage?month=" + encodeURIComponent(month));
     $("csv").href = "/admin/usage.csv?month=" + encodeURIComponent(month);
-    $("usage").innerHTML = u.tenants.map((t) => "<tr><td><code>" + esc(t.id) + "</code>" + (t.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td><code>" + esc(t.logId) + "</code></td><td>" + t.appends + "</td><td>" + t.totalLeaves + "</td><td>" + t.liveTokens + "</td></tr>").join("") || "<tr><td colspan=5 class=muted>no tenants</td></tr>";
+    $("usage").innerHTML = u.tenants.map((t) => "<tr><td><code>" + esc(t.id) + "</code>" + (t.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td><code>" + esc(t.logId) + "</code></td><td>" + esc(t.plan) + "</td><td>" + t.appends + "</td><td>" + (t.quota === null ? "none" : t.quota) + "</td><td>" + t.totalLeaves + "</td><td>" + t.liveTokens + "</td></tr>").join("") || "<tr><td colspan=7 class=muted>no tenants</td></tr>";
   };
   const loadAudit = async () => {
     const a = await api("GET", "/admin/audit?limit=100");
@@ -287,6 +292,10 @@ const ADMIN_PAGE = `<!doctype html>
   };
   $("loadUsage").onclick = () => loadUsage().catch((e) => say(e.message, "err"));
   $("month").value = new Date().toISOString().slice(0, 7);
+  document.addEventListener("change", async (e) => {
+    const s = e.target.closest("select[data-plan]"); if (!s) return;
+    try { await api("POST", "/admin/tenants/" + encodeURIComponent(s.dataset.plan) + "/plan", { plan: s.value }); say("plan of " + s.dataset.plan + " set to " + s.value, "ok"); await loadUsage(); await loadAudit(); } catch (err) { say(err.message, "err"); await loadTenants(); }
+  });
   document.addEventListener("click", async (e) => {
     const b = e.target.closest("button"); if (!b) return;
     if (b.dataset.disable && confirm("Disable tenant " + b.dataset.disable + "? Its paths answer 404 within ten seconds.")) { try { await api("POST", "/admin/tenants/" + encodeURIComponent(b.dataset.disable) + "/disable"); await loadTenants(); await loadAudit(); say("disabled " + b.dataset.disable, "ok"); } catch (err) { say(err.message, "err"); } }

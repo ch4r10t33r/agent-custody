@@ -9,7 +9,7 @@ import type { Envelope } from "./crypto.ts";
 import { createDelegation, decodeDelegation, delegateFrom } from "./delegation.ts";
 import { createGateway, createGatewayHost, serveStdio } from "./gateway.ts";
 import { postgresResolver, serveLog } from "./log-sink.ts";
-import { importLogFile, PostgresTenancy, type PostgresLike } from "./log-store.ts";
+import { importLogFile, PostgresTenancy, type PostgresLike, type Plan } from "./log-store.ts";
 import { bothCheckpoints, dirCheckpoints, postgresCheckpoints, type CheckpointStore } from "./checkpoints.ts";
 import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey, type Signer } from "./signer.ts";
 import { fetchWitnessKeys, Witness } from "./witness.ts";
@@ -73,7 +73,7 @@ const USAGE = `agent-custody <command>
                                                  into <dir>; refuses and writes an alarm otherwise. Serve <dir> from a host of your own.
   signer  --key <log.key> --port 8790 [--host 127.0.0.1] [--token-env NAME] [--retired-key <pub>]...
                                                  the one process that holds the log's key: POST /sign, GET /keys
-  log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id>
+  log-admin --db-env NAME tenant add <id> [--log-id <id>] | tenant list | tenant disable <id> | tenant plan <id> <free|team|enterprise>
   log-admin --db-env NAME token add <tenant> --label <text> | token list <tenant> | token revoke <tenant> <hash-prefix>
   log-admin --db-env NAME audit [--tenant <id>]   who did what to tenants and tokens, newest first
   log-admin --db-env NAME import --file <log.jsonl> [--tenant default]      copies a file log into the database as hashes
@@ -260,7 +260,10 @@ async function main(argv: string[]): Promise<number> {
         const t = await tenancy.addTenant(args[0], values["log-id"] ?? args[0], actor);
         console.log(`tenant ${t.id} log=${t.logId} reached at /t/${t.id}/`);
       } else if (what === "tenant" && verb === "list") {
-        for (const t of await tenancy.listTenants()) console.log(`${t.id.padEnd(24)} log=${t.logId.padEnd(28)} created ${t.createdAt}${t.disabledAt ? `  DISABLED ${t.disabledAt}` : ""}`);
+        for (const t of await tenancy.listTenants()) console.log(`${t.id.padEnd(24)} log=${t.logId.padEnd(28)} plan=${t.plan.padEnd(10)} created ${t.createdAt}${t.disabledAt ? `  DISABLED ${t.disabledAt}` : ""}`);
+      } else if (what === "tenant" && verb === "plan" && args[0] && args[1]) {
+        const t = await tenancy.setPlan(args[0], args[1] as Plan, actor);
+        console.log(`tenant ${t.id} on plan ${t.plan}`);
       } else if (what === "tenant" && verb === "disable" && args[0]) {
         await tenancy.disableTenant(args[0], actor);
         console.log(`tenant ${args[0]} disabled`);

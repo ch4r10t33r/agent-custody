@@ -46,7 +46,7 @@ describe("a tenant's export", () => {
     const r = await exportLog({ logUrl: log.url, tenant: "acme", token: acmeToken, outDir: out, fetch: paged, months: [new Date().toISOString().slice(0, 7)] });
     expect(r.problems).toEqual([]);
     expect(r).toMatchObject({ logId: "acme-eu", treeSize: 7, rootHash: expect.any(String) });
-    expect(r.usage).toEqual([{ month: new Date().toISOString().slice(0, 7), appends: 7, totalLeaves: 7, liveTokens: 1 }]);
+    expect(r.usage).toMatchObject([{ month: new Date().toISOString().slice(0, 7), appends: 7, totalLeaves: 7, liveTokens: 1, plan: "free", quota: 10_000 }]);
     for (const f of ["log.jsonl", "head.json", "keys.json", "checkpoints.json", "usage.json", "audit.json", "export.json"]) expect(existsSync(join(out, f)), f).toBe(true);
     // the tenant's administrative history travels with the export: the tenant's creation and the token minted for it
     const audit = JSON.parse(readFileSync(join(out, "audit.json"), "utf8")) as { action: string; tenantId: string }[];

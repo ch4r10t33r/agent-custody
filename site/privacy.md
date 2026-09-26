@@ -22,6 +22,12 @@ The log runs on a server in Helsinki, Finland, operated by Hetzner Online GmbH. 
 
 A tenant can export everything the log holds about them at any time with their own token, and can ask for their log to be disabled or deleted; deletion is irreversible and breaks the inclusion proofs in the tenant's own receipts, which the [runbook](https://github.com/ch4r10t33r/agent-custody/blob/main/deploy/RUNBOOK.md) explains.
 
+## The portal
+
+Registering at app.agent-custody.dev stores your email address, a scrypt hash of your password (never the password), the tenant id you chose, and the time; signing in sets a session cookie that carries nothing but a signed user id and expires in fourteen days. Every action you take on your tenant, minting or revoking a key, changing a plan, is recorded in the tenant's audit trail with your email as the actor, and you see those rows in your export. The portal's web server records the requesting IP address for rate limiting, kept thirty days. There is no password reset until an email provider is configured; write to us and we verify you another way.
+
+Paying for the Team plan goes through Stripe Payments Europe Ltd: the card and billing details are entered on Stripe's pages and never reach us; we store Stripe's customer and subscription identifiers against your tenant and the subscription's status, and Stripe's own [privacy policy](https://stripe.com/privacy) covers what it holds.
+
 ## The packages
 
 `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI run on your infrastructure and send nothing to us. The only network calls they make are the ones you configure: to your own upstreams, to the log you name, and to the exporters you turn on.

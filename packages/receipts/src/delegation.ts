@@ -19,8 +19,8 @@ export const DelegationSchema = z.object({
   principal: z.string().min(1),
   agent: z.string().min(1),
   scopes: z.array(z.string().min(1)).min(1),
-  issuedAt: z.iso.datetime(),
-  expiresAt: z.iso.datetime(),
+  issuedAt: z.iso.datetime({ offset: true }),
+  expiresAt: z.iso.datetime({ offset: true }),
   /** the agent's own public key, SPKI PEM; with it the agent may delegate to a sub-agent */
   agentKey: z.string().min(1).optional(),
   /** the grant this one was delegated from; the chain ends at a grant signed by a trusted principal */
@@ -39,6 +39,16 @@ export interface SubDelegation {
   expiresAt?: string;
   /** the sub-agent's own public key, so it may delegate further */
   agentKey?: string;
+}
+
+/** True when the envelope's payload, verified or not, carries a parent: what decides whether the chain check is reported. */
+export function delegationHasParent(env: Envelope): boolean {
+  try {
+    const raw = JSON.parse(Buffer.from(env.payload, "base64").toString("utf8")) as { parent?: unknown };
+    return !!raw && typeof raw === "object" && raw.parent !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 /** The parent's payload as written, without verifying it; the verifier does that. */

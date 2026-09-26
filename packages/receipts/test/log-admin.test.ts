@@ -47,18 +47,20 @@ describe("the admin surface", () => {
     expect(viaBasic.status).toBe(200);
   });
 
-  it("behind a trusted proxy the throttle keys on the forwarded address, so one client's failures do not lock out another", async () => {
+  it("behind a trusted proxy the throttle keys on the address the proxy appended, the rightmost, so one client's failures do not lock out another and a forged leftmost entry does not escape", async () => {
     const db2 = new PGlite();
     await db2.query("SELECT 1");
     const t2 = new PostgresTenancy(db2);
     await t2.addTenant("default", "x");
     const proxied = await serveLog(postgresResolver(t2), generateKeyPair(), { port: 0, trustProxy: true, admin: { tenancy: t2, token: ADMIN } });
     try {
-      const attempt = (ip: string, token: string) => fetch(new URL("admin/info", proxied.url), { headers: { authorization: `Bearer ${token}`, "x-forwarded-for": `${ip}, 10.0.0.1` } });
+      // the proxy appends the real client to whatever the client sent: "<client-supplied>, <real>"
+      const attempt = (ip: string, token: string, spoof = "10.0.0.1") => fetch(new URL("admin/info", proxied.url), { headers: { authorization: `Bearer ${token}`, "x-forwarded-for": `${spoof}, ${ip}` } });
       let last = 0;
-      for (let i = 0; i < 8; i++) last = (await attempt("203.0.113.5", "wrong")).status;
+      for (let i = 0; i < 8; i++) last = (await attempt("203.0.113.5", "wrong", `198.51.100.${i}`)).status; // a rotating forged entry changes nothing
       expect(last).toBe(429);
-      expect((await attempt("203.0.113.6", "wrong")).status).toBe(401); // a different client is not throttled
+      expect((await attempt("203.0.113.5", "wrong", "198.51.100.99")).status).toBe(429);
+      expect((await attempt("203.0.113.6", "wrong")).status).toBe(401); // a different real client is not throttled
       expect((await attempt("203.0.113.6", ADMIN)).status).toBe(200);
     } finally {
       await proxied.close();

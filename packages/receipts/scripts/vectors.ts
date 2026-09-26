@@ -1,7 +1,7 @@
 // Generates the conformance vectors in vectors/. Run with `bun run vectors`; commit the result.
 // The vectors are a snapshot: keys, receipts, logs, and expected verdicts produced by this implementation, so that a
 // verifier written elsewhere can prove it agrees. Regenerate only when the format changes, never to make a test pass.
-import { createDelegation, delegateFrom } from "../src/delegation.ts";
+import { createDelegation, delegateFrom, DELEGATION_TYPE } from "../src/delegation.ts";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -120,6 +120,11 @@ const dgatewayKey = loadPrivateKey(join(dfx.dir, "keys", "gateway.key"));
   // the same chain with the child's scope escalated beyond the parent's, signed by the planner's real key
   const escalated = createDelegation(planner, { version: "0.1", principal: "user_456", agent: "refunder", scopes: ["stripe.refund", "stripe.payout"], issuedAt: new Date(t0).toISOString(), expiresAt: new Date(t0 + 3600_000).toISOString(), parent });
   addCase({ name: "gateway-chain-executed", description: "A refund by a sub-agent under a two-link delegation chain: the principal granted the planner, whose key the grant names; the planner delegated the refund to the refunder. The chain verifies to the principal's key, the receipt names the refunder and the principal, and every check passes.", bundle: chained, ...D, log: dlog });
+  // #43: a child window that sorts inside the parent's as a string but lies outside it in time. The child's start is
+  // written with a +02:00 offset, so its text is "later" than the parent's UTC start while the instant is earlier.
+  const childStart = new Date(t0).toISOString().replace("Z", "+02:00"); // = t0 - 2h, written as t0 local
+  const offsetWindow = dsseSign(DELEGATION_TYPE, { version: "0.1", principal: "user_456", agent: "refunder", scopes: ["stripe.refund"], issuedAt: childStart, expiresAt: new Date(t0 + 7200_000).toISOString(), parent }, planner);
+  addCase({ name: "gateway-chain-offset-window-resigned", description: "The chain's leaf re-issued with a start time written in a +02:00 offset: as text it sorts after the parent's start, as an instant it is an hour before it. Both verifiers must compare instants and refuse the link; the re-signed receipt also loses its inclusion.", bundle: resigned(chained, dgatewayKey, (st) => { st.predicate.delegation = { envelope: offsetWindow, provenance: "attested" }; }), ...D, log: dlog });
   addCase({ name: "gateway-chain-escalated-resigned", description: "The same receipt with the chain's leaf replaced by one giving the refunder a scope the planner never held, signed with the planner's real key, then the receipt re-signed with the gateway key. The chain check fails on that link; the re-signed receipt also loses its inclusion.", bundle: resigned(chained, dgatewayKey, (st) => { st.predicate.delegation = { envelope: escalated, provenance: "attested" }; }), ...D, log: dlog });
 }
 

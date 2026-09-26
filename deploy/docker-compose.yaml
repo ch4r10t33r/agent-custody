@@ -16,8 +16,8 @@ services:
     build:
       context: .
       args:
-        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.6.1}
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.1}
+        AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.6.2}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.2}
     restart: unless-stopped
     environment:
       ROLE: signer
@@ -42,7 +42,7 @@ services:
       context: .
       args:
         AGENT_CUSTODY_VERSION: ${AGENT_CUSTODY_VERSION:-0.3.0}
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.1}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.2}
     restart: unless-stopped
     env_file:
       - path: .env
@@ -65,6 +65,8 @@ services:
       ADMIN_TOKEN: "${ADMIN_TOKEN:-}"
       # Caddy is the only way in from outside, and it sets X-Forwarded-For; the log is on loopback otherwise
       TRUST_PROXY: "1"
+      # a log run for other people accepts leaf hashes only; the file profile, for a machine of your own, does not set it
+      AGENT_CUSTODY_HASH_ONLY: "${AGENT_CUSTODY_HASH_ONLY:-1}"
       LOG_HOST: "${LOG_HOST:-}"
       CHECKPOINTS_HOST: "${CHECKPOINTS_HOST:-}"
     volumes:
@@ -88,7 +90,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.1}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.2}
     restart: unless-stopped
     env_file:
       - path: .env
@@ -173,7 +175,7 @@ services:
   log-file:
     # The file-backed reference server alone: one tenant, no Postgres. What deploy/ was before phase 2.
     profiles: ["file"]
-    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.1}
+    image: ghcr.io/ch4r10t33r/agent-custody-log:${AGENT_CUSTODY_VERSION:-0.6.2}
     restart: unless-stopped
     env_file:
       - path: .env

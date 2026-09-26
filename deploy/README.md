@@ -23,6 +23,7 @@ Operators who log here should set `"hashOnly": true` in their `log` config, so t
 | `DATABASE_URL` | with it, leaves, tenants, tokens, and checkpoints live in Postgres and the file is not used; the compose file sets it | unset |
 | `ROLE` | `signer` runs the signer instead of the log | `log` |
 | `AGENT_CUSTODY_SIGNER_URL`, `SIGNER_TOKEN` | the log signs through this signer with this shared secret instead of holding a key; the compose file sets them | unset |
+| `AGENT_CUSTODY_HASH_ONLY` | `1` refuses `{ leaf }` on append and accepts only `{ leafHash }`, so the log process never receives a receipt; the compose file sets it for the tenanted log and not for the single-file `--profile file` server | unset (the compose file: 1) |
 | `TRUST_PROXY` | `1` when a reverse proxy you run is the only way in, so per-address limits key on `X-Forwarded-For`; the compose file sets it for Caddy | unset |
 | `ADMIN_TOKEN` | turns on the operator's page at `/admin` and its API, behind this token; `LOG_HOST` and `CHECKPOINTS_HOST` fill the welcome sheet | unset |
 | `DOCS_HOST` | the documentation site, the `docs` service in the public profile: built from this checkout by `deploy/docs.Dockerfile`, rebuilt with `update-docs.sh` after a pull | unset |

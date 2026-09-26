@@ -38,7 +38,9 @@ Each row names the attacker, the move, the defence, and whether the defence is a
 | attack | defence | kind |
 | --- | --- | --- |
 | Call a tool the grant does not allow | The gateway evaluates the policy against the grant the principal signed; the agent never sees the policy or the key. A denied call never reaches the upstream and still produces a receipt. | deployment: only calls through the gateway are covered |
-| Feed the policy lies in the arguments | `context.args` is `claimed`; policies that matter read `context.facts`, which the gateway fetched itself and marks `observed`. A policy that decides on args alone is the operator's choice and the receipt shows it. | evidence: provenance is in the receipt |
+| Feed the policy lies in the arguments | `context.args` is `claimed`; policies that matter read `context.facts`, which the gateway fetched itself and marks `observed`. A policy that decides on args alone is the operator's choice and the receipt shows it. Arguments are passed to Cedar as data only: a value shaped as a Cedar entity or extension (`__entity`, `__extn`) is a deny before evaluation, so an argument cannot satisfy a comparison by its shape. | evidence: provenance is in the receipt |
+| Make the gateway run a fact lookup on the way to a denial | A fact lookup runs before the policy decides, because the policy decides on it, and only after the tool is in the grant's scope. It is therefore a read the gateway makes on the agent's request: a fact tool named in `precommit` is refused at startup, so no consequential call can be reached through a lookup, and every lookup is on the receipt with its arguments. | deployment: fact tools must be reads |
+| Read the gateway's secrets from a tool process | A stdio upstream is started with a minimal environment (the path, home, and temp directories, plus what its own config names), never the gateway's, so the tokens other upstreams and the log are given do not reach it. | deployment |
 | Bypass the gateway with a credential in its own environment | Nothing in the packages prevents this. The gateway covers the tools behind it and no others. | not covered; the deployment must keep credentials out of the agent |
 | Skip an in-process hook or SDK wrapper | Same: an SDK receipt is the agent's own report, and every field in it is `claimed`. | not covered; use the gateway for anything consequential |
 | Write memory the fleet will trust | Writes not made through the gateway are `claimed` and quarantined until a gateway confirms them; reads leave them out unless asked for. | deployment |
@@ -73,7 +75,7 @@ Each row names the attacker, the move, the defence, and whether the defence is a
 
 | attack | defence | kind |
 | --- | --- | --- |
-| Read receipt contents | With `hashOnly`, the log never receives them; only leaf hashes cross the wire. This is the default in the welcome sheet and the runbook, and it is the tenant's setting, not ours. | deployment on the tenant's side |
+| Read receipt contents | The hosted log runs with `--hash-only` and refuses a full leaf at append, so no receipt reaches the log process even from a misconfigured gateway or a stolen token; the tenant's `hashOnly` setting keeps the receipt from ever leaving their machine. A log an operator runs for themselves may accept full leaves. | evidence: the server refuses; deployment on the tenant's side |
 | Rewrite a tenant's tree | Every head is signed and published as a checkpoint on a second host; a rewrite means two signed heads at one size with different roots, or a later head that does not extend an earlier one. Anyone holding an earlier head detects it with `audit`; the monitor does it every ten minutes; the witness countersigns only heads that extend the last it signed. | evidence, given a witness or an earlier head held elsewhere |
 | Show different histories to different verifiers | Same: checkpoints are public and the witness sees one history. Without a witness, two verifiers who compare heads detect it, and nobody else does. | evidence with a witness; otherwise detection needs comparison |
 | Mint a token for a tenant and append noise | Appends are hashes with no content; the tenant's export and usage show leaves and live tokens they did not make, and the audit trail, which the tenant's export carries, records who minted what and from where. | deployment |
@@ -96,6 +98,7 @@ Each row names the attacker, the move, the defence, and whether the defence is a
 | Alter an append in flight | TLS between gateway and log; the leaf hash is over a signed envelope, so an altered hash simply fails inclusion for the real receipt. | evidence |
 | Drop the log's answer | The gateway retries, then errors or withholds; no receipt is handed out without an inclusion proof. Timeouts bound the wait. | evidence |
 | Steal a tenant token | Tokens are bearer secrets; a stolen one appends noise to that tenant's log until revoked. Rate limits bound the damage per second; the tenant's usage shows it. | deployment |
+| Escape a per-address limit by forging `X-Forwarded-For` | Behind the proxy the deployment runs, the limiter keys on the address the proxy appended, the rightmost entry, never on one the client supplied. | deployment |
 
 ## What is not defended
 

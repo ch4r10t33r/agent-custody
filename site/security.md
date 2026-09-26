@@ -1,6 +1,6 @@
 # Security questionnaire
 
-The answers a procurement or security team asks for, written once, dated, and kept honest. Every "no" is a no. Where a control is planned, the answer says planned, not done. Last reviewed 2026-09-26; the [changelog](/changelog) records what has changed since.
+The answers a procurement or security team asks for, written once, dated, and kept honest. Every "no" is a no. Where a control is planned, the answer says planned, not done. Last reviewed 2026-09-27; the [changelog](/changelog) records what has changed since.
 
 The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-custody/state`, `agent-custody` on PyPI), which run on your machines, and the **hosted log** at log.agent-custody.dev, which we run. Receipts, arguments, results, and the memory ledger never leave your machines in either case; the hosted log receives leaf hashes.
 
@@ -19,7 +19,7 @@ The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-cu
 | question | answer |
 | --- | --- |
 | What data does the hosted log hold about a tenant? | Leaf hashes (SHA-256 of a receipt envelope), their append times, the tenant id and log id, token hashes with a label, signed tree heads and checkpoints, and the audit trail of administrative actions. Nothing in it identifies a person, a tool call, or an argument. |
-| Can the log operator read receipts? | No. With `hashOnly`, which the welcome sheet and runbook require, the receipt never crosses the wire. A tenant who sends full leaves has chosen to; we advise against it. |
+| Can the log operator read receipts? | No. The hosted log refuses a full leaf at append and accepts only leaf hashes, so no receipt reaches its process even from a misconfigured gateway or a stolen token; with `hashOnly` in the client config, which the welcome sheet and runbook require, the receipt never leaves the tenant's machine at all. |
 | Where is the data? | Helsinki, Finland (Hetzner), in the EU. One region. Backups are on the same machine and, once a destination is configured, mirrored to EU object storage. |
 | Is data encrypted in transit? | Yes, TLS 1.2 or later on every endpoint, certificates from Let's Encrypt via Caddy. The signer is reachable only inside the container network. |
 | Is data encrypted at rest? | The disk is not encrypted by us; the data it holds is hashes and public signatures. Tenant tokens are stored as SHA-256 hashes. The log's private key is on the volume and read only by the signer process. |

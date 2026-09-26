@@ -142,6 +142,8 @@ export interface LogServerOptions {
   tenants?: Record<string, { file: string; tokens?: string[]; logId?: string }>;
   /** appends per token (or per address without one); default 50 a second, burst 100 */
   rateLimit?: RateLimitOptions;
+  /** accept only { leafHash } on append: a log run for other people must never receive a receipt */
+  hashOnly?: boolean;
   /** largest append body accepted, in bytes; default 65536 */
   maxBodyBytes?: number;
   /** where published checkpoints go and are listed from; without one, /checkpoints answers with none */
@@ -157,11 +159,16 @@ export interface LogServerOptions {
 }
 
 /** The address a limit is keyed by: the socket's, or the proxy's forwarded one when the proxy is trusted. */
+/**
+ * The address a per-client limit keys on. Behind a proxy you run, the proxy appends the real client to
+ * X-Forwarded-For, so the rightmost entry is the one it wrote; everything left of it is whatever the client sent.
+ */
 export function clientAddress(req: IncomingMessage, trustProxy = false): string {
   if (trustProxy) {
     const xff = req.headers["x-forwarded-for"];
-    const first = (Array.isArray(xff) ? xff[0] : xff)?.split(",")[0]?.trim();
-    if (first) return first;
+    const entries = (Array.isArray(xff) ? xff.join(",") : xff ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const last = entries[entries.length - 1];
+    if (last) return last;
   }
   return req.socket.remoteAddress ?? "?";
 }
@@ -400,6 +407,7 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
           which.appended?.();
           return json(200, r);
         }
+        if (opts.hashOnly) return json(400, { error: "this log accepts leaf hashes only; set \"hashOnly\": true in your log config so the receipt never leaves your machine" });
         if (typeof parsed.leaf !== "string" || parsed.leaf.length === 0) return json(400, { error: "leaf must be a non-empty string, or send leafHash" });
         const r = await appendSigned(log, signer, { leaf: parsed.leaf }, logId);
         which.appended?.();

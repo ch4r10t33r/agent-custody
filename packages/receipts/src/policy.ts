@@ -22,8 +22,34 @@ export function policyDigest(policyText: string): string {
   return sha256Hex(policyText);
 }
 
+/**
+ * Cedar's JSON context reads `{ "__entity": … }` and `{ "__extn": … }` as typed values. Arguments come from the agent,
+ * so an argument shaped that way could satisfy a policy comparing it to an entity, an address, or a decimal by its
+ * shape rather than by anything the gateway observed. Arguments are data: the first such form found is the path
+ * returned, and the evaluation is a deny with that error.
+ */
+export function reservedCedarForm(value: unknown, path = "args"): string | null {
+  if (Array.isArray(value)) {
+    for (let i = 0; i < value.length; i++) {
+      const hit = reservedCedarForm(value[i], `${path}[${i}]`);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (value && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (k === "__entity" || k === "__extn") return `${path}.${k}`;
+      const hit = reservedCedarForm(v, `${path}.${k}`);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
 export function evaluate(policyText: string, req: PolicyRequest): PolicyDecision {
   const digest = policyDigest(policyText);
+  const reserved = reservedCedarForm(req.context.args);
+  if (reserved) return { decision: "deny", reasons: [], errors: [`argument ${reserved} uses a reserved Cedar form; arguments are data, never entities or extension values`], policyDigest: digest };
   const answer = cedar.isAuthorized({
     principal: { type: "Agent", id: req.agentId },
     action: { type: "Action", id: req.tool },

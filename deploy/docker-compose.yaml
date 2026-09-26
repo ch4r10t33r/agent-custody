@@ -125,6 +125,8 @@ services:
       context: ..
       dockerfile: deploy/docs.Dockerfile
     image: agent-custody-docs:local
+    # built here, never pulled: keeps `docker compose pull` from failing on an image no registry has
+    pull_policy: build
     restart: unless-stopped
     logging:
       driver: json-file

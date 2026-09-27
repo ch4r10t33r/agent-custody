@@ -57,6 +57,10 @@ const ident = (s: string) => {
 };
 
 /** Users, memberships, and billing records, beside the log's tables. */
+/** What a registration says about the person and the organisation; every field optional in the store, the route decides what it requires. */
+export interface Profile { name?: string | null; company?: string | null; role?: string | null; phone?: string | null; telegram?: string | null }
+const PROFILE_COLUMNS = ["name", "company", "role", "phone", "telegram"] as const;
+
 export class PortalStore {
   private readonly client: PostgresLike;
   private readonly p: string;
@@ -73,6 +77,8 @@ export class PortalStore {
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}members (user_id TEXT NOT NULL REFERENCES ${p}users(id), tenant_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'owner', created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (user_id, tenant_id))`);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}billing (tenant_id TEXT PRIMARY KEY, customer_id TEXT, subscription_id TEXT, status TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
+        // who the account belongs to: added after the first tenants registered, so the columns are optional
+        for (const c of PROFILE_COLUMNS) await this.client.query(`ALTER TABLE ${p}users ADD COLUMN IF NOT EXISTS ${c} TEXT`);
       })();
     }
     return this.ready;
@@ -88,10 +94,10 @@ export class PortalStore {
     const got = scryptSync(password, Buffer.from(saltHex, "hex"), expected.length);
     return got.length === expected.length && timingSafeEqual(got, expected);
   }
-  async createUser(email: string, password: string): Promise<PortalUser> {
+  async createUser(email: string, password: string, profile: Profile = {}): Promise<PortalUser> {
     await this.init();
     const id = randomUUID();
-    const rows = (await this.client.query(`INSERT INTO ${this.p}users (id, email, password_hash) VALUES ($1, $2, $3) ON CONFLICT (email) DO NOTHING RETURNING id, email, created_at`, [id, email, PortalStore.hashPassword(password)])).rows as Record<string, unknown>[];
+    const rows = (await this.client.query(`INSERT INTO ${this.p}users (id, email, password_hash, name, company, role, phone, telegram) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (email) DO NOTHING RETURNING id, email, created_at`, [id, email, PortalStore.hashPassword(password), profile.name ?? null, profile.company ?? null, profile.role ?? null, profile.phone ?? null, profile.telegram ?? null])).rows as Record<string, unknown>[];
     if (!rows[0]) throw new Error("an account with this email already exists");
     return { id, email, createdAt: new Date(rows[0].created_at as string).toISOString() };
   }
@@ -133,10 +139,11 @@ export class PortalStore {
     return r ? { customerId: r.customer_id ? String(r.customer_id) : null, subscriptionId: r.subscription_id ? String(r.subscription_id) : null, status: String(r.status) } : null;
   }
   /** Every portal registration with its tenant and billing state, oldest first: what the operator's admin page lists. */
-  async registrations(): Promise<{ tenantId: string; email: string; registeredAt: string; billing: string | null }[]> {
+  async registrations(): Promise<({ tenantId: string; email: string; registeredAt: string; billing: string | null } & Profile)[]> {
     await this.init();
-    const rows = (await this.client.query(`SELECT m.tenant_id, u.email, u.created_at, b.status FROM ${this.p}members m JOIN ${this.p}users u ON u.id = m.user_id LEFT JOIN ${this.p}billing b ON b.tenant_id = m.tenant_id ORDER BY u.created_at, m.tenant_id`)).rows as Record<string, unknown>[];
-    return rows.map((r) => ({ tenantId: String(r.tenant_id), email: String(r.email), registeredAt: new Date(r.created_at as string).toISOString(), billing: r.status ? String(r.status) : null }));
+    const rows = (await this.client.query(`SELECT m.tenant_id, u.email, u.created_at, u.name, u.company, u.role, u.phone, u.telegram, b.status FROM ${this.p}members m JOIN ${this.p}users u ON u.id = m.user_id LEFT JOIN ${this.p}billing b ON b.tenant_id = m.tenant_id ORDER BY u.created_at, m.tenant_id`)).rows as Record<string, unknown>[];
+    const str = (v: unknown) => (v == null ? null : String(v));
+    return rows.map((r) => ({ tenantId: String(r.tenant_id), email: String(r.email), registeredAt: new Date(r.created_at as string).toISOString(), billing: str(r.status), name: str(r.name), company: str(r.company), role: str(r.role), phone: str(r.phone), telegram: str(r.telegram) }));
   }
   async tenantBySubscription(subscriptionId: string): Promise<string | null> {
     await this.init();
@@ -239,7 +246,7 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
       if (req.method === "GET" && url.pathname === "/health") return json(200, { ok: true, stripe: !!o.stripe });
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'" });
-        return void res.end(PORTAL_PAGE);
+        return void res.end(PORTAL_PAGE.replace("__LOG_BASE__", base.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!)));
       }
 
       // ---- Stripe's webhook: the only caller that is not a browser with a session ----
@@ -271,7 +278,6 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
 
       // ---- registration and login ----
       if (req.method === "POST" && url.pathname === "/api/register") {
-        if (!registrations.take(`reg:${addr}`)) return json(429, { error: "too many registrations from this address; try again later" });
         const b = await jsonBody();
         const email = String(b.email ?? "").trim().toLowerCase();
         const password = String(b.password ?? "");
@@ -279,10 +285,18 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
         if (!EMAIL.test(email)) return json(400, { error: "a valid email address is needed" });
         if (password.length < 10) return json(400, { error: "the password needs at least ten characters" });
         if (!TENANT_ID.test(tenant) || RESERVED.has(tenant)) return json(400, { error: "the tenant id is the name in your log's URL: three to forty lowercase letters, digits, or hyphens, and not a reserved word" });
+        const text = (k: string, max: number) => String(b[k] ?? "").trim().slice(0, max);
+        const profile: Profile = { name: text("name", 120), company: text("company", 160), role: text("role", 120) || null, phone: text("phone", 40) || null, telegram: text("telegram", 40).replace(/^@/, "") || null };
+        if (!profile.name) return json(400, { error: "your name is needed, so we know who to write to" });
+        if (!profile.company) return json(400, { error: "the company or organisation the tenant is for is needed" });
+        if (profile.telegram && !/^[A-Za-z0-9_]{5,32}$/.test(profile.telegram)) return json(400, { error: "a Telegram username is five to thirty-two letters, digits, or underscores, with or without the @" });
+        if (profile.phone && !/^[+0-9 ()./-]{6,40}$/.test(profile.phone)) return json(400, { error: "a phone number is digits, with an optional + and spaces" });
         if (await o.tenancy.tenant(tenant)) return json(409, { error: "that tenant id is taken" });
+        // throttled once the request is well formed: a mistyped form costs nothing, five real registrations from one address, then one every ten minutes
+        if (!registrations.take(`reg:${addr}`)) return json(429, { error: "too many registrations from this address; try again later" });
         let user: PortalUser;
         try {
-          user = await store.createUser(email, password);
+          user = await store.createUser(email, password, profile);
         } catch (e) {
           return json(409, { error: e instanceof Error ? e.message : String(e) });
         }
@@ -420,6 +434,7 @@ const PORTAL_PAGE = `<!doctype html>
   .bar i { display: block; width: 70%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 2px; }
   .bar b { font-family: var(--mono); font-weight: 400; margin-top: .3rem; }
   label { display: grid; gap: .25rem; font-size: .85rem; color: var(--ink2); margin: 0 0 .8rem; }
+  label .opt { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; margin-left: .3rem; } label .hint { font-size: .8rem; line-height: 1.45; } label .hint code { font-family: var(--mono); font-size: .9em; }
   input, select { font: inherit; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
   button { font: inherit; padding: .5rem .9rem; border-radius: 4px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
   button.quiet { background: transparent; color: var(--accent); }
@@ -436,9 +451,18 @@ const PORTAL_PAGE = `<!doctype html>
 <section id="auth" class="auth" hidden>
   <h1 id="authTitle">Sign in</h1>
   <form id="authForm">
-    <label>Email<input id="email" type="email" autocomplete="email" required></label>
+    <div id="regFields" hidden>
+      <label>Your name<input id="name" autocomplete="name" maxlength="120"></label>
+      <label>Company or organisation<input id="company" autocomplete="organization" maxlength="160"></label>
+      <label>Your role <span class="opt">optional</span><input id="role" autocomplete="organization-title" maxlength="120" placeholder="Head of Platform"></label>
+    </div>
+    <label>Work email<input id="email" type="email" autocomplete="email" required></label>
+    <div id="regFields2" hidden>
+      <label>Phone <span class="opt">optional</span><input id="phone" type="tel" autocomplete="tel" maxlength="40" placeholder="+44 20 …"></label>
+      <label>Telegram username <span class="opt">optional</span><input id="telegram" maxlength="40" placeholder="@yourname"><span class="hint">Your handle in Telegram, under Settings, if you would rather we reach you there than by email.</span></label>
+    </div>
     <label>Password<input id="password" type="password" autocomplete="current-password" minlength="10" required></label>
-    <label id="tenantField" hidden>Tenant id, the name in your log's URL<input id="tenant" placeholder="acme" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]"></label>
+    <label id="tenantField" hidden>Tenant id<input id="tenant" placeholder="acme" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]"><span class="hint">A short name for your organisation, filled in from the company name; change it if you like. It becomes the path of your log, which your gateway config and your auditors will use: <code id="tenantPreview">__LOG_BASE__t/&lt;tenant&gt;/</code></span></label>
     <button id="authGo" type="submit">Sign in</button>
     <p class="msg" id="authMsg"></p>
   </form>
@@ -525,12 +549,18 @@ const PORTAL_PAGE = `<!doctype html>
     for (const a of document.querySelectorAll("nav a[data-view]")) a.classList.toggle("on", a.dataset.view === name);
     location.hash = name;
   };
-  $("authSwap").onclick = () => { registering = !registering; $("authTitle").textContent = registering ? "Create your tenant" : "Sign in"; $("authGo").textContent = registering ? "Create tenant" : "Sign in"; $("tenantField").hidden = !registering; $("tenant").required = registering; $("password").autocomplete = registering ? "new-password" : "current-password"; $("authSwap").textContent = registering ? "I already have an account" : "Create an account and a tenant instead"; };
+  const LOG_BASE = "__LOG_BASE__";
+  const slug = (s) => s.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+  let tenantEdited = false;
+  const previewTenant = () => { $("tenantPreview").textContent = LOG_BASE + "t/" + ($("tenant").value || "<tenant>") + "/"; };
+  $("company").oninput = () => { if (!tenantEdited) { $("tenant").value = slug($("company").value); previewTenant(); } };
+  $("tenant").oninput = () => { tenantEdited = $("tenant").value !== ""; previewTenant(); };
+  $("authSwap").onclick = () => { registering = !registering; $("authTitle").textContent = registering ? "Create your tenant" : "Sign in"; $("authGo").textContent = registering ? "Create tenant" : "Sign in"; for (const id of ["regFields", "regFields2", "tenantField"]) $(id).hidden = !registering; for (const id of ["name", "company", "tenant"]) $(id).required = registering; $("password").autocomplete = registering ? "new-password" : "current-password"; $("authSwap").textContent = registering ? "I already have an account" : "Create an account and a tenant instead"; previewTenant(); };
   $("authForm").onsubmit = async (e) => {
     e.preventDefault(); $("authMsg").className = "msg"; $("authMsg").textContent = "";
     try {
       if (registering) {
-        const r = await api("POST", "/api/register", { email: $("email").value, password: $("password").value, tenant: $("tenant").value });
+        const r = await api("POST", "/api/register", { email: $("email").value, password: $("password").value, tenant: $("tenant").value, name: $("name").value, company: $("company").value, role: $("role").value, phone: $("phone").value, telegram: $("telegram").value });
         $("firstToken").textContent = r.token; $("firstSheet").textContent = r.welcome; show("welcome");
       } else { await api("POST", "/api/login", { email: $("email").value, password: $("password").value }); await enter(); }
     } catch (err) { $("authMsg").className = "msg err"; $("authMsg").textContent = err.message; }

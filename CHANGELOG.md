@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.7 — 2026-09-27
+
+- **Receipts:** registration asks who is registering: name and company or organisation are required, role, phone, and Telegram username optional; the tenant id is filled in from the company name, explained as the path of the log, and previewed as the full URL before the form is sent. `PortalStore.createUser` takes the profile; `portal_users` gains the columns on start. The admin page's Registrations section and `/admin/registrations[.csv]` show who and how to reach them.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.6 — 2026-09-27
 
 - **Site, #52:** the home page leaves the docs theme: its own top bar with five entries (Product, Docs, Pricing, Verify, Sign in), one story, the real receipt with the one amber action, one sentence on what a receipt does not prove, three doors (Try it, Make it evidence, For security review), a flow diagram, an in-page demo of the gateway and the verifier, and a comparison with application logs and traces. The docs nav is the same five entries; Receipts, State, Python, and the spec are in the sidebar. Getting started opens with the stacks (Claude Code, Claude Agent SDK, OpenAI Agents SDK, LangChain, Vercel AI, Python) and says which path is the agent's word and which is evidence; the trust table moved to the pieces page. Pricing says what 10,000 appends is in a worked week.

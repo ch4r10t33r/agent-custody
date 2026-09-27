@@ -26,7 +26,7 @@ The gateway's log client retries a 429 three times with backoff and then fails t
 
 | route | body | response |
 | --- | --- | --- |
-| `POST /api/register` | `{ "email", "password" (10+ chars), "tenant" (3–40 chars, `[a-z0-9-]`) }` | `{ "tenant", "logId", "plan": "free", "token": "<64 hex, shown once>", "tokenHash": "<12 hex>", "welcome": "<the welcome sheet>", "exportCommand": "…" }` and a session cookie; `400` on validation, `409` if the email or tenant is taken, `429` after five registrations from one address |
+| `POST /api/register` | `{ "email", "password" (10+ chars), "tenant" (3–40 chars, `[a-z0-9-]`; the page fills it in from the company name), "name", "company", "role"?, "phone"?, "telegram"? (a username, with or without `@`) }` | `{ "tenant", "logId", "plan": "free", "token": "<64 hex, shown once>", "tokenHash": "<12 hex>", "welcome": "<the welcome sheet>", "exportCommand": "…" }` and a session cookie; `400` on validation, `409` if the email or tenant is taken, `429` after five registrations from one address |
 | `POST /api/login` | `{ "email", "password" }` | `{ "email" }` and the cookie; `401` otherwise; throttled per address |
 | `POST /api/logout` | `{}` | `{ "ok": true }` |
 | `GET /api/me` | | `{ "email", "tenant", "logId", "plan", "used", "quota", "disabled", "billing": true\|false }` |

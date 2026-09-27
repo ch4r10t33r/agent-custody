@@ -60,16 +60,23 @@ describe("the tenant portal", () => {
     expect(bad.status).toBe(400);
     const taken = await b.call("POST", "/api/register", { email: "dana@example.com", password: "a-long-enough-password", tenant: "default" });
     expect(taken.status).toBe(400); // reserved
-    const r = await b.call("POST", "/api/register", { email: "Dana@Example.com", password: "a-long-enough-password", tenant: "acme" });
+    // who is registering is part of the record: a name and an organisation are required, the rest is optional and checked for shape
+    const nameless = await b.call("POST", "/api/register", { email: "dana@example.com", password: "a-long-enough-password", tenant: "acme", company: "Acme" });
+    expect(nameless.status).toBe(400);
+    expect(nameless.json.error).toMatch(/your name/);
+    const badHandle = await b.call("POST", "/api/register", { email: "dana@example.com", password: "a-long-enough-password", tenant: "acme", name: "Dana", company: "Acme", telegram: "@no spaces" });
+    expect(badHandle.status).toBe(400);
+    const r = await b.call("POST", "/api/register", { email: "Dana@Example.com", password: "a-long-enough-password", tenant: "acme", name: "Dana Ortiz", company: "Acme Ltd", role: "Head of Platform", phone: "+44 20 7946 0000", telegram: "@dana_ortiz" });
     expect(r.status).toBe(200);
+    expect(await new PortalStore(db).registrations()).toEqual([{ tenantId: "acme", email: "dana@example.com", registeredAt: expect.any(String), billing: null, name: "Dana Ortiz", company: "Acme Ltd", role: "Head of Platform", phone: "+44 20 7946 0000", telegram: "dana_ortiz" }]);
     expect(r.json).toMatchObject({ tenant: "acme", logId: "acme", plan: "free" });
     expect(r.json.token).toMatch(/^[0-9a-f]{64}$/);
     expect(r.json.welcome).toContain("t/acme/");
     expect(r.json.exportCommand).toContain("--tenant acme");
     expect(readSession(SECRET, b.cookieValue().split("=")[1])).toBeTruthy();
     // the same email or tenant again is refused
-    expect((await browser().call("POST", "/api/register", { email: "dana@example.com", password: "a-long-enough-password", tenant: "other" })).status).toBe(409);
-    expect((await browser().call("POST", "/api/register", { email: "x@example.com", password: "a-long-enough-password", tenant: "acme" })).status).toBe(409);
+    expect((await browser().call("POST", "/api/register", { email: "dana@example.com", password: "a-long-enough-password", tenant: "other", name: "Someone", company: "Somewhere" })).status).toBe(409);
+    expect((await browser().call("POST", "/api/register", { email: "x@example.com", password: "a-long-enough-password", tenant: "acme", name: "Someone", company: "Somewhere" })).status).toBe(409);
 
     const me = await b.call("GET", "/api/me");
     expect(me.json).toMatchObject({ email: "dana@example.com", tenant: "acme", plan: "free", used: 0, quota: 3, billing: true });

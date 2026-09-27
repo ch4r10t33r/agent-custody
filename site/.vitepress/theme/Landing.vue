@@ -185,8 +185,8 @@ npx agent-custody verify receipts/&lt;id&gt;.json \
 <style scoped>
 .landing { --amber: var(--vp-c-brand-1); --mono: var(--vp-font-family-mono); --serif: "Source Serif 4", Georgia, "Times New Roman", serif; --paper: color-mix(in srgb, var(--vp-c-bg) 96%, #b45309); --panel: var(--vp-c-bg); --term: #1b1b1f; min-height: 100vh; background: var(--paper); color: var(--vp-c-text-1); font-family: var(--vp-font-family-base); line-height: 1.55; }
 .bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem; }
-.brand { display: inline-flex; align-items: center; gap: .6rem; font-family: var(--serif); font-weight: 600; font-size: 1.15rem; color: var(--vp-c-text-1); text-decoration: none; }
-.brand svg { width: 28px; height: 28px; display: block; } .tile { fill: var(--amber); } .ink { stroke: var(--amber); }
+.brand { display: inline-flex; align-items: center; gap: .7rem; font-family: var(--serif); font-weight: 600; font-size: 1.35rem; color: var(--vp-c-text-1); text-decoration: none; white-space: nowrap; }
+.brand svg { width: 40px; height: 40px; display: block; flex: none; } .tile { fill: var(--amber); } .ink { stroke: var(--amber); }
 .bar nav { display: flex; gap: 1.1rem; align-items: center; font-size: .92rem; flex-wrap: wrap; justify-content: flex-end; }
 .bar nav a { color: var(--vp-c-text-2); text-decoration: none; } .bar nav a:hover { color: var(--vp-c-text-1); }
 .bar .theme { font: inherit; font-size: .8rem; color: var(--vp-c-text-2); background: transparent; border: 1px solid var(--vp-c-divider); border-radius: 5px; padding: .15rem .55rem; cursor: pointer; } .bar .theme:hover { color: var(--vp-c-text-1); }

@@ -1,6 +1,7 @@
 // The admin surface is the operator's, not the tenant's: nothing under /admin answers without the admin token, a
 // minted token works on the tenant's path and stops working when revoked, and the page ships with no outside
 // requests. Postgres runs in-process through PGlite.
+import { Script } from "node:vm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { generateKeyPair } from "../src/crypto.ts";
@@ -41,6 +42,8 @@ describe("the admin surface", () => {
     expect(basic.headers.get("content-security-policy")).toMatch(/default-src 'none'/);
     const html = await basic.text();
     expect(html).toContain("Log admin");
+    for (const m of html.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(m[1]!); // every inline script parses
+    expect(basic.headers.get("content-security-policy")).toContain("img-src 'self'");
     expect(html).not.toMatch(/https?:\/\/(?!agent-custody\.dev)/); // no third-party requests
     expect(html).not.toContain("sessionStorage");
     expect(html).toContain('id="themeToggle"');

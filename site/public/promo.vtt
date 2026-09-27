@@ -1,0 +1,109 @@
+WEBVTT
+
+1
+00:00:00.800 --> 00:00:01.871
+agent-custody.
+
+2
+00:00:01.871 --> 00:00:04.694
+Proof of what your AI agents did.
+
+3
+00:00:05.000 --> 00:00:06.237
+Maya runs support.
+
+4
+00:00:06.237 --> 00:00:08.643
+She signs a grant for her AI agent:
+
+5
+00:00:08.643 --> 00:00:10.842
+refunds up to a thousand pounds,
+
+6
+00:00:10.842 --> 00:00:12.850
+only for verified customers.
+
+7
+00:00:12.900 --> 00:00:15.010
+Every call goes through the gateway.
+
+8
+00:00:15.010 --> 00:00:16.182
+It checks the grant,
+
+9
+00:00:16.182 --> 00:00:17.881
+looks the customer up itself,
+
+10
+00:00:17.881 --> 00:00:20.460
+and applies the policy. Five hundred pounds?
+
+11
+00:00:20.460 --> 00:00:21.287
+Approved.
+
+12
+00:00:21.800 --> 00:00:24.279
+Then someone slips a line into a ticket,
+
+13
+00:00:24.279 --> 00:00:26.386
+and the agent tries five thousand.
+
+14
+00:00:26.386 --> 00:00:29.227
+The agent was fooled. The gateway wasn't.
+
+15
+00:00:30.200 --> 00:00:31.290
+Allowed or denied,
+
+16
+00:00:31.290 --> 00:00:33.288
+every call gets a signed receipt,
+
+17
+00:00:33.288 --> 00:00:36.009
+and every field says who vouches for it.
+
+18
+00:00:37.200 --> 00:00:39.696
+Its hash goes into an append-only log.
+
+19
+00:00:39.696 --> 00:00:42.750
+Rewrite anything, and the root won't match.
+
+20
+00:00:42.800 --> 00:00:43.661
+Months later,
+
+21
+00:00:43.661 --> 00:00:47.634
+an auditor checks it with public keys and a copy of the log.
+
+22
+00:00:47.634 --> 00:00:50.053
+No login. No trust in the agent.
+
+23
+00:00:51.000 --> 00:00:52.206
+Change a single number,
+
+24
+00:00:52.206 --> 00:00:53.818
+and the signature breaks.
+
+25
+00:00:55.200 --> 00:00:58.491
+Not a trace. Not a log. A receipt.
+
+26
+00:00:59.600 --> 00:01:00.493
+agent-custody.
+
+27
+00:01:00.493 --> 00:01:02.898
+Proof of what your AI agents did.

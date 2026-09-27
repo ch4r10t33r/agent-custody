@@ -73,10 +73,11 @@ const year = new Date().getUTCFullYear();
       </section>
 
       <figure class="promo">
-        <video controls playsinline preload="none" poster="/promo-poster.jpg" width="1920" height="1080" aria-label="A 63-second film: Maya, head of support, signs a grant for her support agent. A customer's £500 refund goes through the gateway to Stripe. A line slipped into a ticket makes the agent try a £5,000 refund, and the gateway denies it before it reaches Stripe. The signed receipt is logged in a Merkle log, an auditor verifies it with public keys, and an edited receipt fails verification.">
+        <video controls playsinline preload="none" poster="/promo-poster.jpg" width="1920" height="1080" aria-label="A 63-second narrated film: Maya, head of support, signs a grant for her support agent. A customer's £500 refund goes through the gateway to Stripe. A line slipped into a ticket makes the agent try a £5,000 refund, and the gateway denies it before it reaches Stripe. The signed receipt is logged in a Merkle log, an auditor verifies it with public keys, and an edited receipt fails verification.">
           <source src="/promo.mp4" type="video/mp4" />
+          <track kind="captions" src="/promo.vtt" srclang="en" label="English" />
         </video>
-        <figcaption>A refund agent, a prompt injection, and the receipt that settles it. The receipts are real ones from <code>bun run demo</code>, against a stand-in Stripe; 63 seconds, with sound, and nothing loads until you press play.</figcaption>
+        <figcaption>A refund agent, a prompt injection, and the receipt that settles it. The receipts are real ones from <code>bun run demo</code>, against a stand-in Stripe; 63 seconds, narrated, with captions, and nothing loads until you press play.</figcaption>
       </figure>
 
       <Flow />

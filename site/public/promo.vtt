@@ -1,109 +1,141 @@
 WEBVTT
 
 1
-00:00:00.800 --> 00:00:01.871
-agent-custody.
+00:00:00.800 --> 00:00:03.702
+AI agents now issue refunds, run commands,
 
 2
-00:00:01.871 --> 00:00:04.694
-Proof of what your AI agents did.
+00:00:03.702 --> 00:00:05.223
+and change production.
 
 3
-00:00:05.000 --> 00:00:06.237
-Maya runs support.
+00:00:05.223 --> 00:00:06.812
+When one gets it wrong,
 
 4
-00:00:06.237 --> 00:00:08.643
-She signs a grant for her AI agent:
+00:00:06.812 --> 00:00:08.955
+the only record is its own log,
 
 5
-00:00:08.643 --> 00:00:10.842
-refunds up to a thousand pounds,
+00:00:08.955 --> 00:00:12.910
+written by the same process that made the mistake.
 
 6
-00:00:10.842 --> 00:00:12.850
-only for verified customers.
+00:00:14.510 --> 00:00:18.703
+agent-custody puts a gateway between your agents and their tools,
 
 7
-00:00:12.900 --> 00:00:15.010
-Every call goes through the gateway.
+00:00:18.703 --> 00:00:23.137
+and gives every call a signed receipt that anyone can verify.
 
 8
-00:00:15.010 --> 00:00:16.182
-It checks the grant,
+00:00:24.740 --> 00:00:26.188
+A person signs a grant.
 
 9
-00:00:16.182 --> 00:00:17.881
-looks the customer up itself,
+00:00:26.188 --> 00:00:29.589
+The gateway checks every call against it and a policy,
 
 10
-00:00:17.881 --> 00:00:20.460
-and applies the policy. Five hundred pounds?
+00:00:29.589 --> 00:00:30.912
+before the tool runs.
 
 11
-00:00:20.460 --> 00:00:21.287
-Approved.
+00:00:30.912 --> 00:00:33.305
+Allowed or denied, it signs a receipt,
 
 12
-00:00:21.800 --> 00:00:24.279
-Then someone slips a line into a ticket,
+00:00:33.305 --> 00:00:39.157
+and the receipt's hash goes into a Merkle log that anyone can check with public keys.
 
 13
-00:00:24.279 --> 00:00:26.386
-and the agent tries five thousand.
+00:00:40.960 --> 00:00:42.258
+Here it is at work.
 
 14
-00:00:26.386 --> 00:00:29.227
-The agent was fooled. The gateway wasn't.
+00:00:42.258 --> 00:00:43.488
+Maya runs support.
 
 15
-00:00:30.200 --> 00:00:31.290
-Allowed or denied,
+00:00:43.488 --> 00:00:45.880
+She signs a grant for her AI agent:
 
 16
-00:00:31.290 --> 00:00:33.288
-every call gets a signed receipt,
+00:00:45.880 --> 00:00:48.067
+refunds up to a thousand pounds,
 
 17
-00:00:33.288 --> 00:00:36.009
-and every field says who vouches for it.
+00:00:48.067 --> 00:00:50.480
+only for verified customers.
 
 18
-00:00:37.200 --> 00:00:39.696
-Its hash goes into an append-only log.
+00:00:52.080 --> 00:00:53.581
+Alex asks for a refund.
 
 19
-00:00:39.696 --> 00:00:42.750
-Rewrite anything, and the root won't match.
+00:00:53.581 --> 00:00:55.474
+The gateway checks the grant,
 
 20
-00:00:42.800 --> 00:00:43.661
-Months later,
+00:00:55.474 --> 00:00:57.367
+looks the customer up itself,
 
 21
-00:00:43.661 --> 00:00:47.634
-an auditor checks it with public keys and a copy of the log.
+00:00:57.367 --> 00:00:58.868
+and applies the policy.
 
 22
-00:00:47.634 --> 00:00:50.053
-No login. No trust in the agent.
+00:00:58.868 --> 00:01:00.174
+Five hundred pounds?
 
 23
-00:00:51.000 --> 00:00:52.206
-Change a single number,
+00:01:00.174 --> 00:01:01.261
+Approved.
 
 24
-00:00:52.206 --> 00:00:53.818
-and the signature breaks.
+00:01:02.860 --> 00:01:05.361
+Then someone slips a line into a ticket,
 
 25
-00:00:55.200 --> 00:00:58.491
-Not a trace. Not a log. A receipt.
+00:01:05.361 --> 00:01:07.486
+and the agent tries five thousand.
 
 26
-00:00:59.600 --> 00:01:00.493
-agent-custody.
+00:01:07.486 --> 00:01:08.799
+The agent was fooled.
 
 27
-00:01:00.493 --> 00:01:02.898
+00:01:08.799 --> 00:01:10.487
+The gateway wasn't.
+
+28
+00:01:12.290 --> 00:01:14.226
+Every call gets a signed receipt,
+
+29
+00:01:14.226 --> 00:01:17.074
+and every field says who vouches for it.
+
+30
+00:01:18.670 --> 00:01:19.539
+Months later,
+
+31
+00:01:19.539 --> 00:01:23.550
+an auditor checks it with public keys and a copy of the log.
+
+32
+00:01:23.550 --> 00:01:24.152
+No login.
+
+33
+00:01:24.152 --> 00:01:26.123
+No trust in the agent.
+
+34
+00:01:27.720 --> 00:01:28.613
+agent-custody.
+
+35
+00:01:28.613 --> 00:01:31.218
 Proof of what your AI agents did.

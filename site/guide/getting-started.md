@@ -1,5 +1,85 @@
 # Getting started
 
+Two paths. The **SDK path** records what the agent's own process reports: the quickest way to a receipt, and every field in it is the agent's word (`claimed`). The **gateway path** puts a process the agent does not control between it and the tools, so a call can be denied before it runs and a stranger can accept the record. Start with the SDK to see a receipt today; move a tool to the gateway when its call moves money or touches production.
+
+## Pick your stack
+
+Install the package, make a key and a config once, then add the lines for your framework. Each produces a receipt in `receipts/` that [the browser verifier](/verify) checks with the `.pub` file.
+
+```bash
+npm install @agent-custody/receipts && npx agent-custody keygen --dir keys --name app
+```
+
+::: code-group
+
+```json [Claude Code]
+// .claude/settings.json: one hook command records every tool call and can deny one before it runs
+{ "hooks": {
+  "PreToolUse":  [{ "matcher": "Bash|Write|Edit|mcp__.*", "hooks": [{ "type": "command", "command": "agent-custody hook --config /abs/path/sdk.json" }] }],
+  "PostToolUse": [{ "matcher": "Bash|Write|Edit|mcp__.*", "hooks": [{ "type": "command", "command": "agent-custody hook --config /abs/path/sdk.json" }] }]
+} }
+```
+
+```ts [Claude Agent SDK]
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import { loadSdkConfig } from "@agent-custody/receipts";
+import { claudeAgentHooks, createSdkIssuer } from "@agent-custody/receipts/sdk/claude";
+
+const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
+for await (const msg of query({ prompt: "Refund the customer", options: { hooks: claudeAgentHooks(issuer) } })) { /* … */ }
+```
+
+```ts [OpenAI Agents SDK]
+import { Agent } from "@openai/agents";
+import { loadSdkConfig, createSdkIssuer } from "@agent-custody/receipts";
+import { wrapTools } from "@agent-custody/receipts/sdk/openai-agents";
+
+const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
+const agent = new Agent({ name: "billing", tools: wrapTools(issuer, [refundTool, lookupTool]) });   // a denied call never runs; the model sees why
+```
+
+```ts [LangChain]
+import { tool } from "@langchain/core/tools";
+import { loadSdkConfig, createSdkIssuer } from "@agent-custody/receipts";
+import { receiptCallbacks } from "@agent-custody/receipts/sdk/langchain";
+
+const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
+await refund.invoke({ customer_id, amount }, receiptCallbacks(issuer));                              // record what happened
+const enforced = tool(issuer.wrap("stripe.refund", fn), { name: "stripe.refund", schema });         // or deny before it runs
+```
+
+```ts [Vercel AI]
+import { generateText } from "ai";
+import { loadSdkConfig, createSdkIssuer } from "@agent-custody/receipts";
+import { wrapTools } from "@agent-custody/receipts/sdk/vercel-ai";
+
+const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
+const result = await generateText({ model, prompt, tools: wrapTools(issuer, tools) });
+```
+
+```python [Python]
+# pip install agent-custody; the sidecar is `npx agent-custody sidecar`
+from agent_custody import Client, PolicyDeniedError
+
+client = Client("http://127.0.0.1:8791")
+refund = client.wrap("stripe.refund", lambda args: stripe.refund(**args))
+refund({"amount": 5000})   # decide, run, record; raises PolicyDeniedError on deny
+```
+
+:::
+
+Then verify the receipt in the shell, or drop it on [/verify](/verify):
+
+```bash
+npx agent-custody verify receipts/<id>.json --issuer-key keys/app.pub --log log.jsonl
+```
+
+Every adapter is on [the SDK page](/receipts/sdk) with what it enforces and what it only records. **To make a receipt evidence** a customer or auditor accepts, put [the gateway](/receipts/usage) in front of the tool and log to [a log run by someone else](/early-access): the receipt then carries a signed grant, a policy decision made outside the agent, and a tree head signed by a key you do not hold.
+
+<Flow />
+
+## The whole loop, in one file
+
 <!--@include: ../../README.md#getting-started-->
 
 **Where to go next**

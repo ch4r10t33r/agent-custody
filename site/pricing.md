@@ -20,6 +20,20 @@ Everything you run yourself, the gateway, the SDK, the ledger, the verifier, is 
 | **Witness** | none yet | none yet | run your own, or we help you find an independent operator |
 | **Get it** | [register](https://app.agent-custody.dev/) | [register](https://app.agent-custody.dev/), then upgrade from the billing page | [write to us](/contact) |
 
+## What 10,000 appends is
+
+One append per receipt, one receipt per tool call, allowed or denied. A worked week, with round numbers:
+
+| who | tool calls | appends a day | appends a month | plan |
+| --- | --- | --- | --- | --- |
+| one support agent | 40 tasks a day, 6 tool calls each, five days a week | 240 | about 5,000 | Free, with room: a pilot, not a toy |
+| a fleet of ten of those | the same, ten agents | 2,400 | about 50,000 | Free runs out on Friday of week one; Team |
+| a coding agent under the Claude Code hook | 300 tool calls a working day | 300 | about 6,500 | Free |
+| a hundred agents at 240 a day | production | 24,000 | about 500,000 | Team, half used |
+| more than a million a month | | | | Enterprise, or a dedicated log |
+
+An append is a hash and a timestamp; the log never receives the receipt, so the count is the only thing that grows with you. The [portal](https://app.agent-custody.dev/) shows appends against the allowance by month.
+
 ## What is and is not promised
 
 No plan carries an availability commitment yet. The log runs on one machine with no failover, and the design fails closed: when it is unreachable, a gateway withholds pre-committed calls rather than acting without evidence. That is stated on the [security questionnaire](/security) and will not change until the failover work is done, at which point the Team and Enterprise plans get a service level. Nobody on any plan is certified against SOC 2 or ISO 27001 by using this; the [compliance mapping](/receipts/compliance) says which of your controls the artefacts are evidence for.

@@ -65,18 +65,13 @@ export default withMermaid(
     lastUpdated: false,
     themeConfig: {
       logo: "/logo.svg",
+      // Five entries (issue #52). Receipts, State, Python, the spec, and security live in the sidebar under Docs.
       nav: [
-        { text: "Guide", link: "/guide/getting-started" },
-        { text: "Docs", link: "/reference/" },
-        { text: "Receipts", link: "/receipts/" },
-        { text: "State", link: "/state/" },
-        { text: "Python", link: "/python/" },
-        { text: "Spec", link: "/receipt/v0.2" },
-        { text: "Verify", link: "/verify" },
+        { text: "Product", link: "/" },
+        { text: "Docs", link: "/guide/getting-started" },
         { text: "Pricing", link: "/pricing" },
-        { text: "Register", link: "https://app.agent-custody.dev/" },
-        { text: "Security", link: "/security" },
-        { text: "GitHub", link: "https://github.com/ch4r10t33r/agent-custody" },
+        { text: "Verify", link: "/verify" },
+        { text: "Sign in", link: "https://app.agent-custody.dev/" },
       ],
       sidebar: {
         "/reference/": [

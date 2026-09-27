@@ -70,7 +70,9 @@ Every one of these commands is recorded in the audit trail with your user and ho
 
 **A tenant says they paid and are still on free.** The webhook did not arrive or was refused: check Stripe's webhook log for the endpoint and the portal's log for `bad signature`; a wrong `STRIPE_WEBHOOK_SECRET` is the usual cause. Move the plan by hand (`tenant plan <id> team`) and fix the secret.
 
-**A lost password.** There is no reset flow until an email provider is configured. Verify the person by another channel, then `docker compose exec portal agent-custody log-admin --db-env DATABASE_URL audit --tenant <id>` shows which email registered the tenant; a new password is set by deleting the row in `portal_users` for that email and letting them register the same email again against the existing tenant is not supported, so instead update `password_hash` with a hash from `PortalStore.hashPassword` in a node one-liner inside the container. Write down that you did it.
+**Mail setup, once.** Registration sends the person a welcome (the setup sheet, never the key) and, with `MAIL_NOTIFY`, sends you a note with their contact details. Create a Resend account, add the domain and its DNS records there, make an API key, then put `MAIL_API_KEY`, `MAIL_FROM` (an address on that domain, no display name) and `MAIL_NOTIFY` in `.env` and `docker compose --profile public up -d portal`. A provider failure is logged by the portal and never fails a registration.
+
+**A lost password.** There is no reset flow until an email provider is configured for it. Verify the person by another channel, then `docker compose exec portal agent-custody log-admin --db-env DATABASE_URL audit --tenant <id>` shows which email registered the tenant; a new password is set by deleting the row in `portal_users` for that email and letting them register the same email again against the existing tenant is not supported, so instead update `password_hash` with a hash from `PortalStore.hashPassword` in a node one-liner inside the container. Write down that you did it.
 
 **Sign everyone out.** Rotate `PORTAL_SECRET` and restart the portal.
 

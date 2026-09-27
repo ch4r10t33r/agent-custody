@@ -24,6 +24,18 @@ export interface StripeOptions {
   fetch?: typeof fetch;
 }
 
+/** Outbound mail over an HTTP API in Resend's shape (`POST /emails` with a bearer key). One message at registration; never a secret. */
+export interface MailOptions {
+  apiKey: string;
+  /** the sender, an address on a domain the provider has verified */
+  from: string;
+  /** an operator address that gets a note per registration, with the contact details */
+  notify?: string;
+  /** the endpoint; Resend's by default */
+  url?: string;
+  fetch?: typeof fetch;
+}
+
 export interface PortalOptions {
   tenancy: PostgresTenancy;
   /** the Postgres client the tenancy uses; the portal's own tables live beside the log's */
@@ -38,6 +50,7 @@ export interface PortalOptions {
   /** the portal's own public URL, for Stripe's return addresses */
   portalUrl?: string;
   stripe?: StripeOptions;
+  mail?: MailOptions;
   /** key throttles by X-Forwarded-For; only behind a proxy you run. Also marks cookies Secure. */
   trustProxy?: boolean;
   /** table prefix; default portal_ */
@@ -216,7 +229,43 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
   const cookieName = "custody_session";
 
   const sheet = (tenant: string, logId: string) => welcomeSheet({ tenant, logId, publicUrl: base, ...(o.checkpointsUrl ? { checkpointsUrl: o.checkpointsUrl } : {}), ...(o.keyid ? { keyid: o.keyid } : {}) });
+  const portalBase = (o.portalUrl ?? "http://localhost/").replace(/\/?$/, "/");
+  // Mail is best effort and off the request path: a provider outage is logged, never a failed registration.
+  const send = async (m: { to: string; subject: string; text: string }) => {
+    if (!o.mail) return;
+    const f = o.mail.fetch ?? fetch;
+    try {
+      const r = await f(o.mail.url ?? "https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${o.mail.apiKey}`, "content-type": "application/json" }, body: JSON.stringify({ from: o.mail.from, to: [m.to], subject: m.subject, text: m.text }), signal: AbortSignal.timeout(10_000) });
+      if (!r.ok) log(`agent-custody portal: mail to ${m.to} refused: ${r.status} ${(await r.text()).slice(0, 200)}`);
+    } catch (e) {
+      log(`agent-custody portal: mail to ${m.to} failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  const welcomeMail = (to: string, name: string, tenant: string, logId: string) => send({ to, subject: `Your agent-custody log "${tenant}" is ready`, text: [
+    `Hello ${name},`, "",
+    `Your tenant "${tenant}" is live on the hosted log. Your API key was shown once when you registered and is not in this email; if it is gone, mint another under API keys at ${portalBase}.`, "",
+    "Everything below is under Setup in the dashboard whenever you need it.", "",
+    sheet(tenant, logId), "",
+    `Dashboard: ${portalBase}`, "Getting started: https://agent-custody.dev/guide/getting-started", "Questions: reply to this email.",
+  ].join("\n") });
+  const notifyMail = (p: Profile & { email: string; tenant: string }) => o.mail?.notify ? send({ to: o.mail.notify, subject: `New registration: ${p.company} (${p.tenant})`, text: [`${p.name}${p.role ? `, ${p.role}` : ""} at ${p.company} registered tenant "${p.tenant}".`, "", `email     ${p.email}`, `phone     ${p.phone ?? "-"}`, `telegram  ${p.telegram ? `@${p.telegram}` : "-"}`, "", "The Registrations section of the admin page has the same, with their usage."].join("\n") }) : Promise.resolve();
   const exportCommand = (tenant: string) => `npx @agent-custody/receipts log-export --log-url ${base} --tenant ${tenant} --token-env AGENT_CUSTODY_LOG_TOKEN --out custody-export/`;
+  // The welcome sheet as data: what the page renders as numbered steps, at registration and again under Setup.
+  const setupFor = (tenant: string, logId: string) => {
+    const url = `${base}t/${tenant}/`;
+    return {
+      log: url,
+      logId,
+      checkpoints: o.checkpointsUrl ? `${o.checkpointsUrl.replace(/\/?$/, "/")}${tenant}/latest.json` : null,
+      keys: `${base}.well-known/agent-custody-log.json`,
+      keyid: o.keyid ?? null,
+      env: "export AGENT_CUSTODY_LOG_TOKEN=<the key shown at registration>",
+      config: `"log": { "url": "${url}", "tokenEnv": "AGENT_CUSTODY_LOG_TOKEN", "hashOnly": true }`,
+      verify: `npx @agent-custody/receipts verify receipts/<id>.json --issuer-key <your gateway.pub> --principal-key <your principal.pub> --log-url ${url} --log-id ${logId}`,
+      audit: `npx @agent-custody/receipts audit --older receipts/<earlier>.json --newer receipts/<later>.json --log-url ${url} --log-id ${logId}`,
+      export: exportCommand(tenant),
+    };
+  };
 
   return async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -304,7 +353,9 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
         await store.addMember(user.id, tenant);
         const minted = await o.tenancy.addToken(tenant, "first key", `portal:${email}`);
         log(`agent-custody portal: ${email} registered tenant ${tenant}`);
-        return json(200, { tenant: t.id, logId: t.logId, plan: t.plan, token: minted.token, tokenHash: minted.tokenHash.slice(0, 12), welcome: sheet(t.id, t.logId), exportCommand: exportCommand(t.id) }, { "set-cookie": setCookie(signSession(o.secret, user.id)) });
+        void welcomeMail(email, profile.name!, t.id, t.logId);
+        void notifyMail({ ...profile, email, tenant: t.id });
+        return json(200, { tenant: t.id, logId: t.logId, plan: t.plan, token: minted.token, tokenHash: minted.tokenHash.slice(0, 12), welcome: sheet(t.id, t.logId), setup: setupFor(t.id, t.logId), exportCommand: exportCommand(t.id) }, { "set-cookie": setCookie(signSession(o.secret, user.id)) });
       }
       if (req.method === "POST" && url.pathname === "/api/login") {
         if (!loginFailures.take(`login:${addr}`)) return json(429, { error: "too many attempts; wait a minute" });
@@ -344,7 +395,7 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
         const keys = (await o.tenancy.listTokens(tenantId)).map((k) => ({ label: k.label, hash: k.tokenHash.slice(0, 12), createdAt: k.createdAt, revokedAt: k.revokedAt }));
         const audit = await o.tenancy.audit({ tenant: tenantId, limit: 50 });
         const billing = await store.billing(tenantId);
-        return json(200, { tenant: tenantId, logId: tenant.logId, plan: q.plan, used: q.used, quota: q.quota, treeSize: size, rootHash: size ? await backend.root(size) : null, latestCheckpoint: latest ? { treeSize: latest.treeSize, signedAt: latest.signedAt } : null, months, keys, audit, billing: billing ? { status: billing.status } : null, urls: { log: `${base}t/${tenantId}/`, keys: `${base}.well-known/agent-custody-log.json`, checkpoints: o.checkpointsUrl ? `${o.checkpointsUrl.replace(/\/?$/, "/")}${tenantId}/latest.json` : null }, exportCommand: exportCommand(tenantId), welcome: sheet(tenantId, tenant.logId), stripe: !!o.stripe });
+        return json(200, { tenant: tenantId, logId: tenant.logId, plan: q.plan, used: q.used, quota: q.quota, treeSize: size, rootHash: size ? await backend.root(size) : null, latestCheckpoint: latest ? { treeSize: latest.treeSize, signedAt: latest.signedAt } : null, months, keys, audit, billing: billing ? { status: billing.status } : null, urls: { log: `${base}t/${tenantId}/`, keys: `${base}.well-known/agent-custody-log.json`, checkpoints: o.checkpointsUrl ? `${o.checkpointsUrl.replace(/\/?$/, "/")}${tenantId}/latest.json` : null }, exportCommand: exportCommand(tenantId), welcome: sheet(tenantId, tenant.logId), setup: setupFor(tenantId, tenant.logId), stripe: !!o.stripe });
       }
       if (req.method === "GET" && url.pathname === "/api/keys") {
         return json(200, { keys: (await o.tenancy.listTokens(tenantId)).map((k) => ({ label: k.label, hash: k.tokenHash.slice(0, 12), createdAt: k.createdAt, revokedAt: k.revokedAt })) });
@@ -440,6 +491,13 @@ const PORTAL_PAGE = `<!doctype html>
   button.quiet { background: transparent; color: var(--accent); }
   button.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; }
   .auth { max-width: 26rem; margin: 4rem auto; }
+  .auth.wide { max-width: 44rem; }
+  .step { display: grid; grid-template-columns: 2rem 1fr; gap: .2rem .8rem; padding: 1rem 0; border-top: 1px solid var(--line); }
+  .step .n { font: 700 .85rem/1.6 var(--mono); color: var(--accent); }
+  .step h3 { margin: 0 0 .3rem; font-size: 1rem; } .step p { margin: 0 0 .5rem; color: var(--ink2); font-size: .92rem; }
+  .snip { position: relative; margin: .4rem 0 .6rem; } .snip pre { margin: 0; padding-right: 4.5rem; font-family: var(--mono); font-size: .84rem; }
+  .snip button { position: absolute; top: .45rem; right: .45rem; padding: .2rem .6rem; font-size: .8rem; }
+  .addr th { text-align: left; font-weight: 600; padding-right: 1rem; white-space: nowrap; } .addr td { word-break: break-all; }
   .once { border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--panel)); border-radius: 6px; padding: 1rem 1.1rem; margin: 1rem 0; }
   .tok { font-family: var(--mono); word-break: break-all; padding: .6rem; background: var(--bg); border-radius: 4px; }
   .msg { min-height: 1.4rem; margin: .6rem 0; color: var(--ink2); } .msg.err { color: var(--bad); } .msg.ok { color: var(--ok); }
@@ -469,12 +527,12 @@ const PORTAL_PAGE = `<!doctype html>
   <p class="muted"><button class="link" id="authSwap" type="button">Create an account and a tenant instead</button></p>
   <p class="muted">The free plan is ten thousand appends a month, no card. Your gateway sends only hashes; nothing you log here can be read by us.</p>
 </section>
-<section id="welcome" class="auth" hidden>
+<section id="welcome" class="auth wide" hidden>
   <h1>Your tenant is ready</h1>
+  <p class="muted">Three steps to your first receipt in this log. Everything here is under <b>Setup</b> in the dashboard whenever you need it again.</p>
   <div class="once"><p><b>Your first API key, shown once.</b> Put it in the environment your gateway reads as <code>AGENT_CUSTODY_LOG_TOKEN</code>. We keep only its hash.</p><p class="tok" id="firstToken"></p><button class="quiet" id="copyFirst">Copy key</button></div>
-  <h2>Your welcome sheet</h2>
-  <pre id="firstSheet"></pre>
-  <button id="toDash">Go to the dashboard</button>
+  <div id="firstSetup"></div>
+  <p><button id="toDash">Go to the dashboard</button></p>
 </section>
 <div class="layout" id="app" hidden>
   <nav>
@@ -482,6 +540,7 @@ const PORTAL_PAGE = `<!doctype html>
     <a href="#overview" data-view="overview">Overview</a>
     <a href="#usage" data-view="usage">Usage</a>
     <div class="group">Configure</div>
+    <a href="#setup" data-view="setup">Setup</a>
     <a href="#keys" data-view="keys">API keys <span class="n" id="nKeys"></span></a>
     <a href="#billing" data-view="billing">Billing</a>
     <a href="#export" data-view="export">Export</a>
@@ -525,8 +584,11 @@ const PORTAL_PAGE = `<!doctype html>
       <h1>Export</h1>
       <p class="muted">Everything the log holds about you, any time, with your key: every leaf hash as a log file the verifier reads offline, the signed head, the published keys, the checkpoints, your usage, and the actions taken on your tenant. It checks itself before writing.</p>
       <pre id="exportCmd"></pre>
-      <h2>Welcome sheet</h2>
-      <pre id="sheet"></pre>
+    </div>
+    <div data-pane="setup" hidden>
+      <h1>Setup</h1>
+      <p class="muted">How to connect a gateway or SDK to your log, what to hand your auditors, and how to take your data. The same sheet you saw at registration.</p>
+      <div id="setupPane"></div>
     </div>
   </main>
 </div>
@@ -561,11 +623,27 @@ const PORTAL_PAGE = `<!doctype html>
     try {
       if (registering) {
         const r = await api("POST", "/api/register", { email: $("email").value, password: $("password").value, tenant: $("tenant").value, name: $("name").value, company: $("company").value, role: $("role").value, phone: $("phone").value, telegram: $("telegram").value });
-        $("firstToken").textContent = r.token; $("firstSheet").textContent = r.welcome; show("welcome");
+        $("firstToken").textContent = r.token; renderSetup($("firstSetup"), r.setup, true); show("welcome");
       } else { await api("POST", "/api/login", { email: $("email").value, password: $("password").value }); await enter(); }
     } catch (err) { $("authMsg").className = "msg err"; $("authMsg").textContent = err.message; }
   };
   $("copyFirst").onclick = () => navigator.clipboard.writeText($("firstToken").textContent);
+  const snip = (text) => "<div class=snip><pre>" + esc(text) + "</pre><button type=button class=quiet data-copy>Copy</button></div>";
+  const step = (n, title, body) => "<div class=step><span class=n>" + n + "</span><div><h3>" + title + "</h3>" + body + "</div></div>";
+  const renderSetup = (el, s, atRegistration) => {
+    el.innerHTML =
+      step(1, "Keep the key where your gateway runs", (atRegistration ? "<p>The key above is shown once; we keep only its hash. Put it in the environment of the machine that runs your gateway or SDK:</p>" : "<p>Your key was shown once at registration. If it is gone, mint another under <a href=\"#keys\" data-view=\"keys\">API keys</a>. It lives in the environment of the machine that runs your gateway or SDK:</p>") + snip(s.env)) +
+      step(2, "Point your gateway or SDK at your log", "<p>Add this to <code>gateway.json</code> or <code>sdk.json</code>. <code>hashOnly</code> means this log receives the hash of each receipt and never the receipt.</p>" + snip(s.config)) +
+      step(3, "Send the first receipt", "<p>Run your agent through the gateway once. The <a href=\"#overview\" data-view=\"overview\">Overview</a> shows the append within seconds, and the first signed checkpoint follows within minutes. New to the gateway? <a href=\"https://agent-custody.dev/guide/getting-started\">Getting started</a> takes ten minutes.</p>") +
+      step(4, "Hand this to whoever verifies your receipts", "<p>Both commands fetch this log's published keys and pin them; <code>--log-id</code> makes sure the tree heads are this log's.</p>" + snip(s.verify) + snip(s.audit)) +
+      step(5, "Take your data, any time", "<p>Every leaf hash, the signed head, the keys, the checkpoints, your usage, and the actions taken on your tenant, checked against each other and written as a log copy the verifier reads offline.</p>" + snip(s.export)) +
+      "<h2>Your log's addresses</h2><div class=panel><table class=addr><tbody>" + [["Your log", s.log], ["Log id on tree heads", s.logId], ["Your checkpoints", s.checkpoints || "published after your first append"], ["The log's keys", s.keys + (s.keyid ? " (current keyid " + s.keyid.slice(0, 12) + "…)" : "")]].map(([k, v]) => "<tr><th>" + esc(k) + "</th><td class=mono>" + esc(v) + "</td></tr>").join("") + "</tbody></table></div>" +
+      "<h2>What this log does not do</h2><p class=muted>Hold receipt contents; forge a receipt, since your gateway key signs those; or, today, countersign with a second independent witness. <a href=\"https://agent-custody.dev/receipts/#what-a-receipt-proves-and-what-it-does-not\">What a receipt proves and what it does not.</a></p>";
+  };
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-copy]"); if (b) { navigator.clipboard.writeText(b.previousElementSibling.textContent).then(() => { b.textContent = "Copied"; setTimeout(() => { b.textContent = "Copy"; }, 1500); }); return; }
+    const a = e.target.closest("a[data-view]"); if (a && a.closest("main")) { e.preventDefault(); view(a.dataset.view); }
+  });
   $("toDash").onclick = () => enter();
   $("signout").onclick = async (e) => { e.preventDefault(); await api("POST", "/api/logout", {}); location.hash = ""; show("auth"); };
   for (const a of document.querySelectorAll("nav a[data-view]")) a.onclick = (e) => { e.preventDefault(); view(a.dataset.view); };
@@ -587,7 +665,7 @@ const PORTAL_PAGE = `<!doctype html>
     $("billingPanel").innerHTML = o.plan === "free"
       ? "<p>You are on the <b>free</b> plan: ten thousand appends a month, no card.</p><p>The <b>team</b> plan is <b>$50 a month</b>: a million appends, email support within two working days, the same export and audit trail. No availability commitment yet, and the design fails closed: when the log is unreachable your gateway withholds pre-committed calls.</p>" + (o.stripe ? "<button id=upgrade>Upgrade to team, $50/month</button>" : "<p class=muted>Card payments are not switched on for this portal yet; email us and we move the plan by hand.</p>")
       : "<p>You are on the <b>" + esc(o.plan) + "</b> plan" + (o.billing ? " (subscription " + esc(o.billing.status) + ")" : "") + ".</p>" + (o.stripe && o.billing ? "<button class=quiet id=manage>Manage billing</button>" : "");
-    $("exportCmd").textContent = o.exportCommand; $("sheet").textContent = o.welcome;
+    $("exportCmd").textContent = o.exportCommand; renderSetup($("setupPane"), o.setup, false);
     const up = $("upgrade"); if (up) up.onclick = async () => { try { const r = await api("POST", "/api/checkout", {}); location.href = r.url; } catch (err) { $("billingMsg").className = "msg err"; $("billingMsg").textContent = err.message; } };
     const mg = $("manage"); if (mg) mg.onclick = async () => { try { const r = await api("POST", "/api/billing-portal", {}); location.href = r.url; } catch (err) { $("billingMsg").className = "msg err"; $("billingMsg").textContent = err.message; } };
   };

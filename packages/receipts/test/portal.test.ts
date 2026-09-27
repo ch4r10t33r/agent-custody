@@ -16,6 +16,8 @@ let tenancy: PostgresTenancy;
 let log: RunningLog;
 let portal: RunningPortal;
 const stripeCalls: { path: string; body: URLSearchParams }[] = [];
+const mails: { to: string[]; subject: string; text: string; from: string }[] = [];
+const mailFetch: typeof fetch = async (_url, init) => { mails.push(JSON.parse(String(init?.body))); return new Response("{}", { status: 200 }); };
 const stripeFetch: typeof fetch = async (url, init) => {
   const path = String(url).replace("https://api.stripe.com/v1/", "");
   stripeCalls.push({ path, body: new URLSearchParams(String(init?.body ?? "")) });
@@ -32,7 +34,7 @@ beforeAll(async () => {
   tenancy = new PostgresTenancy(db, { quotas: { free: 3 } });
   await tenancy.addTenant("default", "log.example.test");
   log = await serveLog(postgresResolver(tenancy), generateKeyPair(), { port: 0 });
-  portal = await servePortal({ tenancy, client: db, secret: SECRET, publicUrl: log.url, checkpointsUrl: "https://checkpoints.example.test/", keyid: "abc123", portalUrl: "https://app.example.test/", stripe: { secretKey: "sk_test_x", webhookSecret: WHSEC, priceTeam: "price_team", fetch: stripeFetch }, log: () => {} }, { port: 0 });
+  portal = await servePortal({ tenancy, client: db, secret: SECRET, publicUrl: log.url, checkpointsUrl: "https://checkpoints.example.test/", keyid: "abc123", portalUrl: "https://app.example.test/", stripe: { secretKey: "sk_test_x", webhookSecret: WHSEC, priceTeam: "price_team", fetch: stripeFetch }, mail: { apiKey: "re_test", from: "hello@example.test", notify: "sales@example.test", fetch: mailFetch }, log: () => {} }, { port: 0 });
 }, 60_000);
 
 afterAll(async () => {
@@ -72,12 +74,24 @@ describe("the tenant portal", () => {
     expect(r.json).toMatchObject({ tenant: "acme", logId: "acme", plan: "free" });
     expect(r.json.token).toMatch(/^[0-9a-f]{64}$/);
     expect(r.json.welcome).toContain("t/acme/");
+    // the same sheet as data, so the page can show it as steps at registration and again under Setup
+    expect(r.json.setup).toMatchObject({ log: expect.stringContaining("t/acme/"), logId: "acme", checkpoints: "https://checkpoints.example.test/acme/latest.json", keyid: "abc123", config: expect.stringContaining('"hashOnly": true'), verify: expect.stringContaining("--log-id acme"), export: expect.stringContaining("--tenant acme") });
     expect(r.json.exportCommand).toContain("--tenant acme");
     expect(readSession(SECRET, b.cookieValue().split("=")[1])).toBeTruthy();
     // the same email or tenant again is refused
     expect((await browser().call("POST", "/api/register", { email: "dana@example.com", password: "a-long-enough-password", tenant: "other", name: "Someone", company: "Somewhere" })).status).toBe(409);
     expect((await browser().call("POST", "/api/register", { email: "x@example.com", password: "a-long-enough-password", tenant: "acme", name: "Someone", company: "Somewhere" })).status).toBe(409);
 
+    // one email to the person with the sheet and never the key, one to the operator with the contact details
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mails.map((m) => [m.to[0], m.subject])).toEqual([["dana@example.com", 'Your agent-custody log "acme" is ready'], ["sales@example.test", "New registration: Acme Ltd (acme)"]]);
+    expect(mails[0]!.text).toContain("t/acme/");
+    expect(mails[0]!.text).toContain("Hello Dana Ortiz");
+    expect(mails[0]!.text).not.toContain(r.json.token);
+    expect(mails[1]!.text).toContain("+44 20 7946 0000");
+    expect(mails[1]!.text).toContain("@dana_ortiz");
+    const page = await (await fetch(portal.url)).text();
+    expect(page).toContain('data-view="setup"');
     const me = await b.call("GET", "/api/me");
     expect(me.json).toMatchObject({ email: "dana@example.com", tenant: "acme", plan: "free", used: 0, quota: 3, billing: true });
     // the key works on the log; the dashboard reflects the appends

@@ -42,6 +42,9 @@ if [ "${ROLE:-log}" = "portal" ]; then
   [ -n "${CHECKPOINTS_HOST:-}" ] && portal_args="$portal_args --checkpoints-url https://$CHECKPOINTS_HOST/"
   [ -n "${PORTAL_HOST:-}" ] && portal_args="$portal_args --portal-url https://$PORTAL_HOST/"
   [ -n "${STRIPE_SECRET_KEY:-}" ] && portal_args="$portal_args --stripe-key-env STRIPE_SECRET_KEY --stripe-webhook-env STRIPE_WEBHOOK_SECRET --stripe-price-team ${STRIPE_PRICE_TEAM:?STRIPE_PRICE_TEAM is required with STRIPE_SECRET_KEY}"
+  # MAIL_FROM is an address only (no display name): the arguments are word-split below
+  [ -n "${MAIL_API_KEY:-}" ] && portal_args="$portal_args --mail-key-env MAIL_API_KEY --mail-from ${MAIL_FROM:?MAIL_FROM is required with MAIL_API_KEY}"
+  [ -n "${MAIL_NOTIFY:-}" ] && portal_args="$portal_args --mail-notify $MAIL_NOTIFY"
   [ "${TRUST_PROXY:-}" = "1" ] && portal_args="$portal_args --trust-proxy"
   # shellcheck disable=SC2086
   exec agent-custody portal $portal_args

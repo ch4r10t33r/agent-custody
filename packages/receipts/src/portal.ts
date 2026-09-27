@@ -473,6 +473,7 @@ const PORTAL_PAGE = `<!doctype html>
         <div class="card" id="cKeys"><div class="k">Live keys</div><div class="v" id="vKeys">–</div><div class="s" id="sKeys"></div></div>
         <div class="card" id="cCp"><div class="k">Latest checkpoint</div><div class="v" id="vCp">–</div><div class="s" id="sCp"></div></div>
       </div>
+      <p class="muted">Tree heads on this log are signed by our key; there is no second, independent witness yet. Every receipt you log here is checkable by anyone with your gateway's public key and ours: <a href="https://agent-custody.dev/receipts/#what-a-receipt-proves-and-what-it-does-not">what a receipt proves and what it does not</a>.</p>
       <h2>Your log</h2>
       <div class="panel"><table><tbody id="urls"></tbody></table></div>
       <h2>Recent activity</h2>

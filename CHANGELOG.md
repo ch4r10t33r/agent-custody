@@ -2,6 +2,13 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.9 — 2026-09-27
+
+- **Receipts:** the portal and the admin page have a dark mode switch (a choice kept in the browser; unset, they follow the system) and carry the mark as their favicon; the portal serves `/favicon.svg`.
+- **Deploy:** Caddy serves the mark as `/favicon.svg` and `/favicon.ico` on the log, checkpoints, portal, and admin hosts, and the log and checkpoints landing pages link it.
+- **Site:** the home page has a light and dark switch in its top bar, sharing the docs' setting.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.8 — 2026-09-27
 
 - **Receipts:** the portal's welcome is five numbered steps with copy buttons (keep the key, point the gateway at the log, send the first receipt, what to hand a verifier, take your data), the log's addresses, and what the log does not do, instead of a monospaced sheet; the same page is under Setup in the dashboard whenever it is needed again. `/api/register` and `/api/overview` carry it as `setup`; the text `welcome` stays for scripts.

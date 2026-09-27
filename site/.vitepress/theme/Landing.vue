@@ -3,8 +3,11 @@
 // The receipt is decoded at build time from the same file the custody page links: this repository's own denied
 // `git push --force`. Everything else on the page points into the docs, the verifier, or the portal.
 import bundle from "../../public/custody/47eb52af-9cd0-4428-bbdc-b44c04a1f266.json";
+import { useData } from "vitepress";
 import Flow from "./Flow.vue";
 import Demo from "./Demo.vue";
+
+const { isDark } = useData();
 
 const id = "47eb52af-9cd0-4428-bbdc-b44c04a1f266";
 const decode = (b64: string) => JSON.parse(typeof Buffer !== "undefined" ? Buffer.from(b64, "base64").toString("utf8") : atob(b64));
@@ -18,7 +21,7 @@ const year = new Date().getUTCFullYear();
   <div class="landing">
     <header class="bar">
       <a class="brand" href="/"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" /><circle cx="32" cy="32" r="19" fill="none" stroke="#fff" stroke-width="4.5" /><path d="M22 33.5l7 6.5 13-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" /></svg>agent-custody</a>
-      <nav aria-label="Site"><a href="/" aria-current="page">Product</a><a href="/guide/getting-started">Docs</a><a href="/pricing">Pricing</a><a href="/verify">Verify</a><a href="https://app.agent-custody.dev/">Sign in</a></nav>
+      <nav aria-label="Site"><a href="/" aria-current="page">Product</a><a href="/guide/getting-started">Docs</a><a href="/pricing">Pricing</a><a href="/verify">Verify</a><a href="https://app.agent-custody.dev/">Sign in</a><button class="theme" type="button" :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'" @click="isDark = !isDark">{{ isDark ? "Light" : "Dark" }}</button></nav>
     </header>
 
     <main>
@@ -102,6 +105,7 @@ const year = new Date().getUTCFullYear();
 .brand svg { width: 22px; height: 22px; display: block; } .brand rect { fill: var(--amber); }
 .bar nav { display: flex; gap: 1.1rem; font-size: .92rem; flex-wrap: wrap; justify-content: flex-end; }
 .bar nav a { color: var(--vp-c-text-2); text-decoration: none; } .bar nav a:hover, .bar nav a[aria-current] { color: var(--vp-c-text-1); }
+.bar .theme { font: inherit; font-size: .8rem; color: var(--vp-c-text-2); background: transparent; border: 1px solid var(--vp-c-divider); border-radius: 5px; padding: .15rem .55rem; cursor: pointer; } .bar .theme:hover { color: var(--vp-c-text-1); }
 main { max-width: 46rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
 .kicker { font-family: var(--mono); font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; color: var(--vp-c-text-2); margin: 0 0 .8rem; }
 h1 { font-size: clamp(1.7rem, 4.6vw, 2.5rem); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 1rem; text-wrap: balance; }

@@ -293,6 +293,7 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
 
     try {
       if (req.method === "GET" && url.pathname === "/health") return json(200, { ok: true, stripe: !!o.stripe });
+      if (req.method === "GET" && url.pathname === "/favicon.svg") { res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }); return void res.end(FAVICON); }
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; form-action 'self'; base-uri 'none'" });
         return void res.end(PORTAL_PAGE.replace("__LOG_BASE__", base.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!)));
@@ -447,18 +448,24 @@ export function servePortal(o: PortalOptions, opts: { port: number; host?: strin
 }
 
 // ---- the page: one file, no framework, no outside requests ----
+const FAVICON = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#b45309"/><circle cx="32" cy="32" r="19" fill="none" stroke="#fff" stroke-width="4.5"/><path d="M22 33.5l7 6.5 13-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
 const PORTAL_PAGE = `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agent-custody</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>(() => { try { const t = localStorage.getItem("agent-custody-theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch {} })();</script>
 <style>
   :root { color-scheme: light dark; --ink: #1b2430; --ink2: #5b6b7a; --line: #d7dfe5; --bg: #f5f7f9; --panel: #ffffff; --accent: #b45309; --accent-bg: #fbf1dc; --warn: #8a5a00; --bad: #b3261e; --ok: #1f7a4d; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  @media (prefers-color-scheme: dark) { :root { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #f59e0b; --accent-bg: #2d2412; --warn: #e2b862; --bad: #ff8a80; --ok: #6fd39a; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #f59e0b; --accent-bg: #2d2412; --warn: #e2b862; --bad: #ff8a80; --ok: #6fd39a; } }
+  :root[data-theme="dark"] { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #f59e0b; --accent-bg: #2d2412; --warn: #e2b862; --bad: #ff8a80; --ok: #6fd39a; }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
   .top { display: flex; align-items: center; gap: 1rem; padding: .7rem 1.25rem; border-bottom: 1px solid var(--line); background: var(--panel); }
   .brand { font-weight: 700; letter-spacing: .04em; display: inline-flex; align-items: center; gap: .5rem; color: var(--ink); text-decoration: none; } .brand svg { width: 20px; height: 20px; display: block; } .brand rect { fill: var(--accent); }
   .top .links { margin-left: auto; display: flex; gap: .9rem; font-size: .9rem; } .top .links a { color: var(--accent); text-decoration: none; }
   .top .who { color: var(--ink2); font-size: .9rem; margin-left: .5rem; }
+  button.theme { background: transparent; color: var(--ink2); border: 1px solid var(--line); padding: .25rem .6rem; font-size: .8rem; border-radius: 4px; } button.theme:hover { color: var(--ink); }
   .pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font: 600 .72rem/1.6 var(--mono); letter-spacing: .06em; text-transform: uppercase; background: var(--accent-bg); color: var(--accent); }
   .layout { display: grid; grid-template-columns: 15rem 1fr; min-height: calc(100vh - 3.3rem); }
   nav { border-right: 1px solid var(--line); background: var(--panel); padding: 1rem 0; }
@@ -505,7 +512,7 @@ const PORTAL_PAGE = `<!doctype html>
   [hidden] { display: none !important; }
   @media (max-width: 48rem) { .layout { grid-template-columns: 1fr; } nav { display: flex; flex-wrap: wrap; padding: .3rem; border-right: 0; border-bottom: 1px solid var(--line); } nav .group { display: none; } nav a { border-left: 0; border-bottom: 3px solid transparent; } nav a.on { border-bottom-color: var(--accent); } }
 </style>
-<div class="top"><a class="brand" href="https://agent-custody.dev/"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="32" cy="32" r="19" fill="none" stroke="#fff" stroke-width="4.5"/><path d="M22 33.5l7 6.5 13-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>agent-custody</a><span id="tenantTag" class="pill" hidden></span><span id="planTag" class="pill" hidden></span><span class="links"><a href="https://agent-custody.dev/guide/getting-started">Guide</a><a href="https://docs.agent-custody.dev/reference/">Docs</a><a href="https://agent-custody.dev/verify">Verify a receipt</a></span><span class="who" id="who"></span></div>
+<div class="top"><a class="brand" href="https://agent-custody.dev/"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="32" cy="32" r="19" fill="none" stroke="#fff" stroke-width="4.5"/><path d="M22 33.5l7 6.5 13-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>agent-custody</a><span id="tenantTag" class="pill" hidden></span><span id="planTag" class="pill" hidden></span><span class="links"><a href="https://agent-custody.dev/guide/getting-started">Guide</a><a href="https://docs.agent-custody.dev/reference/">Docs</a><a href="https://agent-custody.dev/verify">Verify a receipt</a></span><span class="who" id="who"></span><button class="theme" id="themeToggle" type="button">Dark mode</button></div>
 <section id="auth" class="auth" hidden>
   <h1 id="authTitle">Sign in</h1>
   <form id="authForm">
@@ -628,6 +635,11 @@ const PORTAL_PAGE = `<!doctype html>
     } catch (err) { $("authMsg").className = "msg err"; $("authMsg").textContent = err.message; }
   };
   $("copyFirst").onclick = () => navigator.clipboard.writeText($("firstToken").textContent);
+  // Light or dark by choice, kept in this browser; unset, the page follows the system. The button says where it is going.
+  const themeNow = () => document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const themeLabel = () => { $("themeToggle").textContent = themeNow() === "dark" ? "Light mode" : "Dark mode"; };
+  $("themeToggle").onclick = () => { const next = themeNow() === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; try { localStorage.setItem("agent-custody-theme", next); } catch {} themeLabel(); };
+  themeLabel();
   const snip = (text) => "<div class=snip><pre>" + esc(text) + "</pre><button type=button class=quiet data-copy>Copy</button></div>";
   const step = (n, title, body) => "<div class=step><span class=n>" + n + "</span><div><h3>" + title + "</h3>" + body + "</div></div>";
   const renderSetup = (el, s, atRegistration) => {

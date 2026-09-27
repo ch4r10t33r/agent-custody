@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.5 — 2026-09-27
+
+- **Site, #52:** the home page is one column: the claim, one action, and a real receipt from this repository's custody (the denied `git push --force`) with a control that opens it in the browser verifier, then the six steps as a numbered sequence. The VitePress hero and feature grid are gone; the docs keep the theme. `/verify?receipt=<id>` loads one of the site's own receipts with its keys and verifies it on arrival.
+- **Receipts, #52:** the tenant portal wears the site's mark and amber in its header, so registering reads as the next page of the same site.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.4 — 2026-09-27
 
 - **Receipts:** the admin page opens with a Registrations section: who registered each tenant through the portal, plan, billing state, appends in the chosen month, leaves in total, live tokens, with totals across tenants and a CSV. `GET /admin/registrations?month=` and `/admin/registrations.csv` behind the admin token; `PortalStore.registrations()` reads the portal's tables; the log server wires the portal store in when it runs on Postgres.

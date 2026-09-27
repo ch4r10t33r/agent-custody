@@ -1,39 +1,14 @@
 ---
-layout: home
-hero:
-  name: agent-custody
-  text: Proof of what your AI agents did
-  tagline: A signed receipt for every tool call an agent makes through the gateway. Who authorized it, what the agent saw, what it did, what depended on it. Checkable by anyone with the public keys.
-  actions:
-    - theme: brand
-      text: Get started
-      link: /guide/getting-started
-    - theme: alt
-      text: What a receipt proves
-      link: /receipts/#what-a-receipt-proves-and-what-it-does-not
-    - theme: alt
-      text: Verify a receipt
-      link: /verify
-features:
-  - title: Authorize
-    details: A human signs a grant. A gateway between the agent and its tools checks it, and a policy, on every call that goes through it.
-    link: /receipts/usage
-  - title: Execute
-    details: Only permitted calls reach the tool. For consequential tools the authorization is logged before the call goes out.
-    link: /receipts/usage
-  - title: Record
-    details: One signed receipt per call, allowed or denied, as a leaf in a Merkle log.
-    link: /receipts/
-  - title: Verify
-    details: Public keys and nothing else, in the shell or in the browser.
-    link: /verify
-  - title: Trace
-    details: Every belief cites the receipt that produced it. From one action or one wrong fact, find everything that depended on it.
-    link: /state/#blast-radius
-  - title: Remediate
-    details: Retract a belief and what it displaced returns. Forget a value from the ledger and the adapted stores, and the receipt records what each store answered.
-    link: /state/#certified-forget
+title: agent-custody
+layout: doc
+sidebar: false
+aside: false
+outline: false
+prev: false
+next: false
 ---
+
+<Home />
 
 ## What you are trusting
 

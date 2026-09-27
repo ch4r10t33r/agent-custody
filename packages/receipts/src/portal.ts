@@ -386,12 +386,12 @@ const PORTAL_PAGE = `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agent-custody</title>
 <style>
-  :root { color-scheme: light dark; --ink: #1b2430; --ink2: #5b6b7a; --line: #d7dfe5; --bg: #f5f7f9; --panel: #ffffff; --accent: #0f6e63; --accent-bg: #e8f3f1; --warn: #b3731a; --bad: #b3261e; --ok: #1f7a4d; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  @media (prefers-color-scheme: dark) { :root { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #4fc3b0; --accent-bg: #16302b; --warn: #e2b862; --bad: #ff8a80; --ok: #6fd39a; } }
+  :root { color-scheme: light dark; --ink: #1b2430; --ink2: #5b6b7a; --line: #d7dfe5; --bg: #f5f7f9; --panel: #ffffff; --accent: #b45309; --accent-bg: #fbf1dc; --warn: #8a5a00; --bad: #b3261e; --ok: #1f7a4d; --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  @media (prefers-color-scheme: dark) { :root { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #f59e0b; --accent-bg: #2d2412; --warn: #e2b862; --bad: #ff8a80; --ok: #6fd39a; } }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
   .top { display: flex; align-items: center; gap: 1rem; padding: .7rem 1.25rem; border-bottom: 1px solid var(--line); background: var(--panel); }
-  .brand { font-weight: 700; letter-spacing: .04em; } .brand b { color: var(--accent); }
+  .brand { font-weight: 700; letter-spacing: .04em; display: inline-flex; align-items: center; gap: .5rem; color: var(--ink); text-decoration: none; } .brand svg { width: 20px; height: 20px; display: block; } .brand rect { fill: var(--accent); }
   .top .links { margin-left: auto; display: flex; gap: .9rem; font-size: .9rem; } .top .links a { color: var(--accent); text-decoration: none; }
   .top .who { color: var(--ink2); font-size: .9rem; margin-left: .5rem; }
   .pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font: 600 .72rem/1.6 var(--mono); letter-spacing: .06em; text-transform: uppercase; background: var(--accent-bg); color: var(--accent); }
@@ -432,7 +432,7 @@ const PORTAL_PAGE = `<!doctype html>
   [hidden] { display: none !important; }
   @media (max-width: 48rem) { .layout { grid-template-columns: 1fr; } nav { display: flex; flex-wrap: wrap; padding: .3rem; border-right: 0; border-bottom: 1px solid var(--line); } nav .group { display: none; } nav a { border-left: 0; border-bottom: 3px solid transparent; } nav a.on { border-bottom-color: var(--accent); } }
 </style>
-<div class="top"><span class="brand"><b>◆</b> agent-custody</span><span id="tenantTag" class="pill" hidden></span><span id="planTag" class="pill" hidden></span><span class="links"><a href="https://agent-custody.dev/guide/getting-started">Guide</a><a href="https://docs.agent-custody.dev/reference/">Docs</a><a href="https://agent-custody.dev/verify">Verify a receipt</a></span><span class="who" id="who"></span></div>
+<div class="top"><a class="brand" href="https://agent-custody.dev/"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><circle cx="32" cy="32" r="19" fill="none" stroke="#fff" stroke-width="4.5"/><path d="M22 33.5l7 6.5 13-15" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>agent-custody</a><span id="tenantTag" class="pill" hidden></span><span id="planTag" class="pill" hidden></span><span class="links"><a href="https://agent-custody.dev/guide/getting-started">Guide</a><a href="https://docs.agent-custody.dev/reference/">Docs</a><a href="https://agent-custody.dev/verify">Verify a receipt</a></span><span class="who" id="who"></span></div>
 <section id="auth" class="auth" hidden>
   <h1 id="authTitle">Sign in</h1>
   <form id="authForm">

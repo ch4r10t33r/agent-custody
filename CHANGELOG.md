@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.8 — 2026-09-27
+
+- **Receipts:** the portal's welcome is five numbered steps with copy buttons (keep the key, point the gateway at the log, send the first receipt, what to hand a verifier, take your data), the log's addresses, and what the log does not do, instead of a monospaced sheet; the same page is under Setup in the dashboard whenever it is needed again. `/api/register` and `/api/overview` carry it as `setup`; the text `welcome` stays for scripts.
+- **Receipts:** registration sends mail: a welcome to the person with the setup sheet and never the key, and, with `--mail-notify`, a note to the operator with the contact details. Through Resend's HTTP API with no dependency (`MailOptions`, `--mail-key-env`, `--mail-from`, `--mail-notify`; `MAIL_API_KEY`, `MAIL_FROM`, `MAIL_NOTIFY` in the container). Best effort: a provider failure is logged and never fails a registration.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.7 — 2026-09-27
 
 - **Receipts:** registration asks who is registering: name and company or organisation are required, role, phone, and Telegram username optional; the tenant id is filled in from the company name, explained as the path of the log, and previewed as the full URL before the form is sent. `PortalStore.createUser` takes the profile; `portal_users` gains the columns on start. The admin page's Registrations section and `/admin/registrations[.csv]` show who and how to reach them.

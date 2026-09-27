@@ -15,7 +15,7 @@ import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey,
 import { fetchWitnessKeys, Witness } from "./witness.ts";
 import { checkLog, formatLogCheck } from "./log-check.ts";
 import { serveHttp } from "./gateway-http.ts";
-import { PortalStore, servePortal, type StripeOptions } from "./portal.ts";
+import { PortalStore, servePortal, type MailOptions, type StripeOptions } from "./portal.ts";
 import { exportLog, formatExport } from "./log-export.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
@@ -256,8 +256,15 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     case "portal": {
-      const { values } = parseArgs({ args: rest, options: { "db-env": { type: "string" }, "secret-env": { type: "string" }, "public-url": { type: "string" }, "checkpoints-url": { type: "string" }, "portal-url": { type: "string" }, port: { type: "string", default: "8792" }, host: { type: "string", default: "127.0.0.1" }, "stripe-key-env": { type: "string" }, "stripe-webhook-env": { type: "string" }, "stripe-price-team": { type: "string" }, "trust-proxy": { type: "boolean", default: false } } });
+      const { values } = parseArgs({ args: rest, options: { "db-env": { type: "string" }, "secret-env": { type: "string" }, "public-url": { type: "string" }, "checkpoints-url": { type: "string" }, "portal-url": { type: "string" }, port: { type: "string", default: "8792" }, host: { type: "string", default: "127.0.0.1" }, "stripe-key-env": { type: "string" }, "stripe-webhook-env": { type: "string" }, "stripe-price-team": { type: "string" }, "mail-key-env": { type: "string" }, "mail-from": { type: "string" }, "mail-notify": { type: "string" }, "trust-proxy": { type: "boolean", default: false } } });
       if (!values["db-env"] || !values["secret-env"] || !values["public-url"]) throw new Error("portal needs --db-env, --secret-env, and --public-url");
+      let mail: MailOptions | undefined;
+      if (values["mail-key-env"] || values["mail-from"]) {
+        if (!values["mail-key-env"] || !values["mail-from"]) throw new Error("mail needs both --mail-key-env and --mail-from");
+        const apiKey = process.env[values["mail-key-env"]];
+        if (!apiKey) throw new Error(`portal: environment variable ${values["mail-key-env"]} is not set`);
+        mail = { apiKey, from: values["mail-from"], ...(values["mail-notify"] ? { notify: values["mail-notify"] } : {}) };
+      }
       const secret = process.env[values["secret-env"]];
       if (!secret || secret.length < 32) throw new Error(`environment variable ${values["secret-env"]} must hold a secret of at least 32 characters`);
       let stripe: StripeOptions | undefined;
@@ -276,7 +283,7 @@ async function main(argv: string[]): Promise<number> {
       } catch {
         // the log may not be reachable from here at start; the sheet then omits the keyid
       }
-      const running = await servePortal({ tenancy, client, secret, publicUrl: values["public-url"], ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}), ...(values["portal-url"] ? { portalUrl: values["portal-url"] } : {}), ...(keyid ? { keyid } : {}), ...(stripe ? { stripe } : {}), trustProxy: values["trust-proxy"] }, { port: Number(values.port), host: values.host });
+      const running = await servePortal({ tenancy, client, secret, publicUrl: values["public-url"], ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}), ...(values["portal-url"] ? { portalUrl: values["portal-url"] } : {}), ...(keyid ? { keyid } : {}), ...(stripe ? { stripe } : {}), ...(mail ? { mail } : {}), trustProxy: values["trust-proxy"] }, { port: Number(values.port), host: values.host });
       console.error(`agent-custody portal: ${running.url} log=${values["public-url"]} billing=${stripe ? "stripe" : "off"}${values["trust-proxy"] ? " trust-proxy" : ""}`);
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       await running.close();

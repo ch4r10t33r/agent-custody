@@ -7,7 +7,7 @@ export { openExporter, otlpExporter, spanFor } from "./otel.ts";
 export { hecEvent, splunkExporter } from "./splunk.ts";
 export { GRANT_HEADER, grantHeader, parseGrantHeader, serveHttp } from "./gateway-http.ts";
 export { PortalStore, portalHandler, readSession, servePortal, signSession, stripeRequest, verifyStripeSignature } from "./portal.ts";
-export type { PortalOptions, PortalUser, RunningPortal, StripeOptions } from "./portal.ts";
+export type { MailOptions, PortalOptions, PortalUser, Profile, RunningPortal, StripeOptions } from "./portal.ts";
 export type { HttpGatewayOptions, RunningHttpGateway } from "./gateway-http.ts";
 export { exportLog, formatExport } from "./log-export.ts";
 export type { ExportOptions, ExportResult } from "./log-export.ts";

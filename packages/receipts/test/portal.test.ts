@@ -4,6 +4,7 @@
 // beside the portal on the same tenancy so the dashboard's numbers come from real appends; Stripe is a stand-in
 // that answers the two calls the portal makes.
 import { createHmac } from "node:crypto";
+import { Script } from "node:vm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { generateKeyPair } from "../src/crypto.ts";
@@ -90,7 +91,11 @@ describe("the tenant portal", () => {
     expect(mails[0]!.text).not.toContain(r.json.token);
     expect(mails[1]!.text).toContain("+44 20 7946 0000");
     expect(mails[1]!.text).toContain("@dana_ortiz");
-    const page = await (await fetch(portal.url)).text();
+    const pageRes = await fetch(portal.url);
+    const page = await pageRes.text();
+    // the page's own script must parse: a quote escaped once inside the TypeScript template literal once left the page blank
+    for (const m of page.matchAll(/<script>([\s\S]*?)<\/script>/g)) new Script(m[1]!);
+    expect(pageRes.headers.get("content-security-policy")).toContain("img-src 'self'");
     expect(page).toContain('data-view="setup"');
     expect(page).toContain('rel="icon" href="/favicon.svg"');
     expect(page).toContain('id="themeToggle"');

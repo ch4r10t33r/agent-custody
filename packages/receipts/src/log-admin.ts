@@ -122,7 +122,7 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
       return json(401, { error: "admin token required" }, { "www-authenticate": 'Basic realm="agent-custody log admin", charset="UTF-8"' }), true;
     }
     if (req.method === "GET" && url.pathname === "/admin") {
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'" });
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'" });
       res.end(ADMIN_PAGE);
       return true;
     }
@@ -337,7 +337,7 @@ const ADMIN_PAGE = `<!doctype html>
     $("rcsv").href = "/admin/registrations.csv?month=" + encodeURIComponent(month);
     $("sTenants").textContent = r.totals.tenants; $("sRegistered").textContent = r.totals.registered; $("sAppends").textContent = r.totals.appends; $("sLeaves").textContent = r.totals.totalLeaves;
     const who = (x) => x.email ? esc(x.name || "") + (x.company ? " <span class=muted>· " + esc(x.company) + (x.role ? ", " + esc(x.role) : "") + "</span>" : "") : "<span class=muted>onboarded by script</span>";
-    const reach = (x) => [x.email ? "<a href=\"mailto:" + esc(x.email) + "\">" + esc(x.email) + "</a>" : "", x.phone ? esc(x.phone) : "", x.telegram ? "telegram @" + esc(x.telegram) : ""].filter(Boolean).join("<br>");
+    const reach = (x) => [x.email ? "<a href=\\"mailto:" + esc(x.email) + "\\">" + esc(x.email) + "</a>" : "", x.phone ? esc(x.phone) : "", x.telegram ? "telegram @" + esc(x.telegram) : ""].filter(Boolean).join("<br>");
     $("regs").innerHTML = r.rows.map((x) => "<tr><td>" + who(x) + "</td><td>" + reach(x) + "</td><td><code>" + esc(x.tenant) + "</code>" + (x.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td>" + esc(x.plan) + "</td><td>" + (x.registeredAt ? esc(x.registeredAt.slice(0, 10)) : "") + "</td><td>" + (x.billing ? esc(x.billing) : "<span class=muted>none</span>") + "</td><td>" + x.appends + (x.quota === null ? "" : " <span class=muted>/ " + x.quota + "</span>") + "</td><td>" + x.totalLeaves + "</td><td>" + x.liveTokens + "</td></tr>").join("") || "<tr><td colspan=9 class=muted>no tenants</td></tr>";
   };
   const loadAudit = async () => {

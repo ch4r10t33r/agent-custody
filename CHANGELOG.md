@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.10 — 2026-09-27
+
+- **Receipts, fix:** the portal and the admin page were blank on 0.6.8 and 0.6.9: a quote escaped once inside the page's template literal made the inline script fail to parse. Fixed, and both tests now compile every inline script. The pages' Content Security Policy allows the favicon (`img-src 'self'`).
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.9 — 2026-09-27
 
 - **Receipts:** the portal and the admin page have a dark mode switch (a choice kept in the browser; unset, they follow the system) and carry the mark as their favicon; the portal serves `/favicon.svg`.

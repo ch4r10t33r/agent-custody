@@ -200,7 +200,7 @@ describe("plans and quotas", () => {
 describe("registrations", () => {
   it("lists every tenant with who registered it through the portal, its plan and billing state, appends in the month asked for and leaves in total, with totals; a scripted tenant has no email; the CSV carries the same rows", async () => {
     // the operator wants one screen answering: who signed up, on what plan, paying or not, how much have they logged
-    const user = await portal.createUser("ops@buyer.example", "correct horse battery staple");
+    const user = await portal.createUser("ops@buyer.example", "correct horse battery staple", { name: "Ola Buyer", company: "Buyer GmbH", role: "CISO", phone: "+49 30 1234", telegram: "olabuyer" });
     await tenancy.addTenant("buyer", "buyer-eu", "test");
     await portal.addMember(user.id, "buyer");
     await portal.setBilling("buyer", { customerId: "cus_1", subscriptionId: "sub_1", status: "active" });
@@ -211,10 +211,10 @@ describe("registrations", () => {
     const r = (await (await call("GET", `admin/registrations?month=${month}`)).json()) as { month: string; rows: Record<string, unknown>[]; totals: Record<string, number> };
     expect(r.month).toBe(month);
     const buyer = r.rows.find((x) => x.tenant === "buyer");
-    expect(buyer).toMatchObject({ tenant: "buyer", logId: "buyer-eu", plan: "team", email: "ops@buyer.example", billing: "active", appends: 3, quota: 1_000_000, totalLeaves: 3, liveTokens: 1, disabled: false });
+    expect(buyer).toMatchObject({ tenant: "buyer", logId: "buyer-eu", plan: "team", email: "ops@buyer.example", name: "Ola Buyer", company: "Buyer GmbH", role: "CISO", phone: "+49 30 1234", telegram: "olabuyer", billing: "active", appends: 3, quota: 1_000_000, totalLeaves: 3, liveTokens: 1, disabled: false });
     expect(typeof buyer?.registeredAt).toBe("string");
     // "default" was added by the test setup, not through the portal: it is listed, with nothing to say about who
-    expect(r.rows.find((x) => x.tenant === "default")).toMatchObject({ email: null, registeredAt: null, billing: null });
+    expect(r.rows.find((x) => x.tenant === "default")).toMatchObject({ email: null, name: null, company: null, registeredAt: null, billing: null });
     expect(r.totals.tenants).toBe(r.rows.length);
     expect(r.totals.registered).toBe(1);
     expect(r.totals.appends).toBe(r.rows.reduce((n, x) => n + (x.appends as number), 0));
@@ -226,12 +226,13 @@ describe("registrations", () => {
     const csv = await call("GET", `admin/registrations.csv?month=${month}`);
     expect(csv.headers.get("content-type")).toMatch(/text\/csv/);
     const lines = (await csv.text()).trim().split("\n");
-    expect(lines[0]).toBe("month,tenant,log_id,plan,email,registered_at,billing,appends,quota,total_leaves,live_tokens,disabled");
-    expect(lines.find((l) => l.includes(",buyer,"))).toMatch(new RegExp(`^${month},buyer,buyer-eu,team,ops@buyer.example,\\d{4}-.*,active,3,1000000,3,1,false$`));
+    expect(lines[0]).toBe("month,tenant,log_id,plan,email,name,company,role,phone,telegram,registered_at,billing,appends,quota,total_leaves,live_tokens,disabled");
+    expect(lines.find((l) => l.includes(",buyer,"))).toMatch(new RegExp(`^${month},buyer,buyer-eu,team,ops@buyer.example,Ola Buyer,Buyer GmbH,CISO,\\+49 30 1234,olabuyer,\\d{4}-.*,active,3,1000000,3,1,false$`));
     expect([401, 429]).toContain((await call("GET", "admin/registrations", undefined, null)).status); // no token: refused, or throttled by the earlier wrong attempts from this address
     // the page carries the section and its numbers come from the same route
     const html = await (await call("GET", "admin")).text();
     expect(html).toContain("/admin/registrations?month=");
     expect(html).toContain("registered through the portal");
+    expect(html).toContain("<th>who</th><th>reach</th>");
   });
 });

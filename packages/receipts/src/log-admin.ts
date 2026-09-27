@@ -78,22 +78,22 @@ export function welcomeSheet(o: { tenant: string; logId: string; publicUrl: stri
  *   POST /admin/tenants/:id/tokens/:prefix/revoke { revoked }
  *   GET  /admin/usage?month=YYYY-MM              { month, tenants: [{ id, logId, appends, totalLeaves, liveTokens, disabled }] }
  *   GET  /admin/usage.csv?month=YYYY-MM          the same as CSV, for an invoice
- *   GET  /admin/registrations?month=YYYY-MM      { month, rows: [{ tenant, logId, plan, email, registeredAt, billing, appends, quota, totalLeaves, liveTokens, disabled }], totals }
+ *   GET  /admin/registrations?month=YYYY-MM      { month, rows: [{ tenant, logId, plan, email, name, company, role, phone, telegram, registeredAt, billing, appends, quota, totalLeaves, liveTokens, disabled }], totals }
  *   GET  /admin/registrations.csv?month=YYYY-MM  the same as CSV
  */
 /** One row per tenant: who registered it through the portal (null when it was onboarded by script), its plan and billing
  *  state, appends in the month asked for, and leaves in total; plus the totals across tenants. */
 export async function registrations(tenancy: PostgresTenancy, portal: PortalStore | undefined, month: string): Promise<{ month: string; rows: RegistrationRow[]; totals: { tenants: number; registered: number; appends: number; totalLeaves: number } }> {
   const usage = await tenancy.usage(month);
-  const who = new Map<string, { email: string; registeredAt: string; billing: string | null }>();
+  const who = new Map<string, { email: string; registeredAt: string; billing: string | null; name?: string | null; company?: string | null; role?: string | null; phone?: string | null; telegram?: string | null }>();
   for (const r of portal ? await portal.registrations() : []) if (!who.has(r.tenantId)) who.set(r.tenantId, r);
   const rows = usage.tenants.map((t) => {
     const w = who.get(t.id);
-    return { tenant: t.id, logId: t.logId, plan: t.plan, email: w?.email ?? null, registeredAt: w?.registeredAt ?? null, billing: w?.billing ?? null, appends: t.appends, quota: t.quota, totalLeaves: t.totalLeaves, liveTokens: t.liveTokens, disabled: t.disabled };
+    return { tenant: t.id, logId: t.logId, plan: t.plan, email: w?.email ?? null, name: w?.name ?? null, company: w?.company ?? null, role: w?.role ?? null, phone: w?.phone ?? null, telegram: w?.telegram ?? null, registeredAt: w?.registeredAt ?? null, billing: w?.billing ?? null, appends: t.appends, quota: t.quota, totalLeaves: t.totalLeaves, liveTokens: t.liveTokens, disabled: t.disabled };
   });
   return { month: usage.month, rows, totals: { tenants: rows.length, registered: rows.filter((r) => r.email).length, appends: rows.reduce((n, r) => n + r.appends, 0), totalLeaves: rows.reduce((n, r) => n + r.totalLeaves, 0) } };
 }
-export interface RegistrationRow { tenant: string; logId: string; plan: Plan; email: string | null; registeredAt: string | null; billing: string | null; appends: number; quota: number | null; totalLeaves: number; liveTokens: number; disabled: boolean }
+export interface RegistrationRow { tenant: string; logId: string; plan: Plan; email: string | null; name: string | null; company: string | null; role: string | null; phone: string | null; telegram: string | null; registeredAt: string | null; billing: string | null; appends: number; quota: number | null; totalLeaves: number; liveTokens: number; disabled: boolean }
 
 export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> {
   // Five wrong tokens from one address, then one more a minute: enough to stop guessing, not enough to lock out a typo.
@@ -154,7 +154,7 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "registrations.csv") {
         const r = await registrations(t, opts.portal, month);
         const cell = (v: unknown) => (v === null ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
-        const csv = ["month,tenant,log_id,plan,email,registered_at,billing,appends,quota,total_leaves,live_tokens,disabled", ...r.rows.map((x) => [r.month, x.tenant, x.logId, x.plan, x.email, x.registeredAt, x.billing, x.appends, x.quota, x.totalLeaves, x.liveTokens, x.disabled].map(cell).join(","))].join("\n") + "\n";
+        const csv = ["month,tenant,log_id,plan,email,name,company,role,phone,telegram,registered_at,billing,appends,quota,total_leaves,live_tokens,disabled", ...r.rows.map((x) => [r.month, x.tenant, x.logId, x.plan, x.email, x.name, x.company, x.role, x.phone, x.telegram, x.registeredAt, x.billing, x.appends, x.quota, x.totalLeaves, x.liveTokens, x.disabled].map(cell).join(","))].join("\n") + "\n";
         res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="agent-custody-registrations-${r.month}.csv"`, "cache-control": "no-store" });
         res.end(csv);
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "audit") {
@@ -237,7 +237,7 @@ const ADMIN_PAGE = `<!doctype html>
     <h2>Registrations</h2>
     <div class="row"><label>month<input id="rmonth" type="month"></label><button class="quiet" id="loadRegs">Show</button><a id="rcsv" class="quiet" href="#" style="align-self:center">Download CSV</a></div>
     <div class="stats"><div class="stat"><b id="sTenants">–</b><span>tenants</span></div><div class="stat"><b id="sRegistered">–</b><span>registered through the portal</span></div><div class="stat"><b id="sAppends">–</b><span>appends this month</span></div><div class="stat"><b id="sLeaves">–</b><span>leaves in total</span></div></div>
-    <table><thead><tr><th>email</th><th>tenant</th><th>plan</th><th>registered</th><th>billing</th><th>appends this month</th><th>leaves in total</th><th>live tokens</th></tr></thead><tbody id="regs"></tbody></table>
+    <table><thead><tr><th>who</th><th>reach</th><th>tenant</th><th>plan</th><th>registered</th><th>billing</th><th>appends this month</th><th>leaves in total</th><th>live tokens</th></tr></thead><tbody id="regs"></tbody></table>
     <h2>Tenants</h2>
     <table><thead><tr><th>tenant</th><th>log id</th><th>plan</th><th>live tokens</th><th>created</th><th></th></tr></thead><tbody id="tenants"></tbody></table>
     <h2>New tenant</h2>
@@ -326,7 +326,9 @@ const ADMIN_PAGE = `<!doctype html>
     const r = await api("GET", "/admin/registrations?month=" + encodeURIComponent(month));
     $("rcsv").href = "/admin/registrations.csv?month=" + encodeURIComponent(month);
     $("sTenants").textContent = r.totals.tenants; $("sRegistered").textContent = r.totals.registered; $("sAppends").textContent = r.totals.appends; $("sLeaves").textContent = r.totals.totalLeaves;
-    $("regs").innerHTML = r.rows.map((x) => "<tr><td>" + (x.email ? esc(x.email) : "<span class=muted>onboarded by script</span>") + "</td><td><code>" + esc(x.tenant) + "</code>" + (x.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td>" + esc(x.plan) + "</td><td>" + (x.registeredAt ? esc(x.registeredAt.slice(0, 10)) : "") + "</td><td>" + (x.billing ? esc(x.billing) : "<span class=muted>none</span>") + "</td><td>" + x.appends + (x.quota === null ? "" : " <span class=muted>/ " + x.quota + "</span>") + "</td><td>" + x.totalLeaves + "</td><td>" + x.liveTokens + "</td></tr>").join("") || "<tr><td colspan=8 class=muted>no tenants</td></tr>";
+    const who = (x) => x.email ? esc(x.name || "") + (x.company ? " <span class=muted>· " + esc(x.company) + (x.role ? ", " + esc(x.role) : "") + "</span>" : "") : "<span class=muted>onboarded by script</span>";
+    const reach = (x) => [x.email ? "<a href=\"mailto:" + esc(x.email) + "\">" + esc(x.email) + "</a>" : "", x.phone ? esc(x.phone) : "", x.telegram ? "telegram @" + esc(x.telegram) : ""].filter(Boolean).join("<br>");
+    $("regs").innerHTML = r.rows.map((x) => "<tr><td>" + who(x) + "</td><td>" + reach(x) + "</td><td><code>" + esc(x.tenant) + "</code>" + (x.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td>" + esc(x.plan) + "</td><td>" + (x.registeredAt ? esc(x.registeredAt.slice(0, 10)) : "") + "</td><td>" + (x.billing ? esc(x.billing) : "<span class=muted>none</span>") + "</td><td>" + x.appends + (x.quota === null ? "" : " <span class=muted>/ " + x.quota + "</span>") + "</td><td>" + x.totalLeaves + "</td><td>" + x.liveTokens + "</td></tr>").join("") || "<tr><td colspan=9 class=muted>no tenants</td></tr>";
   };
   const loadAudit = async () => {
     const a = await api("GET", "/admin/audit?limit=100");

@@ -48,9 +48,10 @@ export default withMermaid(
     },
     cleanUrls: true,
     head: [
-      ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
-      ["link", { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32.png" }],
-      ["link", { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" }],
+      // ?v= changes when the mark changes, so browsers that cached the old favicon fetch the new one
+      ["link", { rel: "icon", type: "image/svg+xml", href: "/favicon.svg?v=2" }],
+      ["link", { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32.png?v=2" }],
+      ["link", { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png?v=2" }],
       ["meta", { name: "theme-color", content: "#b45309" }],
       ["meta", { property: "og:title", content: "agent-custody" }],
       ["meta", { property: "og:description", content: "Proof of what your AI agents did: every tool call becomes signed evidence of who authorized it, what the agent saw, what it did, and what depended on it, verifiable by anyone with the public keys." }],
@@ -68,7 +69,7 @@ export default withMermaid(
       ? [["link", { rel: "preconnect", href: "https://fonts.googleapis.com" }], ["link", { rel: "preconnect", href: "https://fonts.gstatic.com", crossorigin: "" }], ["link", { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500&display=swap" }]]
       : [],
     themeConfig: {
-      logo: "/logo.svg",
+      logo: "/logo.svg?v=2",
       // Five entries (issue #52). Receipts, State, Python, the spec, and security live in the sidebar under Docs.
       nav: [
         { text: "Product", link: "/" },

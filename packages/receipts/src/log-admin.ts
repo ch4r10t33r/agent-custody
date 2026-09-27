@@ -204,9 +204,12 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
 const ADMIN_PAGE = `<!doctype html>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>agent-custody log admin</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script>(() => { try { const t = localStorage.getItem("agent-custody-theme"); if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; } catch {} })();</script>
 <style>
   :root { color-scheme: light dark; --ink: #1b2430; --ink2: #5b6b7a; --line: #d7dfe5; --bg: #fafbfc; --panel: #ffffff; --accent: #0f6e63; --warn: #8a5a00; --warnbg: #fbf1dc; --mono: ui-monospace, Menlo, monospace; }
-  @media (prefers-color-scheme: dark) { :root { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #4fc3b0; --warn: #e2b862; --warnbg: #2d2412; } }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #4fc3b0; --warn: #e2b862; --warnbg: #2d2412; } }
+  :root[data-theme="dark"] { --ink: #e6ecf0; --ink2: #9fb0bd; --line: #27333c; --bg: #0e1418; --panel: #151d23; --accent: #4fc3b0; --warn: #e2b862; --warnbg: #2d2412; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
   main { max-width: 72rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
   h1 { font-size: 1.4rem; margin: 0 0 .25rem; } h2 { font-size: 1.05rem; margin: 2rem 0 .75rem; }
@@ -225,14 +228,16 @@ const ADMIN_PAGE = `<!doctype html>
   .once { border-left: 3px solid var(--warn); background: var(--warnbg); padding: .8rem 1rem; border-radius: 0 4px 4px 0; margin: 1rem 0; }
   .muted { color: var(--ink2); } .err { color: #b3261e; } .ok { color: var(--accent); }
   .tok { font-family: var(--mono); font-size: 1.05rem; word-break: break-all; user-select: all; }
+  .head { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }
+  button.theme { background: transparent; color: var(--ink2); border: 1px solid var(--line); padding: .25rem .6rem; font-size: .8rem; border-radius: 4px; } button.theme:hover { color: var(--ink); }
   [hidden] { display: none !important; }
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .6rem; margin: 0 0 1rem; }
   .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: .6rem .8rem; }
   .stat b { display: block; font-size: 1.4rem; font-variant-numeric: tabular-nums; } .stat span { color: var(--ink2); font-size: .8rem; }
 </style>
 <main>
-  <h1>Log admin</h1>
-  <p class="sub" id="where">Tenants and tokens on this log.</p>
+  <div class="head"><div><h1>Log admin</h1>
+  <p class="sub" id="where">Tenants and tokens on this log.</p></div><button class="theme" id="themeToggle" type="button">Dark mode</button></div>
   <section id="app">
     <h2>Registrations</h2>
     <div class="row"><label>month<input id="rmonth" type="month"></label><button class="quiet" id="loadRegs">Show</button><a id="rcsv" class="quiet" href="#" style="align-self:center">Download CSV</a></div>
@@ -283,6 +288,11 @@ const ADMIN_PAGE = `<!doctype html>
   };
   const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const say = (t, cls) => { $("msg").textContent = t; $("msg").className = cls || "muted"; };
+  // Light or dark by choice, kept in this browser; unset, the page follows the system. The button says where it is going.
+  const themeNow = () => document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const themeLabel = () => { $("themeToggle").textContent = themeNow() === "dark" ? "Light mode" : "Dark mode"; };
+  $("themeToggle").onclick = () => { const next = themeNow() === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = next; try { localStorage.setItem("agent-custody-theme", next); } catch {} themeLabel(); };
+  themeLabel();
   const loadTenants = async () => {
     const list = await api("GET", "/admin/tenants");
     const planPick = (t) => "<select data-plan=\\"" + esc(t.id) + "\\">" + ["free", "team", "enterprise"].map((p) => "<option" + (p === t.plan ? " selected" : "") + ">" + p + "</option>").join("") + "</select>";

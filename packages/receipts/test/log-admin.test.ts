@@ -43,6 +43,8 @@ describe("the admin surface", () => {
     expect(html).toContain("Log admin");
     expect(html).not.toMatch(/https?:\/\/(?!agent-custody\.dev)/); // no third-party requests
     expect(html).not.toContain("sessionStorage");
+    expect(html).toContain('id="themeToggle"');
+    expect(html).toContain(':root[data-theme="dark"]');
     for (const [m, p] of [["GET", "admin/tenants"], ["POST", "admin/tenants"], ["GET", "admin/info"]] as const) {
       expect((await call(m, p, m === "POST" ? { id: "x" } : undefined, null)).status).toBe(401);
     }

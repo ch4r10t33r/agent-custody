@@ -92,6 +92,12 @@ describe("the tenant portal", () => {
     expect(mails[1]!.text).toContain("@dana_ortiz");
     const page = await (await fetch(portal.url)).text();
     expect(page).toContain('data-view="setup"');
+    expect(page).toContain('rel="icon" href="/favicon.svg"');
+    expect(page).toContain('id="themeToggle"');
+    expect(page).toContain(':root[data-theme="dark"]');
+    const icon = await fetch(new URL("favicon.svg", portal.url));
+    expect(icon.status).toBe(200);
+    expect(icon.headers.get("content-type")).toBe("image/svg+xml");
     const me = await b.call("GET", "/api/me");
     expect(me.json).toMatchObject({ email: "dana@example.com", tenant: "acme", plan: "free", used: 0, quota: 3, billing: true });
     // the key works on the log; the dashboard reflects the appends

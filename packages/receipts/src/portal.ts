@@ -132,6 +132,12 @@ export class PortalStore {
     const r = rows[0];
     return r ? { customerId: r.customer_id ? String(r.customer_id) : null, subscriptionId: r.subscription_id ? String(r.subscription_id) : null, status: String(r.status) } : null;
   }
+  /** Every portal registration with its tenant and billing state, oldest first: what the operator's admin page lists. */
+  async registrations(): Promise<{ tenantId: string; email: string; registeredAt: string; billing: string | null }[]> {
+    await this.init();
+    const rows = (await this.client.query(`SELECT m.tenant_id, u.email, u.created_at, b.status FROM ${this.p}members m JOIN ${this.p}users u ON u.id = m.user_id LEFT JOIN ${this.p}billing b ON b.tenant_id = m.tenant_id ORDER BY u.created_at, m.tenant_id`)).rows as Record<string, unknown>[];
+    return rows.map((r) => ({ tenantId: String(r.tenant_id), email: String(r.email), registeredAt: new Date(r.created_at as string).toISOString(), billing: r.status ? String(r.status) : null }));
+  }
   async tenantBySubscription(subscriptionId: string): Promise<string | null> {
     await this.init();
     const rows = (await this.client.query(`SELECT tenant_id FROM ${this.p}billing WHERE subscription_id = $1`, [subscriptionId])).rows as { tenant_id: string }[];

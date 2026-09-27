@@ -66,6 +66,25 @@
 	reverse_proxy portal:8792
 }
 
+# The operator's admin page on its own host. ADMIN_HOST comes from .env; unset, a *.localhost name nobody reaches.
+# Everything is the log service's /admin surface: the root becomes /admin, any other path is prefixed, and the page's
+# own /admin/... requests pass through. The admin token is still required for every request; the host is a name, not
+# a gate.
+{$ADMIN_HOST:admin.localhost} {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+	@root path /
+	rewrite @root /admin
+	@notadmin not path /admin /admin/*
+	rewrite @notadmin /admin{uri}
+	reverse_proxy log:8787
+}
+
 # The published checkpoints: plain files, one per tree size and a latest.json per log, served read-only. No directory
 # listing; the root says what the host is and where the files are.
 {$CHECKPOINTS_HOST} {

@@ -147,6 +147,7 @@ services:
       # every host block in the Caddyfile has a *.localhost default, so an unset host is harmless, never a crash
       PORTAL_HOST: ${PORTAL_HOST:-}
       DOCS_HOST: ${DOCS_HOST:-}
+      ADMIN_HOST: ${ADMIN_HOST:-}
     ports:
       - "80:80"
       - "443:443"

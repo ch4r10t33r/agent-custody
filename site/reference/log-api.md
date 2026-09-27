@@ -78,7 +78,7 @@ Every `--checkpoint-every` seconds (default 300) the server signs the head of ea
 
 ### The admin API
 
-Behind `--admin-token-env`, token as `Authorization: Bearer` or as the password of HTTP Basic. `GET /admin` is the page. `GET /admin/tenants`, `POST /admin/tenants { id, logId? }`, `POST /admin/tenants/<id>/disable`, `POST /admin/tenants/<id>/plan { plan }`, `GET /admin/tenants/<id>/tokens`, `POST /admin/tenants/<id>/tokens { label }` → `{ token, tokenHash, welcome }`, `POST /admin/tenants/<id>/tokens/<hash prefix>/revoke` → `{ revoked }`, `GET /admin/usage?month=` and `/admin/usage.csv`, `GET /admin/audit?tenant=&limit=`, `GET /admin/info`. Wrong tokens from one address are throttled.
+Behind `--admin-token-env`, token as `Authorization: Bearer` or as the password of HTTP Basic. `GET /admin` is the page. `GET /admin/tenants`, `POST /admin/tenants { id, logId? }`, `POST /admin/tenants/<id>/disable`, `POST /admin/tenants/<id>/plan { plan }`, `GET /admin/tenants/<id>/tokens`, `POST /admin/tenants/<id>/tokens { label }` → `{ token, tokenHash, welcome }`, `POST /admin/tenants/<id>/tokens/<hash prefix>/revoke` → `{ revoked }`, `GET /admin/usage?month=` and `/admin/usage.csv`, `GET /admin/registrations?month=` → `{ month, rows: [{ tenant, logId, plan, email, registeredAt, billing, appends, quota, totalLeaves, liveTokens, disabled }], totals: { tenants, registered, appends, totalLeaves } }` (email, registeredAt, and billing are null for a tenant onboarded by script rather than through the portal; the month defaults to the current one) and `/admin/registrations.csv`, `GET /admin/audit?tenant=&limit=`, `GET /admin/info`. Wrong tokens from one address are throttled.
 
 ## The witness
 

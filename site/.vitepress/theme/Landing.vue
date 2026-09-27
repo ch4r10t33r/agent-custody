@@ -73,11 +73,11 @@ const year = new Date().getUTCFullYear();
       </section>
 
       <figure class="promo">
-        <video controls playsinline preload="none" poster="/promo-poster.jpg" width="1920" height="1080" aria-label="A 63-second narrated film: Maya, head of support, signs a grant for her support agent. A customer's £500 refund goes through the gateway to Stripe. A line slipped into a ticket makes the agent try a £5,000 refund, and the gateway denies it before it reaches Stripe. The signed receipt is logged in a Merkle log, an auditor verifies it with public keys, and an edited receipt fails verification.">
+        <video controls playsinline preload="none" poster="/promo-poster.jpg" width="1920" height="1080" aria-label="A 93-second narrated film. The problem: an AI agent's only record is its own log. The solution: a gateway between agents and their tools that signs a receipt for every call. How it works: a person signs a grant, the gateway checks each call against it and a policy, and each receipt's hash goes into a Merkle log anyone can check with public keys. Then an example: Maya, head of support, grants her agent refunds up to £1,000; a £500 refund goes through, a line slipped into a ticket makes the agent try £5,000, the gateway denies it before it reaches Stripe, and an auditor verifies the receipt.">
           <source src="/promo.mp4" type="video/mp4" />
           <track kind="captions" src="/promo.vtt" srclang="en" label="English" />
         </video>
-        <figcaption>A refund agent, a prompt injection, and the receipt that settles it. The receipts are real ones from <code>bun run demo</code>, against a stand-in Stripe; 63 seconds, narrated, with captions, and nothing loads until you press play.</figcaption>
+        <figcaption>What agent-custody is, how it works, and a refund agent caught by a prompt injection. The receipts in it are real ones from <code>bun run demo</code>, against a stand-in Stripe; 93 seconds, narrated, with captions, and nothing loads until you press play.</figcaption>
       </figure>
 
       <Flow />

@@ -60,7 +60,7 @@ agent-custody audit --older receipts/<earlier>.json --newer receipts/<later>.jso
 
 ## In the browser
 
-[agent-custody.dev/verify](https://agent-custody.dev/verify) runs the same checks in the page with the Web Crypto API; a receipt dropped on it never leaves the browser. It passes every published [conformance vector](https://agent-custody.dev/receipt/vectors), as the package does.
+[agent-custody.dev/verify](https://agent-custody.dev/verify) runs the same checks in the page with the Web Crypto API; a receipt dropped on it never leaves the browser. `/verify?receipt=<id>` opens one of the site's own receipts from `/custody/<id>.json` with the agent's key and the log's key and verifies it at once; only that path on that origin is ever fetched. It passes every published [conformance vector](https://agent-custody.dev/receipt/vectors), as the package does.
 
 ## `log-check`
 

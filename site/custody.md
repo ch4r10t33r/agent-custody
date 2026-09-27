@@ -54,7 +54,7 @@ curl -sO https://agent-custody.dev/custody/claude-code.pub
 npx @agent-custody/receipts verify 47eb52af-9cd0-4428-bbdc-b44c04a1f266.json --issuer-key claude-code.pub --log-url https://log.agent-custody.dev/ --log-id agent-custody
 ```
 
-`--log-url` fetches and pins the log's published keys; `--log-id` requires the tree head to be this tenant's. Or drop the file on the [browser verifier](/verify) with the same key. Every check is listed in [verification](/receipts/verification).
+`--log-url` fetches and pins the log's published keys; `--log-id` requires the tree head to be this tenant's. Or open it in the [browser verifier](/verify?receipt=47eb52af-9cd0-4428-bbdc-b44c04a1f266), which loads the receipt, the agent's key, and the log's key from this site and runs every check in the page. Every check is listed in [verification](/receipts/verification).
 
 ## What this does and does not prove
 

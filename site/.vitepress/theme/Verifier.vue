@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // The receipt verifier, in the page. Everything runs in the visitor's browser; nothing is uploaded anywhere.
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import vectors from "../../../packages/receipts/vectors/receipts.json";
 import { formatReport, publicKeyFromPem, verifyBundle, type Result } from "../../verifier/verify-web.ts";
 
@@ -44,6 +44,24 @@ function tamper() {
     error.value = String(e);
   }
 }
+
+// /verify?receipt=<id> opens one of this site's own receipts (site/public/custody/) with the agent's key and the log's
+// key, then verifies it. Only ids of that shape, only files under /custody/ on this origin: nothing else is fetched.
+onMounted(async () => {
+  const id = new URLSearchParams(location.search).get("receipt");
+  if (!id || !/^[0-9a-f-]{36}$/.test(id)) return;
+  try {
+    const get = async (path: string) => { const r = await fetch(path); if (!r.ok) throw new Error(`${path}: ${r.status}`); return r.text(); };
+    const [b, issuer, log] = await Promise.all([get(`/custody/${id}.json`), get("/custody/claude-code.pub"), get("/custody/log.pub")]);
+    bundleText.value = JSON.stringify(JSON.parse(b), null, 2);
+    issuerPem.value = issuer;
+    principalPem.value = "";
+    logPem.value = log;
+    await verify();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  }
+});
 
 async function keys(text: string) {
   const pems = text.match(/-----BEGIN PUBLIC KEY-----[\s\S]*?-----END PUBLIC KEY-----/g) ?? [];

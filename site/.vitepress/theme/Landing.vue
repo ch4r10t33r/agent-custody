@@ -67,6 +67,13 @@ const year = new Date().getUTCFullYear();
         </a>
       </section>
 
+      <figure class="promo">
+        <video controls playsinline preload="none" poster="/promo-poster.jpg" width="1920" height="1080" aria-label="A 63-second film: Maya, head of support, signs a grant for her support agent. A customer's £500 refund goes through the gateway to Stripe. A line slipped into a ticket makes the agent try a £5,000 refund, and the gateway denies it before it reaches Stripe. The signed receipt is logged in a Merkle log, an auditor verifies it with public keys, and an edited receipt fails verification.">
+          <source src="/promo.mp4" type="video/mp4" />
+        </video>
+        <figcaption>A refund agent, a prompt injection, and the receipt that settles it. The receipts are real ones from <code>bun run demo</code>, against a stand-in Stripe; 63 seconds, with sound, and nothing loads until you press play.</figcaption>
+      </figure>
+
       <Flow />
       <Demo />
 
@@ -128,6 +135,9 @@ h1 { font-size: clamp(1.7rem, 4.6vw, 2.5rem); line-height: 1.15; letter-spacing:
 .door:hover { border-color: var(--vp-c-text-2); }
 .door b { font-size: 1.05rem; } .door p { margin: 0; font-size: .9rem; color: var(--vp-c-text-2); flex: 1; }
 .door .note { font-family: var(--mono); font-size: .72rem; color: var(--vp-c-text-2); padding-top: .5rem; border-top: 1px solid var(--vp-c-divider); }
+.promo { margin: 0 0 3rem; }
+.promo video { display: block; width: 100%; height: auto; border: 1px solid var(--vp-c-divider); border-radius: 8px; background: #1b1b1f; }
+.promo figcaption { margin-top: .8rem; font-size: .9rem; color: var(--vp-c-text-2); }
 h2 { font-size: 1.25rem; letter-spacing: -.01em; margin: 0 0 .8rem; }
 .compare { margin: 0 0 3rem; } .compare p { color: var(--vp-c-text-2); font-size: .95rem; margin: 1rem 0 0; }
 .wrap { overflow-x: auto; }

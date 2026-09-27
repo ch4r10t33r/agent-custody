@@ -61,4 +61,4 @@ Writes `log.jsonl` (every leaf hash, in the format `verify --log` and `audit --l
 
 ## The operator's side
 
-For whoever runs a log: `agent-custody log-admin --db-env DATABASE_URL tenant add|list|disable|plan`, `token add|list|revoke`, `audit`, `import`; the admin page at `/admin` behind the admin token with the same operations, usage per tenant per month, a CSV for invoicing, and the activity list. The [runbook](https://github.com/ch4r10t33r/agent-custody/blob/main/deploy/RUNBOOK.md) is the operating manual.
+For whoever runs a log: `agent-custody log-admin --db-env DATABASE_URL tenant add|list|disable|plan`, `token add|list|revoke`, `audit`, `import`; the admin page at `/admin` (or on its own host, `ADMIN_HOST` in the deployment) behind the admin token with the same operations, the registrations list (who signed up through the portal, plan, billing state, appends this month, leaves in total, with totals and a CSV), usage per tenant per month, a CSV for invoicing, and the activity list. The [runbook](https://github.com/ch4r10t33r/agent-custody/blob/main/deploy/RUNBOOK.md) is the operating manual.

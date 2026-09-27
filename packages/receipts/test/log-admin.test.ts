@@ -7,10 +7,12 @@ import { generateKeyPair } from "../src/crypto.ts";
 import { postgresResolver, serveLog, type RunningLog } from "../src/log-sink.ts";
 import { PostgresTenancy } from "../src/log-store.ts";
 import { welcomeSheet } from "../src/log-admin.ts";
+import { PortalStore } from "../src/portal.ts";
 
 let db: PGlite;
 let log: RunningLog;
 let tenancy: PostgresTenancy;
+let portal: PortalStore;
 const ADMIN = "admin-secret-for-tests";
 
 beforeAll(async () => {
@@ -18,7 +20,8 @@ beforeAll(async () => {
   await db.query("SELECT 1");
   tenancy = new PostgresTenancy(db);
   await tenancy.addTenant("default", "log.example.test");
-  log = await serveLog(postgresResolver(tenancy), generateKeyPair(), { port: 0, admin: { tenancy, token: ADMIN, publicUrl: "https://log.example.test/", checkpointsUrl: "https://checkpoints.example.test/" } });
+  portal = new PortalStore(db);
+  log = await serveLog(postgresResolver(tenancy), generateKeyPair(), { port: 0, admin: { tenancy, token: ADMIN, portal, publicUrl: "https://log.example.test/", checkpointsUrl: "https://checkpoints.example.test/" } });
 }, 60_000);
 afterAll(async () => {
   await log.close();
@@ -191,5 +194,44 @@ describe("plans and quotas", () => {
       await srv.close();
       await db2.close();
     }
+  });
+});
+
+describe("registrations", () => {
+  it("lists every tenant with who registered it through the portal, its plan and billing state, appends in the month asked for and leaves in total, with totals; a scripted tenant has no email; the CSV carries the same rows", async () => {
+    // the operator wants one screen answering: who signed up, on what plan, paying or not, how much have they logged
+    const user = await portal.createUser("ops@buyer.example", "correct horse battery staple");
+    await tenancy.addTenant("buyer", "buyer-eu", "test");
+    await portal.addMember(user.id, "buyer");
+    await portal.setBilling("buyer", { customerId: "cus_1", subscriptionId: "sub_1", status: "active" });
+    await tenancy.setPlan("buyer", "team", "test");
+    const { token } = await tenancy.addToken("buyer", "fleet", "test");
+    for (const h of ["01", "02", "03"]) expect((await fetch(new URL("t/buyer/append", log.url), { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${token}` }, body: JSON.stringify({ leafHash: h.repeat(32) }) })).status).toBe(200);
+    const month = new Date().toISOString().slice(0, 7);
+    const r = (await (await call("GET", `admin/registrations?month=${month}`)).json()) as { month: string; rows: Record<string, unknown>[]; totals: Record<string, number> };
+    expect(r.month).toBe(month);
+    const buyer = r.rows.find((x) => x.tenant === "buyer");
+    expect(buyer).toMatchObject({ tenant: "buyer", logId: "buyer-eu", plan: "team", email: "ops@buyer.example", billing: "active", appends: 3, quota: 1_000_000, totalLeaves: 3, liveTokens: 1, disabled: false });
+    expect(typeof buyer?.registeredAt).toBe("string");
+    // "default" was added by the test setup, not through the portal: it is listed, with nothing to say about who
+    expect(r.rows.find((x) => x.tenant === "default")).toMatchObject({ email: null, registeredAt: null, billing: null });
+    expect(r.totals.tenants).toBe(r.rows.length);
+    expect(r.totals.registered).toBe(1);
+    expect(r.totals.appends).toBe(r.rows.reduce((n, x) => n + (x.appends as number), 0));
+    expect(r.totals.totalLeaves).toBe(r.rows.reduce((n, x) => n + (x.totalLeaves as number), 0));
+    // a month with no appends shows the same tenants at zero, so a quiet month is visible rather than missing
+    const quiet = (await (await call("GET", "admin/registrations?month=2020-01")).json()) as { rows: Record<string, unknown>[]; totals: Record<string, number> };
+    expect(quiet.rows.find((x) => x.tenant === "buyer")).toMatchObject({ appends: 0, totalLeaves: 3, email: "ops@buyer.example" });
+    expect(quiet.totals.appends).toBe(0);
+    const csv = await call("GET", `admin/registrations.csv?month=${month}`);
+    expect(csv.headers.get("content-type")).toMatch(/text\/csv/);
+    const lines = (await csv.text()).trim().split("\n");
+    expect(lines[0]).toBe("month,tenant,log_id,plan,email,registered_at,billing,appends,quota,total_leaves,live_tokens,disabled");
+    expect(lines.find((l) => l.includes(",buyer,"))).toMatch(new RegExp(`^${month},buyer,buyer-eu,team,ops@buyer.example,\\d{4}-.*,active,3,1000000,3,1,false$`));
+    expect([401, 429]).toContain((await call("GET", "admin/registrations", undefined, null)).status); // no token: refused, or throttled by the earlier wrong attempts from this address
+    // the page carries the section and its numbers come from the same route
+    const html = await (await call("GET", "admin")).text();
+    expect(html).toContain("/admin/registrations?month=");
+    expect(html).toContain("registered through the portal");
   });
 });

@@ -8,6 +8,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { RateLimiter, type PostgresTenancy, PLANS, type Plan } from "./log-store.ts";
 import { clientAddress } from "./log-sink.ts";
+import type { PortalStore } from "./portal.ts";
 
 export interface AdminOptions {
   tenancy: PostgresTenancy;
@@ -21,6 +22,8 @@ export interface AdminOptions {
   keyid?: string;
   /** key the failure throttle by X-Forwarded-For's first address; only behind a proxy you run */
   trustProxy?: boolean;
+  /** the portal's tables on the same database, read only, so the registrations list can say who signed up */
+  portal?: PortalStore;
 }
 
 const same = (a: string, b: string) => {
@@ -75,7 +78,23 @@ export function welcomeSheet(o: { tenant: string; logId: string; publicUrl: stri
  *   POST /admin/tenants/:id/tokens/:prefix/revoke { revoked }
  *   GET  /admin/usage?month=YYYY-MM              { month, tenants: [{ id, logId, appends, totalLeaves, liveTokens, disabled }] }
  *   GET  /admin/usage.csv?month=YYYY-MM          the same as CSV, for an invoice
+ *   GET  /admin/registrations?month=YYYY-MM      { month, rows: [{ tenant, logId, plan, email, registeredAt, billing, appends, quota, totalLeaves, liveTokens, disabled }], totals }
+ *   GET  /admin/registrations.csv?month=YYYY-MM  the same as CSV
  */
+/** One row per tenant: who registered it through the portal (null when it was onboarded by script), its plan and billing
+ *  state, appends in the month asked for, and leaves in total; plus the totals across tenants. */
+export async function registrations(tenancy: PostgresTenancy, portal: PortalStore | undefined, month: string): Promise<{ month: string; rows: RegistrationRow[]; totals: { tenants: number; registered: number; appends: number; totalLeaves: number } }> {
+  const usage = await tenancy.usage(month);
+  const who = new Map<string, { email: string; registeredAt: string; billing: string | null }>();
+  for (const r of portal ? await portal.registrations() : []) if (!who.has(r.tenantId)) who.set(r.tenantId, r);
+  const rows = usage.tenants.map((t) => {
+    const w = who.get(t.id);
+    return { tenant: t.id, logId: t.logId, plan: t.plan, email: w?.email ?? null, registeredAt: w?.registeredAt ?? null, billing: w?.billing ?? null, appends: t.appends, quota: t.quota, totalLeaves: t.totalLeaves, liveTokens: t.liveTokens, disabled: t.disabled };
+  });
+  return { month: usage.month, rows, totals: { tenants: rows.length, registered: rows.filter((r) => r.email).length, appends: rows.reduce((n, r) => n + r.appends, 0), totalLeaves: rows.reduce((n, r) => n + r.totalLeaves, 0) } };
+}
+export interface RegistrationRow { tenant: string; logId: string; plan: Plan; email: string | null; registeredAt: string | null; billing: string | null; appends: number; quota: number | null; totalLeaves: number; liveTokens: number; disabled: boolean }
+
 export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<boolean> {
   // Five wrong tokens from one address, then one more a minute: enough to stop guessing, not enough to lock out a typo.
   const failures = new RateLimiter({ perSecond: 1 / 60, burst: 5 });
@@ -129,6 +148,14 @@ export function adminRoutes(opts: AdminOptions): (req: IncomingMessage, res: Ser
         const u = await t.usage(month);
         const csv = ["month,tenant,log_id,plan,quota,appends,total_leaves,live_tokens,disabled", ...u.tenants.map((x) => [u.month, x.id, x.logId, x.plan, x.quota ?? "", x.appends, x.totalLeaves, x.liveTokens, x.disabled].join(","))].join("\n") + "\n";
         res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="agent-custody-usage-${u.month}.csv"`, "cache-control": "no-store" });
+        res.end(csv);
+      } else if (req.method === "GET" && parts.length === 2 && parts[1] === "registrations") {
+        json(200, await registrations(t, opts.portal, month));
+      } else if (req.method === "GET" && parts.length === 2 && parts[1] === "registrations.csv") {
+        const r = await registrations(t, opts.portal, month);
+        const cell = (v: unknown) => (v === null ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+        const csv = ["month,tenant,log_id,plan,email,registered_at,billing,appends,quota,total_leaves,live_tokens,disabled", ...r.rows.map((x) => [r.month, x.tenant, x.logId, x.plan, x.email, x.registeredAt, x.billing, x.appends, x.quota, x.totalLeaves, x.liveTokens, x.disabled].map(cell).join(","))].join("\n") + "\n";
+        res.writeHead(200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="agent-custody-registrations-${r.month}.csv"`, "cache-control": "no-store" });
         res.end(csv);
       } else if (req.method === "GET" && parts.length === 2 && parts[1] === "audit") {
         const tenant = url.searchParams.get("tenant");
@@ -199,11 +226,18 @@ const ADMIN_PAGE = `<!doctype html>
   .muted { color: var(--ink2); } .err { color: #b3261e; } .ok { color: var(--accent); }
   .tok { font-family: var(--mono); font-size: 1.05rem; word-break: break-all; user-select: all; }
   [hidden] { display: none !important; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .6rem; margin: 0 0 1rem; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: .6rem .8rem; }
+  .stat b { display: block; font-size: 1.4rem; font-variant-numeric: tabular-nums; } .stat span { color: var(--ink2); font-size: .8rem; }
 </style>
 <main>
   <h1>Log admin</h1>
   <p class="sub" id="where">Tenants and tokens on this log.</p>
   <section id="app">
+    <h2>Registrations</h2>
+    <div class="row"><label>month<input id="rmonth" type="month"></label><button class="quiet" id="loadRegs">Show</button><a id="rcsv" class="quiet" href="#" style="align-self:center">Download CSV</a></div>
+    <div class="stats"><div class="stat"><b id="sTenants">–</b><span>tenants</span></div><div class="stat"><b id="sRegistered">–</b><span>registered through the portal</span></div><div class="stat"><b id="sAppends">–</b><span>appends this month</span></div><div class="stat"><b id="sLeaves">–</b><span>leaves in total</span></div></div>
+    <table><thead><tr><th>email</th><th>tenant</th><th>plan</th><th>registered</th><th>billing</th><th>appends this month</th><th>leaves in total</th><th>live tokens</th></tr></thead><tbody id="regs"></tbody></table>
     <h2>Tenants</h2>
     <table><thead><tr><th>tenant</th><th>log id</th><th>plan</th><th>live tokens</th><th>created</th><th></th></tr></thead><tbody id="tenants"></tbody></table>
     <h2>New tenant</h2>
@@ -262,6 +296,7 @@ const ADMIN_PAGE = `<!doctype html>
     try {
       const info = await api("GET", "/admin/info");
       $("where").textContent = (info.publicUrl || location.origin) + " · keyid " + (info.keyid ? info.keyid.slice(0, 12) : "?") + (info.checkpointsUrl ? " · checkpoints at " + info.checkpointsUrl : "");
+      await loadRegs();
       await loadTenants();
       await loadUsage();
       await loadAudit();
@@ -286,15 +321,23 @@ const ADMIN_PAGE = `<!doctype html>
     $("csv").href = "/admin/usage.csv?month=" + encodeURIComponent(month);
     $("usage").innerHTML = u.tenants.map((t) => "<tr><td><code>" + esc(t.id) + "</code>" + (t.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td><code>" + esc(t.logId) + "</code></td><td>" + esc(t.plan) + "</td><td>" + t.appends + "</td><td>" + (t.quota === null ? "none" : t.quota) + "</td><td>" + t.totalLeaves + "</td><td>" + t.liveTokens + "</td></tr>").join("") || "<tr><td colspan=7 class=muted>no tenants</td></tr>";
   };
+  const loadRegs = async () => {
+    const month = $("rmonth").value || new Date().toISOString().slice(0, 7);
+    const r = await api("GET", "/admin/registrations?month=" + encodeURIComponent(month));
+    $("rcsv").href = "/admin/registrations.csv?month=" + encodeURIComponent(month);
+    $("sTenants").textContent = r.totals.tenants; $("sRegistered").textContent = r.totals.registered; $("sAppends").textContent = r.totals.appends; $("sLeaves").textContent = r.totals.totalLeaves;
+    $("regs").innerHTML = r.rows.map((x) => "<tr><td>" + (x.email ? esc(x.email) : "<span class=muted>onboarded by script</span>") + "</td><td><code>" + esc(x.tenant) + "</code>" + (x.disabled ? " <span class=muted>disabled</span>" : "") + "</td><td>" + esc(x.plan) + "</td><td>" + (x.registeredAt ? esc(x.registeredAt.slice(0, 10)) : "") + "</td><td>" + (x.billing ? esc(x.billing) : "<span class=muted>none</span>") + "</td><td>" + x.appends + (x.quota === null ? "" : " <span class=muted>/ " + x.quota + "</span>") + "</td><td>" + x.totalLeaves + "</td><td>" + x.liveTokens + "</td></tr>").join("") || "<tr><td colspan=8 class=muted>no tenants</td></tr>";
+  };
   const loadAudit = async () => {
     const a = await api("GET", "/admin/audit?limit=100");
     $("audit").innerHTML = a.entries.map((e) => "<tr><td>" + esc(e.at.replace("T", " ").slice(0, 19)) + "</td><td><code>" + esc(e.actor) + "</code></td><td>" + esc(e.action) + "</td><td><code>" + esc(e.tenantId || "") + "</code></td><td class=muted>" + esc(Object.entries(e.detail).map(([k, v]) => k + "=" + v).join(" ")) + "</td></tr>").join("") || "<tr><td colspan=5 class=muted>nothing yet</td></tr>";
   };
   $("loadUsage").onclick = () => loadUsage().catch((e) => say(e.message, "err"));
-  $("month").value = new Date().toISOString().slice(0, 7);
+  $("loadRegs").onclick = () => loadRegs().catch((e) => say(e.message, "err"));
+  $("month").value = $("rmonth").value = new Date().toISOString().slice(0, 7);
   document.addEventListener("change", async (e) => {
     const s = e.target.closest("select[data-plan]"); if (!s) return;
-    try { await api("POST", "/admin/tenants/" + encodeURIComponent(s.dataset.plan) + "/plan", { plan: s.value }); say("plan of " + s.dataset.plan + " set to " + s.value, "ok"); await loadUsage(); await loadAudit(); } catch (err) { say(err.message, "err"); await loadTenants(); }
+    try { await api("POST", "/admin/tenants/" + encodeURIComponent(s.dataset.plan) + "/plan", { plan: s.value }); say("plan of " + s.dataset.plan + " set to " + s.value, "ok"); await loadRegs(); await loadUsage(); await loadAudit(); } catch (err) { say(err.message, "err"); await loadTenants(); }
   });
   document.addEventListener("click", async (e) => {
     const b = e.target.closest("button"); if (!b) return;

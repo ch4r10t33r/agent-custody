@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.4 — 2026-09-27
+
+- **Receipts:** the admin page opens with a Registrations section: who registered each tenant through the portal, plan, billing state, appends in the chosen month, leaves in total, live tokens, with totals across tenants and a CSV. `GET /admin/registrations?month=` and `/admin/registrations.csv` behind the admin token; `PortalStore.registrations()` reads the portal's tables; the log server wires the portal store in when it runs on Postgres.
+- **Deploy:** the admin page on its own host, `ADMIN_HOST`, mapped by Caddy onto the log service's `/admin` surface with the token still required on every request. `/admin` on the log host is unchanged.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.3 — 2026-09-27
 
 - **Site, #49:** relative links written without `.md`, as the reference pages write them, resolve to the page instead of becoming repository URLs that do not exist; about sixty links across ten reference pages were dead. The docs host's root goes to the guide. The home page's install block says which line is the command line and which the Python package.

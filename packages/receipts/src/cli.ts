@@ -15,7 +15,7 @@ import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey,
 import { fetchWitnessKeys, Witness } from "./witness.ts";
 import { checkLog, formatLogCheck } from "./log-check.ts";
 import { serveHttp } from "./gateway-http.ts";
-import { servePortal, type StripeOptions } from "./portal.ts";
+import { PortalStore, servePortal, type StripeOptions } from "./portal.ts";
 import { exportLog, formatExport } from "./log-export.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
@@ -365,7 +365,7 @@ async function main(argv: string[]): Promise<number> {
         if (values["admin-token-env"]) {
           const adminToken = process.env[values["admin-token-env"]];
           if (!adminToken) throw new Error(`log: environment variable ${values["admin-token-env"]} is not set`);
-          admin = { tenancy, token: adminToken, ...(values["public-url"] ? { publicUrl: values["public-url"] } : {}), ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}) };
+          admin = { tenancy, token: adminToken, portal: new PortalStore(client), ...(values["public-url"] ? { publicUrl: values["public-url"] } : {}), ...(values["checkpoints-url"] ? { checkpointsUrl: values["checkpoints-url"] } : {}) };
         }
         where = `store=postgres default-log=${(await tenancy.tenant("default"))?.logId} ${token ? "environment token accepted for the default log; " : ""}tokens from the database`;
       } else {

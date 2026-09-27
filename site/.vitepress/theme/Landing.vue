@@ -30,9 +30,9 @@ const year = new Date().getUTCFullYear();
 
     <main>
       <section class="story">
-        <p class="kicker">Proof of what your AI agents did</p>
-        <h1>An agent asked for a £50,000 refund. The policy allowed £1,000. The call never reached the payment provider. This is the receipt.</h1>
-        <p class="lede">agent-custody puts a gateway between an agent and its tools. Every call is checked against a grant a person signed and a policy, then forwarded or denied, and a signed receipt is issued either way. A stranger can check the receipt with a public key. Nobody in the chain can rewrite the record.</p>
+        <h1>Proof of what your AI agents did.</h1>
+        <p class="lede">An agent asked for a £50,000 refund. The policy allowed £1,000. The call never reached the payment provider, and the receipt below is the record: who authorized the agent, what it asked for, what the gateway checked, and what was refused.</p>
+        <p class="lede quiet">agent-custody puts a gateway between an agent and its tools. Every call is checked against a grant a person signed and a policy, then forwarded or denied, and a signed receipt is issued either way. Anyone with the public keys can verify it. Nobody in the chain can rewrite the record.</p>
       </section>
 
       <figure class="receipt">
@@ -119,9 +119,10 @@ const year = new Date().getUTCFullYear();
 .bar nav a { color: var(--vp-c-text-2); text-decoration: none; } .bar nav a:hover, .bar nav a[aria-current] { color: var(--vp-c-text-1); }
 .bar .theme { font: inherit; font-size: .8rem; color: var(--vp-c-text-2); background: transparent; border: 1px solid var(--vp-c-divider); border-radius: 5px; padding: .15rem .55rem; cursor: pointer; } .bar .theme:hover { color: var(--vp-c-text-1); }
 main { max-width: 46rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
-.kicker { font-family: var(--mono); font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; color: var(--vp-c-text-2); margin: 0 0 .8rem; }
-h1 { font-size: clamp(1.7rem, 4.6vw, 2.5rem); line-height: 1.15; letter-spacing: -.02em; margin: 0 0 1rem; text-wrap: balance; }
-.lede { font-size: 1.08rem; color: var(--vp-c-text-2); margin: 0 0 2rem; max-width: 42em; }
+/* One statement, in a serif with weight: the register of a record, not a hero. Body stays in the reading face. */
+h1 { font-family: "Source Serif 4", Georgia, "Times New Roman", serif; font-weight: 500; font-size: clamp(2.2rem, 6vw, 3.4rem); line-height: 1.12; letter-spacing: 0; margin: .5rem 0 1.4rem; text-wrap: balance; }
+.lede { font-size: 1.12rem; line-height: 1.6; color: var(--vp-c-text-1); margin: 0 0 1rem; max-width: 40em; }
+.lede.quiet { font-size: 1rem; color: var(--vp-c-text-2); margin-bottom: 2rem; }
 .receipt { margin: 0 0 1.2rem; padding: 1.1rem 1.3rem 1.2rem; border: 1px solid var(--vp-c-divider); border-radius: 8px; background: var(--vp-c-bg-soft); font-family: var(--mono); font-size: .86rem; }
 .receipt figcaption { font-family: var(--vp-font-family-base); font-size: .8rem; letter-spacing: .06em; text-transform: uppercase; color: var(--vp-c-text-2); margin: 0 0 .9rem; }
 .receipt dl { display: grid; grid-template-columns: max-content 1fr; gap: .38rem 1.2rem; margin: 0; }

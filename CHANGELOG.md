@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.11 — 2026-09-27
+
+- **Site:** a logo: a receipt with a torn edge, two ledger lines, and a tick, on the amber tile; `logo.svg`, `wordmark.svg`, and the PNG icons. The home page is laid out along the lines of dunetrace.com: a centred hero with three actions (Register for a free account, View GitHub, Verify a receipt) and the film under them, then the problem, how it works, denied at runtime, not a trace, a quick start with the commands, and where to go.
+- **Receipts:** the portal and the Caddy hosts carry the new mark; `app.agent-custody.dev/#register` opens the portal on the registration form.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.10 — 2026-09-27
 
 - **Receipts, fix:** the portal and the admin page were blank on 0.6.8 and 0.6.9: a quote escaped once inside the page's template literal made the inline script fail to parse. Fixed, and both tests now compile every inline script. The pages' Content Security Policy allows the favicon (`img-src 'self'`).

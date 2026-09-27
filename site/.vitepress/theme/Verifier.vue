@@ -48,7 +48,15 @@ function tamper() {
 // /verify?receipt=<id> opens one of this site's own receipts (site/public/custody/) with the agent's key and the log's
 // key, then verifies it. Only ids of that shape, only files under /custody/ on this origin: nothing else is fetched.
 onMounted(async () => {
-  const id = new URLSearchParams(location.search).get("receipt");
+  const q = new URLSearchParams(location.search);
+  // /verify?sample=<vector name> loads a published conformance vector, keys included, and verifies it
+  const name = q.get("sample");
+  if (name) {
+    const c = (vectors.cases as any[]).find((x) => x.name === name);
+    if (c) { load(c); await verify(); }
+    return;
+  }
+  const id = q.get("receipt");
   if (!id || !/^[0-9a-f-]{36}$/.test(id)) return;
   try {
     const get = async (path: string) => { const r = await fetch(path); if (!r.ok) throw new Error(`${path}: ${r.status}`); return r.text(); };

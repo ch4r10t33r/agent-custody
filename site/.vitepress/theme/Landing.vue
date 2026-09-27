@@ -1,19 +1,23 @@
 <script setup lang="ts">
-// The product's front door, outside the docs theme: one story, one real receipt, one action, three doors. Issue #52.
-// The receipt is decoded at build time from the same file the custody page links: this repository's own denied
-// `git push --force`. Everything else on the page points into the docs, the verifier, or the portal.
-import bundle from "../../public/custody/47eb52af-9cd0-4428-bbdc-b44c04a1f266.json";
+// The product's front door, outside the docs theme: one story, one receipt, one action, three doors. Issue #52.
+// The receipt is the gateway-denied conformance vector, decoded at build time: a £50,000 refund the policy refused
+// before it reached the payment provider, with the customer fact the gateway fetched itself. Every byte verifies
+// against the published keys; the identities are the test fixture's. This repository's own receipts are on /custody.
+import vectors from "../../../packages/receipts/vectors/receipts.json";
 import { useData } from "vitepress";
 import Flow from "./Flow.vue";
 import Demo from "./Demo.vue";
 
 const { isDark } = useData();
 
-const id = "47eb52af-9cd0-4428-bbdc-b44c04a1f266";
+const sample = "gateway-denied";
+const bundle = (vectors.cases as any[]).find((c) => c.name === sample).bundle;
 const decode = (b64: string) => JSON.parse(typeof Buffer !== "undefined" ? Buffer.from(b64, "base64").toString("utf8") : atob(b64));
 const receipt = decode(bundle.envelope.payload).predicate;
 const head = decode(bundle.treeHead.payload);
 const short = (h: string) => h.slice(0, 12) + "…";
+const pounds = (pence: number) => "£" + (pence / 100).toLocaleString("en-GB", { minimumFractionDigits: 2 });
+const customer = receipt.facts.customer;
 const year = new Date().getUTCFullYear();
 </script>
 
@@ -27,24 +31,25 @@ const year = new Date().getUTCFullYear();
     <main>
       <section class="story">
         <p class="kicker">Proof of what your AI agents did</p>
-        <h1>An agent tried to force-push to main. The policy said no before it ran. This is the receipt.</h1>
+        <h1>An agent asked for a £50,000 refund. The policy allowed £1,000. The call never reached the payment provider. This is the receipt.</h1>
         <p class="lede">agent-custody puts a gateway between an agent and its tools. Every call is checked against a grant a person signed and a policy, then forwarded or denied, and a signed receipt is issued either way. A stranger can check the receipt with a public key. Nobody in the chain can rewrite the record.</p>
       </section>
 
       <figure class="receipt">
-        <figcaption>A receipt from this repository's own custody, {{ receipt.timestamp.slice(0, 10) }}</figcaption>
+        <figcaption>A gateway receipt, from the published conformance vectors</figcaption>
         <dl>
-          <dt>decision</dt><dd><span class="decision" :data-d="receipt.policy.decision">{{ receipt.execution.status }}</span> <span class="why">by policy, before it ran</span></dd>
-          <dt>tool</dt><dd>{{ receipt.tool.name }}</dd>
-          <dt>command</dt><dd>{{ receipt.request.args.command }}</dd>
-          <dt>agent</dt><dd>{{ receipt.agent.id }}</dd>
-          <dt>principal</dt><dd>{{ receipt.principal.id }}</dd>
+          <dt>decision</dt><dd><span class="decision" :data-d="receipt.policy.decision">{{ receipt.execution.status }}</span> <span class="why">{{ receipt.execution.reason }}; nothing was sent upstream</span></dd>
+          <dt>tool</dt><dd>{{ receipt.tool.name }} <span class="why">{{ receipt.tool.provenance }}</span></dd>
+          <dt>asked for</dt><dd>refund {{ pounds(receipt.request.args.amount) }} to {{ receipt.request.args.customer_id }} <span class="why">{{ receipt.request.provenance }}: the agent's own words</span></dd>
+          <dt>the gateway checked</dt><dd>customer {{ customer.value.id }}, {{ customer.value.email }}, verified {{ customer.value.verified }} <span class="why">{{ customer.provenance }}: fetched by the gateway, not the agent</span></dd>
+          <dt>policy</dt><dd>refunds up to £1,000 for a customer the gateway verified · sha256 {{ short(receipt.policy.policyDigest) }}</dd>
+          <dt>agent</dt><dd>{{ receipt.agent.id }} <span class="why">{{ receipt.agent.provenance }}</span></dd>
+          <dt>authorized by</dt><dd>{{ receipt.principal.id }} <span class="why">{{ receipt.principal.provenance }}: a grant they signed, embedded</span></dd>
           <dt>when</dt><dd>{{ receipt.timestamp.replace("T", " ").slice(0, 19) }} UTC</dd>
-          <dt>policy</dt><dd>sha256 {{ short(receipt.policy.policyDigest) }}</dd>
-          <dt>log</dt><dd>{{ head.log }} · leaf {{ bundle.inclusion.leafIndex }} of {{ head.treeSize }} · root {{ short(head.rootHash) }}</dd>
-          <dt>receipt</dt><dd>{{ id }}</dd>
+          <dt>log</dt><dd>leaf {{ bundle.inclusion.leafIndex + 1 }} of {{ head.treeSize }} · root {{ short(head.rootHash) }}</dd>
+          <dt>receipt</dt><dd>{{ receipt.receiptId }}</dd>
         </dl>
-        <p class="open"><a class="go" :href="`/verify?receipt=${id}`">Open in the verifier</a><span>Runs in your browser with the agent's key and the log's key. Nothing is uploaded.</span></p>
+        <p class="open"><a class="go" :href="`/verify?sample=${sample}`">Open in the verifier</a><span>Runs in your browser with the gateway's and the principal's public keys. Nothing is uploaded.</span></p>
       </figure>
 
       <p class="limit">A receipt proves what was signed, observed, and logged, and labels everything else as the agent's own claim. The <a href="/receipts/#what-a-receipt-proves-and-what-it-does-not">proof table</a> says which is which, for whoever has to sign off.</p>
@@ -94,7 +99,7 @@ const year = new Date().getUTCFullYear();
 
       <section class="proof">
         <h2>The operator runs on it</h2>
-        <p>This repository is developed under custody. The receipt above is one of its own, hash-logged to our tenant on the hosted log, and the <a href="/custody">custody page</a> shows the hook, the policy, and the keys. The hosted log is <a href="/early-access">taking tenants</a>; the pricing page says what is and is not promised on each plan.</p>
+        <p>This repository is developed under custody: every tool call the coding agent makes is a receipt, hash-logged to our tenant on the hosted log. The <a href="/custody">custody page</a> shows the hook, the policy, the keys, and two of those receipts to verify. The hosted log is <a href="/early-access">taking tenants</a>; the pricing page says what is and is not promised on each plan.</p>
       </section>
     </main>
 

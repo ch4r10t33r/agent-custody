@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.14 — 2026-09-28
+
+- **Receipts:** registration in two steps: an account from an email and a password, or from a GitHub or Google sign-in, then the tenant on the next screen (name, company, tenant id, role, phone, Telegram), with the first key and the emails once the tenant exists. `POST /api/register` with only email and password creates the account; `POST /api/onboard` creates the tenant; the one-call register with everything still works for scripts. `GET /auth/github` and `GET /auth/google` run the OAuth web flow over fetch with a signed state cookie; a provider sign-in links to the account with the same verified email or creates one (`portal_identities`). `--github-client-id/--github-secret-env`, `--google-client-id/--google-secret-env`; `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` in the container.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.13 — 2026-09-28
 
 - **Receipts:** published policy versions. A tenant publishes each Cedar file it deploys under a name; the digest is the same SHA-256 the gateway writes into receipts as `policyDigest`, so a receipt's digest reads as a name on the portal's new Policies page, in its match-a-receipt tool, and in the export's `policies.json`. `PostgresTenancy.addPolicy/listPolicies/policy/policyByDigest/removePolicy`, audited as `policy.add` and `policy.remove`; `GET /t/<tenant>/policies` with the tenant token; portal routes under `/api/policies`. Enforcement is untouched: the gateway never reads any of it.

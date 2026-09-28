@@ -18,7 +18,7 @@ Everything you run yourself, the gateway, the SDK, the ledger, the verifier, is 
 | **Support** | community, on GitHub | email, answer within two working days | a named contact, a stated response time |
 | **Terms** | [early-access terms](/terms) | the same, plus payment terms | a signed agreement and a data processing agreement |
 | **Witness** | none yet | none yet | run your own, or we help you find an independent operator |
-| **Get it** | [register](https://app.agent-custody.dev/) | [register](https://app.agent-custody.dev/), then upgrade from the billing page | [write to us](/contact) |
+| **Get it** | [register](https://app.agent-custody.dev/#register) | [register](https://app.agent-custody.dev/#register), then upgrade from the billing page | [write to us](/contact) |
 
 ## What 10,000 appends is
 

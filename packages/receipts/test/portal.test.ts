@@ -19,6 +19,16 @@ let log: RunningLog;
 let portal: RunningPortal;
 const stripeCalls: { path: string; body: URLSearchParams }[] = [];
 const mails: { to: string[]; subject: string; text: string; from: string }[] = [];
+// GitHub's and Google's endpoints, stood in: a code becomes a token, a token becomes a subject and a verified email
+const oauthFetch: typeof fetch = async (url, init) => {
+  const u = String(url);
+  const j = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  if (u === "https://github.com/login/oauth/access_token") { const b = JSON.parse(String(init?.body)); return j(b.code === "gh-code" && b.client_secret === "gh_secret" ? { access_token: "gh-token" } : { error: "bad_verification_code" }); }
+  if (u === "https://api.github.com/user") return j({ id: 4242, login: "octo" });
+  if (u === "https://api.github.com/user/emails") return j([{ email: "old@example.com", primary: false, verified: false }, { email: "Octo@Example.com", primary: true, verified: true }]);
+  if (u === "https://oauth2.googleapis.com/token") { const b = new URLSearchParams(String(init?.body)); const claims = Buffer.from(JSON.stringify({ sub: "g-1", email: "Gina@Example.com", email_verified: true })).toString("base64url"); return j(b.get("code") === "g-code" ? { id_token: `h.${claims}.s` } : { error: "invalid_grant" }); }
+  return new Response("not stood in: " + u, { status: 500 });
+};
 const mailFetch: typeof fetch = async (_url, init) => { mails.push(JSON.parse(String(init?.body))); return new Response("{}", { status: 200 }); };
 const stripeFetch: typeof fetch = async (url, init) => {
   const path = String(url).replace("https://api.stripe.com/v1/", "");
@@ -36,7 +46,7 @@ beforeAll(async () => {
   tenancy = new PostgresTenancy(db, { quotas: { free: 3 } });
   await tenancy.addTenant("default", "log.example.test");
   log = await serveLog(postgresResolver(tenancy), generateKeyPair(), { port: 0 });
-  portal = await servePortal({ tenancy, client: db, secret: SECRET, publicUrl: log.url, checkpointsUrl: "https://checkpoints.example.test/", keyid: "abc123", portalUrl: "https://app.example.test/", stripe: { secretKey: "sk_test_x", webhookSecret: WHSEC, priceTeam: "price_team", fetch: stripeFetch }, mail: { apiKey: "re_test", from: "hello@example.test", notify: "sales@example.test", fetch: mailFetch }, log: () => {} }, { port: 0 });
+  portal = await servePortal({ tenancy, client: db, secret: SECRET, publicUrl: log.url, checkpointsUrl: "https://checkpoints.example.test/", keyid: "abc123", portalUrl: "https://app.example.test/", stripe: { secretKey: "sk_test_x", webhookSecret: WHSEC, priceTeam: "price_team", fetch: stripeFetch }, mail: { apiKey: "re_test", from: "hello@example.test", notify: "sales@example.test", fetch: mailFetch }, oauth: { github: { clientId: "gh_id", clientSecret: "gh_secret" }, google: { clientId: "g_id", clientSecret: "g_secret" }, fetch: oauthFetch }, log: () => {} }, { port: 0 });
 }, 60_000);
 
 afterAll(async () => {
@@ -228,5 +238,77 @@ describe("policies", () => {
     // another tenant's session never sees it
     const page = await (await fetch(portal.url)).text();
     expect(page).toContain('data-view="policies"');
+  });
+});
+
+describe("two-step registration and provider sign-in", () => {
+  it("an account first, the tenant on the next screen: register with email and password, /api/me says no tenant, the tenant routes refuse, onboard creates the tenant and the first key and sends the two emails", async () => {
+    const b = browser();
+    const r = await b.call("POST", "/api/register", { email: "Two@Example.com", password: "a-long-enough-password" });
+    expect(r.status).toBe(200);
+    expect(r.json).toEqual({ email: "two@example.com", tenant: null });
+    expect((await b.call("GET", "/api/me")).json).toMatchObject({ email: "two@example.com", tenant: null, profile: { name: null, company: null } });
+    expect((await b.call("GET", "/api/overview")).status).toBe(409);
+    expect((await b.call("POST", "/api/onboard", { tenant: "twoco", company: "Two Co" })).status).toBe(400); // a name is needed
+    const before = mails.length;
+    const on = await b.call("POST", "/api/onboard", { tenant: "twoco", name: "Tu Two", company: "Two Co", role: "CTO" });
+    expect(on.status).toBe(200);
+    expect(on.json).toMatchObject({ tenant: "twoco", logId: "twoco", plan: "free" });
+    expect(on.json.token).toMatch(/^[0-9a-f]{64}$/);
+    expect(on.json.setup.log).toContain("t/twoco/");
+    expect((await b.call("GET", "/api/me")).json).toMatchObject({ email: "two@example.com", tenant: "twoco", plan: "free" });
+    expect((await b.call("POST", "/api/onboard", { tenant: "twoco2", name: "Tu", company: "Two" })).status).toBe(409); // one tenant per account
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mails.slice(before).map((m) => [m.to[0], m.subject])).toEqual([["two@example.com", 'Your agent-custody log "twoco" is ready'], ["sales@example.test", "New registration: Two Co (twoco)"]]);
+    expect(mails[before]!.text).toContain("Hello Tu Two");
+    const store = new PortalStore(db);
+    expect((await store.registrations()).find((x) => x.tenantId === "twoco")).toMatchObject({ email: "two@example.com", name: "Tu Two", company: "Two Co", role: "CTO" });
+  });
+
+  it("GitHub and Google sign-in: the start sets a signed state and redirects to the provider; the callback with that state exchanges the code, takes the verified email, links or creates the account, and sets the session; a wrong state is refused; the same subject twice is the same account; the page offers both", async () => {
+    const start = await fetch(new URL("auth/github", portal.url), { redirect: "manual" });
+    expect(start.status).toBe(302);
+    const to = new URL(start.headers.get("location")!);
+    expect(to.origin + to.pathname).toBe("https://github.com/login/oauth/authorize");
+    expect(to.searchParams.get("client_id")).toBe("gh_id");
+    expect(to.searchParams.get("redirect_uri")).toBe("https://app.example.test/auth/github/callback");
+    const state = to.searchParams.get("state")!;
+    const stateCookie = start.headers.get("set-cookie")!.split(";")[0]!;
+    expect(stateCookie).toBe(`custody_oauth=${state}`);
+    // a callback whose state is not the one in the cookie is refused before any exchange
+    expect((await fetch(new URL(`auth/github/callback?code=gh-code&state=${state}x`, portal.url), { headers: { cookie: stateCookie } })).status).toBe(400);
+    expect((await fetch(new URL(`auth/github/callback?code=gh-code&state=${state}`, portal.url))).status).toBe(400); // no cookie
+    const cb = await fetch(new URL(`auth/github/callback?code=gh-code&state=${state}`, portal.url), { headers: { cookie: stateCookie } });
+    expect(cb.status).toBe(200);
+    expect(cb.headers.get("content-type")).toMatch(/text\/html/);
+    const setCookies = cb.headers.getSetCookie();
+    const session = setCookies.find((c) => c.startsWith("custody_session="))!;
+    expect(session).toContain("SameSite=Strict");
+    expect(setCookies.find((c) => c.startsWith("custody_oauth="))).toContain("Max-Age=0");
+    const meRes = await fetch(new URL("api/me", portal.url), { headers: { cookie: session.split(";")[0]! } });
+    expect(await meRes.json()).toMatchObject({ email: "octo@example.com", tenant: null });
+    // again with the same subject: the same account, not a second one
+    const again = await fetch(new URL("auth/github", portal.url), { redirect: "manual" });
+    const st2 = new URL(again.headers.get("location")!).searchParams.get("state")!;
+    const cb2 = await fetch(new URL(`auth/github/callback?code=gh-code&state=${st2}`, portal.url), { headers: { cookie: `custody_oauth=${st2}` } });
+    const s2 = cb2.headers.getSetCookie().find((c) => c.startsWith("custody_session="))!.split(";")[0]!;
+    const uid1 = readSession(SECRET, session.split(";")[0]!.split("=")[1]!);
+    expect(readSession(SECRET, s2.split("=")[1]!)).toBe(uid1);
+    // a bad code is a provider failure, reported, no session
+    const st3 = new URL((await fetch(new URL("auth/github", portal.url), { redirect: "manual" })).headers.get("location")!).searchParams.get("state")!;
+    expect((await fetch(new URL(`auth/github/callback?code=wrong&state=${st3}`, portal.url), { headers: { cookie: `custody_oauth=${st3}` } })).status).toBe(502);
+    // Google, through the id token
+    const g = await fetch(new URL("auth/google", portal.url), { redirect: "manual" });
+    const gto = new URL(g.headers.get("location")!);
+    expect(gto.origin + gto.pathname).toBe("https://accounts.google.com/o/oauth2/v2/auth");
+    expect(gto.searchParams.get("scope")).toBe("openid email");
+    const gstate = gto.searchParams.get("state")!;
+    const gcb = await fetch(new URL(`auth/google/callback?code=g-code&state=${gstate}`, portal.url), { headers: { cookie: `custody_oauth=${gstate}` } });
+    expect(gcb.status).toBe(200);
+    const gs = gcb.headers.getSetCookie().find((c) => c.startsWith("custody_session="))!.split(";")[0]!;
+    expect(await (await fetch(new URL("api/me", portal.url), { headers: { cookie: gs } })).json()).toMatchObject({ email: "gina@example.com", tenant: null });
+    const page = await (await fetch(portal.url)).text();
+    expect(page).toContain('["github","google"]');
+    expect(page).toContain('id="onboardForm"');
   });
 });

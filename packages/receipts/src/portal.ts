@@ -36,6 +36,13 @@ export interface MailOptions {
   fetch?: typeof fetch;
 }
 
+/** Sign in through GitHub or Google: the OAuth web flow over fetch, no library. The callback is `<portalUrl>auth/<provider>/callback`. */
+export interface OAuthOptions {
+  github?: { clientId: string; clientSecret: string };
+  google?: { clientId: string; clientSecret: string };
+  fetch?: typeof fetch;
+}
+
 export interface PortalOptions {
   tenancy: PostgresTenancy;
   /** the Postgres client the tenancy uses; the portal's own tables live beside the log's */
@@ -51,6 +58,7 @@ export interface PortalOptions {
   portalUrl?: string;
   stripe?: StripeOptions;
   mail?: MailOptions;
+  oauth?: OAuthOptions;
   /** key throttles by X-Forwarded-For; only behind a proxy you run. Also marks cookies Secure. */
   trustProxy?: boolean;
   /** table prefix; default portal_ */
@@ -92,6 +100,8 @@ export class PortalStore {
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}billing (tenant_id TEXT PRIMARY KEY, customer_id TEXT, subscription_id TEXT, status TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
         // who the account belongs to: added after the first tenants registered, so the columns are optional
         for (const c of PROFILE_COLUMNS) await this.client.query(`ALTER TABLE ${p}users ADD COLUMN IF NOT EXISTS ${c} TEXT`);
+        // a provider identity linked to an account: GitHub or Google's stable subject, and the verified email it gave
+        await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}identities (provider TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES ${p}users(id), email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (provider, subject))`);
       })();
     }
     return this.ready;
@@ -113,6 +123,40 @@ export class PortalStore {
     const rows = (await this.client.query(`INSERT INTO ${this.p}users (id, email, password_hash, name, company, role, phone, telegram) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (email) DO NOTHING RETURNING id, email, created_at`, [id, email, PortalStore.hashPassword(password), profile.name ?? null, profile.company ?? null, profile.role ?? null, profile.phone ?? null, profile.telegram ?? null])).rows as Record<string, unknown>[];
     if (!rows[0]) throw new Error("an account with this email already exists");
     return { id, email, createdAt: new Date(rows[0].created_at as string).toISOString() };
+  }
+  async userByEmail(email: string): Promise<PortalUser | null> {
+    await this.init();
+    const rows = (await this.client.query(`SELECT id, email, created_at FROM ${this.p}users WHERE email = $1`, [email])).rows as Record<string, unknown>[];
+    const r = rows[0];
+    return r ? { id: String(r.id), email: String(r.email), createdAt: new Date(r.created_at as string).toISOString() } : null;
+  }
+  /** the account's profile, for the onboarding screen and the operator's note */
+  async profile(userId: string): Promise<Profile> {
+    await this.init();
+    const rows = (await this.client.query(`SELECT name, company, role, phone, telegram FROM ${this.p}users WHERE id = $1`, [userId])).rows as Record<string, unknown>[];
+    const r = rows[0] ?? {};
+    const str = (v: unknown) => (v == null ? null : String(v));
+    return { name: str(r.name), company: str(r.company), role: str(r.role), phone: str(r.phone), telegram: str(r.telegram) };
+  }
+  async updateProfile(userId: string, profile: Profile): Promise<void> {
+    await this.init();
+    await this.client.query(`UPDATE ${this.p}users SET name = $2, company = $3, role = $4, phone = $5, telegram = $6 WHERE id = $1`, [userId, profile.name ?? null, profile.company ?? null, profile.role ?? null, profile.phone ?? null, profile.telegram ?? null]);
+  }
+  /**
+   * The account behind a provider sign-in: the linked one, else the account with that verified email (linked from
+   * now on), else a new account with a random password nobody knows. The provider's email must be verified.
+   */
+  async findOrCreateOAuthUser(provider: string, subject: string, email: string): Promise<PortalUser> {
+    await this.init();
+    const linked = (await this.client.query(`SELECT user_id FROM ${this.p}identities WHERE provider = $1 AND subject = $2`, [provider, subject])).rows as { user_id: string }[];
+    if (linked[0]) {
+      const u = await this.user(linked[0].user_id);
+      if (u) return u;
+    }
+    let user = await this.userByEmail(email);
+    if (!user) user = await this.createUser(email, randomBytes(32).toString("hex"));
+    await this.client.query(`INSERT INTO ${this.p}identities (provider, subject, user_id, email) VALUES ($1, $2, $3, $4) ON CONFLICT (provider, subject) DO UPDATE SET user_id = EXCLUDED.user_id, email = EXCLUDED.email`, [provider, subject, user.id, email]);
+    return user;
   }
   async authenticate(email: string, password: string): Promise<PortalUser | null> {
     await this.init();
@@ -296,7 +340,8 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
       if (req.method === "GET" && url.pathname === "/favicon.svg") { res.writeHead(200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }); return void res.end(FAVICON); }
       if (req.method === "GET" && url.pathname === "/") {
         res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'" });
-        return void res.end(PORTAL_PAGE.replace("__LOG_BASE__", base.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!)));
+        const providers = JSON.stringify((["github", "google"] as const).filter((p) => !!o.oauth?.[p]));
+        return void res.end(PORTAL_PAGE.replace("__LOG_BASE__", base.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!)).replace("__PROVIDERS__", providers));
       }
 
       // ---- Stripe's webhook: the only caller that is not a browser with a session ----
@@ -327,36 +372,113 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
       }
 
       // ---- registration and login ----
+      // The tenant and its first key, from the profile and tenant id given: the second step of registration, or the
+      // whole of it when a script sends everything at once.
+      type Refusal = { status: number; body: Record<string, unknown> };
+      // What the tenant setup needs, checked before anything is created: a mistyped form leaves nothing behind.
+      const parseOnboarding = async (b: Record<string, unknown>): Promise<Refusal | { tenant: string; profile: Profile }> => {
+        const tenant = String(b.tenant ?? "").trim().toLowerCase();
+        if (!TENANT_ID.test(tenant) || RESERVED.has(tenant)) return { status: 400, body: { error: "the tenant id is the name in your log's URL: three to forty lowercase letters, digits, or hyphens, and not a reserved word" } };
+        const text = (k: string, max: number) => String(b[k] ?? "").trim().slice(0, max);
+        const profile: Profile = { name: text("name", 120), company: text("company", 160), role: text("role", 120) || null, phone: text("phone", 40) || null, telegram: text("telegram", 40).replace(/^@/, "") || null };
+        if (!profile.name) return { status: 400, body: { error: "your name is needed, so we know who to write to" } };
+        if (!profile.company) return { status: 400, body: { error: "the company or organisation the tenant is for is needed" } };
+        if (profile.telegram && !/^[A-Za-z0-9_]{5,32}$/.test(profile.telegram)) return { status: 400, body: { error: "a Telegram username is five to thirty-two letters, digits, or underscores, with or without the @" } };
+        if (profile.phone && !/^[+0-9 ()./-]{6,40}$/.test(profile.phone)) return { status: 400, body: { error: "a phone number is digits, with an optional + and spaces" } };
+        if (await o.tenancy.tenant(tenant)) return { status: 409, body: { error: "that tenant id is taken" } };
+        return { tenant, profile };
+      };
+      const onboard = async (user: PortalUser, parsed: { tenant: string; profile: Profile }): Promise<Refusal> => {
+        const { tenant, profile } = parsed;
+        if (await store.tenantOf(user.id)) return { status: 409, body: { error: "this account already has a tenant" } };
+        await store.updateProfile(user.id, profile);
+        const t = await o.tenancy.addTenant(tenant, tenant, `portal:${user.email}`);
+        await store.addMember(user.id, tenant);
+        const minted = await o.tenancy.addToken(tenant, "first key", `portal:${user.email}`);
+        log(`agent-custody portal: ${user.email} registered tenant ${tenant}`);
+        void welcomeMail(user.email, profile.name!, t.id, t.logId);
+        void notifyMail({ ...profile, email: user.email, tenant: t.id });
+        return { status: 200, body: { tenant: t.id, logId: t.logId, plan: t.plan, token: minted.token, tokenHash: minted.tokenHash.slice(0, 12), welcome: sheet(t.id, t.logId), setup: setupFor(t.id, t.logId), exportCommand: exportCommand(t.id) } };
+      };
       if (req.method === "POST" && url.pathname === "/api/register") {
         const b = await jsonBody();
         const email = String(b.email ?? "").trim().toLowerCase();
         const password = String(b.password ?? "");
-        const tenant = String(b.tenant ?? "").trim().toLowerCase();
         if (!EMAIL.test(email)) return json(400, { error: "a valid email address is needed" });
         if (password.length < 10) return json(400, { error: "the password needs at least ten characters" });
-        if (!TENANT_ID.test(tenant) || RESERVED.has(tenant)) return json(400, { error: "the tenant id is the name in your log's URL: three to forty lowercase letters, digits, or hyphens, and not a reserved word" });
-        const text = (k: string, max: number) => String(b[k] ?? "").trim().slice(0, max);
-        const profile: Profile = { name: text("name", 120), company: text("company", 160), role: text("role", 120) || null, phone: text("phone", 40) || null, telegram: text("telegram", 40).replace(/^@/, "") || null };
-        if (!profile.name) return json(400, { error: "your name is needed, so we know who to write to" });
-        if (!profile.company) return json(400, { error: "the company or organisation the tenant is for is needed" });
-        if (profile.telegram && !/^[A-Za-z0-9_]{5,32}$/.test(profile.telegram)) return json(400, { error: "a Telegram username is five to thirty-two letters, digits, or underscores, with or without the @" });
-        if (profile.phone && !/^[+0-9 ()./-]{6,40}$/.test(profile.phone)) return json(400, { error: "a phone number is digits, with an optional + and spaces" });
-        if (await o.tenancy.tenant(tenant)) return json(409, { error: "that tenant id is taken" });
+        const oneStep = "tenant" in b || "company" in b || "name" in b;
+        let parsed: { tenant: string; profile: Profile } | null = null;
+        if (oneStep) {
+          const p = await parseOnboarding(b);
+          if ("status" in p) return json(p.status, p.body);
+          parsed = p;
+        }
         // throttled once the request is well formed: a mistyped form costs nothing, five real registrations from one address, then one every ten minutes
         if (!registrations.take(`reg:${addr}`)) return json(429, { error: "too many registrations from this address; try again later" });
         let user: PortalUser;
         try {
-          user = await store.createUser(email, password, profile);
+          user = await store.createUser(email, password);
         } catch (e) {
           return json(409, { error: e instanceof Error ? e.message : String(e) });
         }
-        const t = await o.tenancy.addTenant(tenant, tenant, `portal:${email}`);
-        await store.addMember(user.id, tenant);
-        const minted = await o.tenancy.addToken(tenant, "first key", `portal:${email}`);
-        log(`agent-custody portal: ${email} registered tenant ${tenant}`);
-        void welcomeMail(email, profile.name!, t.id, t.logId);
-        void notifyMail({ ...profile, email, tenant: t.id });
-        return json(200, { tenant: t.id, logId: t.logId, plan: t.plan, token: minted.token, tokenHash: minted.tokenHash.slice(0, 12), welcome: sheet(t.id, t.logId), setup: setupFor(t.id, t.logId), exportCommand: exportCommand(t.id) }, { "set-cookie": setCookie(signSession(o.secret, user.id)) });
+        const cookie = { "set-cookie": setCookie(signSession(o.secret, user.id)) };
+        if (!parsed) { log(`agent-custody portal: ${email} created an account`); return json(200, { email, tenant: null }, cookie); }
+        const r = await onboard(user, parsed);
+        return json(r.status, r.body, cookie);
+      }
+      // ---- sign in through a provider: the OAuth web flow, state in a short-lived signed cookie ----
+      const provider = /^\/auth\/(github|google)(\/callback)?$/.exec(url.pathname);
+      if (req.method === "GET" && provider && o.oauth?.[provider[1] as "github" | "google"]) {
+        const name = provider[1] as "github" | "google";
+        const conf = o.oauth[name]!;
+        const redirectUri = `${portalBase}auth/${name}/callback`;
+        const stateCookie = (value: string | null) => `custody_oauth=${value ?? ""}; Path=/auth; HttpOnly; SameSite=Lax${o.trustProxy ? "; Secure" : ""}; Max-Age=${value ? 600 : 0}`;
+        if (!provider[2]) {
+          const state = signSession(o.secret, `oauth:${name}:${randomBytes(16).toString("hex")}`, 600_000);
+          const authorize = name === "github"
+            ? `https://github.com/login/oauth/authorize?${new URLSearchParams({ client_id: conf.clientId, redirect_uri: redirectUri, scope: "user:email", state })}`
+            : `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({ client_id: conf.clientId, redirect_uri: redirectUri, response_type: "code", scope: "openid email", state, prompt: "select_account" })}`;
+          res.writeHead(302, { location: authorize, "set-cookie": stateCookie(state), "cache-control": "no-store" });
+          return void res.end();
+        }
+        const state = url.searchParams.get("state") ?? "";
+        const code = url.searchParams.get("code") ?? "";
+        const expected = cookies.custody_oauth;
+        const stateUser = readSession(o.secret, state);
+        if (!code || !state || state !== expected || !stateUser?.startsWith(`oauth:${name}:`)) return json(400, { error: "the sign-in did not start here, or took too long; go back and try again" }, { "set-cookie": stateCookie(null) });
+        const f = o.oauth.fetch ?? fetch;
+        let subject = "";
+        let email = "";
+        try {
+          if (name === "github") {
+            const tok = (await (await f("https://github.com/login/oauth/access_token", { method: "POST", headers: { accept: "application/json", "content-type": "application/json" }, body: JSON.stringify({ client_id: conf.clientId, client_secret: conf.clientSecret, code, redirect_uri: redirectUri }), signal: AbortSignal.timeout(10_000) })).json()) as { access_token?: string; error?: string };
+            if (!tok.access_token) throw new Error(tok.error ?? "no access token");
+            const gh = { authorization: `Bearer ${tok.access_token}`, accept: "application/vnd.github+json", "user-agent": "agent-custody-portal" };
+            const me = (await (await f("https://api.github.com/user", { headers: gh, signal: AbortSignal.timeout(10_000) })).json()) as { id?: number | string };
+            const emails = (await (await f("https://api.github.com/user/emails", { headers: gh, signal: AbortSignal.timeout(10_000) })).json()) as { email: string; primary: boolean; verified: boolean }[];
+            const primary = emails.find((e) => e.primary && e.verified) ?? emails.find((e) => e.verified);
+            if (me.id === undefined || !primary) throw new Error("GitHub gave no verified email; add one to your GitHub account or use email and password");
+            subject = String(me.id);
+            email = primary.email.toLowerCase();
+          } else {
+            const tok = (await (await f("https://oauth2.googleapis.com/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ client_id: conf.clientId, client_secret: conf.clientSecret, code, redirect_uri: redirectUri, grant_type: "authorization_code" }), signal: AbortSignal.timeout(10_000) })).json()) as { id_token?: string; error?: string };
+            if (!tok.id_token) throw new Error(tok.error ?? "no id token");
+            // the id token came straight from Google's token endpoint over TLS in this exchange, so its claims are read without a second signature check
+            const claims = JSON.parse(Buffer.from(tok.id_token.split(".")[1] ?? "", "base64url").toString()) as { sub?: string; email?: string; email_verified?: boolean };
+            if (!claims.sub || !claims.email || claims.email_verified !== true) throw new Error("Google gave no verified email");
+            subject = claims.sub;
+            email = claims.email.toLowerCase();
+          }
+        } catch (e) {
+          log(`agent-custody portal: ${name} sign-in failed: ${e instanceof Error ? e.message : String(e)}`);
+          return json(502, { error: `${name === "github" ? "GitHub" : "Google"} sign-in failed: ${e instanceof Error ? e.message : String(e)}` }, { "set-cookie": stateCookie(null) });
+        }
+        const user = await store.findOrCreateOAuthUser(name, subject, email);
+        log(`agent-custody portal: ${email} signed in with ${name}`);
+        // A page, not a redirect: the session cookie is SameSite=Strict, and a redirect that started at the provider
+        // would not carry it. The page's own navigation to / does.
+        res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "set-cookie": [setCookie(signSession(o.secret, user.id)), stateCookie(null)], "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'" });
+        return void res.end(`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=/"><title>Signed in</title><p style="font:15px system-ui;padding:2rem">Signed in as ${email.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!)}. <a href="/">Continue</a>.</p>`);
       }
       if (req.method === "POST" && url.pathname === "/api/login") {
         if (!loginFailures.take(`login:${addr}`)) return json(429, { error: "too many attempts; wait a minute" });
@@ -371,11 +493,18 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
       if (!url.pathname.startsWith("/api/")) return json(404, { error: "not found" });
       const user = userId ? await store.user(userId) : null;
       if (!user) return json(401, { error: "sign in first" });
+      if (req.method !== "GET" && !(req.headers["content-type"] ?? "").startsWith("application/json")) return json(415, { error: "expected a JSON body" });
       const tenantId = await store.tenantOf(user.id);
-      if (!tenantId) return json(409, { error: "this account has no tenant" });
+      if (req.method === "GET" && url.pathname === "/api/me" && !tenantId) return json(200, { email: user.email, tenant: null, profile: await store.profile(user.id), billing: !!o.stripe });
+      if (req.method === "POST" && url.pathname === "/api/onboard") {
+        const p = await parseOnboarding(await jsonBody());
+        if ("status" in p) return json(p.status, p.body);
+        const r = await onboard(user, p);
+        return json(r.status, r.body);
+      }
+      if (!tenantId) return json(409, { error: "this account has no tenant yet; finish setting it up" });
       const tenant = await o.tenancy.tenant(tenantId);
       if (!tenant) return json(409, { error: "the tenant no longer exists" });
-      if (req.method !== "GET" && !(req.headers["content-type"] ?? "").startsWith("application/json")) return json(415, { error: "expected a JSON body" });
 
       if (req.method === "GET" && url.pathname === "/api/me") {
         const q = await o.tenancy.quota(tenantId);
@@ -532,6 +661,8 @@ const PORTAL_PAGE = `<!doctype html>
   button.link { background: none; border: 0; padding: 0; color: var(--accent); text-decoration: underline; }
   .auth { max-width: 26rem; margin: 4rem auto; }
   .auth.wide { max-width: 44rem; }
+  .providers { display: grid; gap: .5rem; margin: 0 0 1rem; } .providers a { display: block; text-align: center; padding: .55rem .9rem; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--ink); text-decoration: none; font-weight: 600; }
+  .providers a:hover { border-color: var(--accent); } .or { text-align: center; color: var(--ink2); font-size: .82rem; margin: 0 0 .8rem; }
   .step { display: grid; grid-template-columns: 2rem 1fr; gap: .2rem .8rem; padding: 1rem 0; border-top: 1px solid var(--line); }
   .step .n { font: 700 .85rem/1.6 var(--mono); color: var(--accent); }
   .step h3 { margin: 0 0 .3rem; font-size: 1rem; } .step p { margin: 0 0 .5rem; color: var(--ink2); font-size: .92rem; }
@@ -548,24 +679,31 @@ const PORTAL_PAGE = `<!doctype html>
 <div class="top"><a class="brand" href="https://agent-custody.dev/"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14"/><path d="M19 11H45V45L41.75 48 38.5 45 35.25 48 32 45 28.75 48 25.5 45 22.25 48 19 45Z" fill="#fff"/><path d="M25 20h14M25 27h14" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/><path d="M25 37.5l5 4.5 9.5-10" fill="none" stroke="var(--accent)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"/></svg>agent-custody</a><span id="tenantTag" class="pill" hidden></span><span id="planTag" class="pill" hidden></span><span class="links"><a href="https://agent-custody.dev/guide/getting-started">Guide</a><a href="https://docs.agent-custody.dev/reference/">Docs</a><a href="https://agent-custody.dev/verify">Verify a receipt</a></span><span class="who" id="who"></span><button class="theme" id="themeToggle" type="button">Dark mode</button></div>
 <section id="auth" class="auth" hidden>
   <h1 id="authTitle">Sign in</h1>
+  <div id="providers" class="providers" hidden></div>
   <form id="authForm">
-    <div id="regFields" hidden>
-      <label>Your name<input id="name" autocomplete="name" maxlength="120"></label>
-      <label>Company or organisation<input id="company" autocomplete="organization" maxlength="160"></label>
-      <label>Your role <span class="opt">optional</span><input id="role" autocomplete="organization-title" maxlength="120" placeholder="Head of Platform"></label>
-    </div>
     <label>Work email<input id="email" type="email" autocomplete="email" required></label>
-    <div id="regFields2" hidden>
-      <label>Phone <span class="opt">optional</span><input id="phone" type="tel" autocomplete="tel" maxlength="40" placeholder="+44 20 …"></label>
-      <label>Telegram username <span class="opt">optional</span><input id="telegram" maxlength="40" placeholder="@yourname"><span class="hint">Your handle in Telegram, under Settings, if you would rather we reach you there than by email.</span></label>
-    </div>
     <label>Password<input id="password" type="password" autocomplete="current-password" minlength="10" required></label>
-    <label id="tenantField" hidden>Tenant id<input id="tenant" placeholder="acme" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]"><span class="hint">A short name for your organisation, filled in from the company name; change it if you like. It becomes the path of your log, which your gateway config and your auditors will use: <code id="tenantPreview">__LOG_BASE__t/&lt;tenant&gt;/</code></span></label>
     <button id="authGo" type="submit">Sign in</button>
     <p class="msg" id="authMsg"></p>
   </form>
-  <p class="muted"><button class="link" id="authSwap" type="button">Create an account and a tenant instead</button></p>
+  <p class="muted" id="authNote" hidden>Next you name your organisation and get your tenant and its first key. Two minutes.</p>
+  <p class="muted"><button class="link" id="authSwap" type="button">Create an account instead</button></p>
   <p class="muted">The free plan is ten thousand appends a month, no card. Your gateway sends only hashes; nothing you log here can be read by us.</p>
+</section>
+<section id="onboard" class="auth" hidden>
+  <h1>Set up your tenant</h1>
+  <p class="muted">Signed in as <b id="onboardWho"></b>. A tenant is your own log on this service, with its own keys and its own path.</p>
+  <form id="onboardForm">
+    <label>Your name<input id="name" autocomplete="name" maxlength="120" required></label>
+    <label>Company or organisation<input id="company" autocomplete="organization" maxlength="160" required></label>
+    <label>Tenant id<input id="tenant" placeholder="acme" pattern="[a-z0-9][a-z0-9-]{1,38}[a-z0-9]" required><span class="hint">A short name for your organisation, filled in from the company name; change it if you like. It becomes the path of your log, which your gateway config and your auditors will use: <code id="tenantPreview">__LOG_BASE__t/&lt;tenant&gt;/</code></span></label>
+    <label>Your role <span class="opt">optional</span><input id="role" autocomplete="organization-title" maxlength="120" placeholder="Head of Platform"></label>
+    <label>Phone <span class="opt">optional</span><input id="phone" type="tel" autocomplete="tel" maxlength="40" placeholder="+44 20 …"></label>
+    <label>Telegram username <span class="opt">optional</span><input id="telegram" maxlength="40" placeholder="@yourname"><span class="hint">Your handle in Telegram, under Settings, if you would rather we reach you there than by email.</span></label>
+    <button type="submit">Create tenant</button>
+    <p class="msg" id="onboardMsg"></p>
+  </form>
+  <p class="muted"><a href="#" id="signoutOnboard">Sign out</a></p>
 </section>
 <section id="welcome" class="auth wide" hidden>
   <h1>Your tenant is ready</h1>
@@ -655,7 +793,9 @@ const PORTAL_PAGE = `<!doctype html>
   const fmt = (n) => Number(n).toLocaleString();
   const ago = (iso) => { const m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
   let registering = false;
-  const show = (id) => { for (const s of ["auth", "welcome", "app"]) $(s).hidden = s !== id; };
+  const show = (id) => { for (const s of ["auth", "onboard", "welcome", "app"]) $(s).hidden = s !== id; };
+  const PROVIDERS = __PROVIDERS__;
+  if (PROVIDERS.length) { $("providers").innerHTML = PROVIDERS.map((p) => "<a href='/auth/" + p + "'>Continue with " + (p === "github" ? "GitHub" : "Google") + "</a>").join("") + "<p class=or>or with email</p>"; $("providers").hidden = false; }
   const view = (name) => {
     for (const p of document.querySelectorAll("[data-pane]")) p.hidden = p.dataset.pane !== name;
     for (const a of document.querySelectorAll("nav a[data-view]")) a.classList.toggle("on", a.dataset.view === name);
@@ -667,16 +807,22 @@ const PORTAL_PAGE = `<!doctype html>
   const previewTenant = () => { $("tenantPreview").textContent = LOG_BASE + "t/" + ($("tenant").value || "<tenant>") + "/"; };
   $("company").oninput = () => { if (!tenantEdited) { $("tenant").value = slug($("company").value); previewTenant(); } };
   $("tenant").oninput = () => { tenantEdited = $("tenant").value !== ""; previewTenant(); };
-  $("authSwap").onclick = () => { registering = !registering; $("authTitle").textContent = registering ? "Create your tenant" : "Sign in"; $("authGo").textContent = registering ? "Create tenant" : "Sign in"; for (const id of ["regFields", "regFields2", "tenantField"]) $(id).hidden = !registering; for (const id of ["name", "company", "tenant"]) $(id).required = registering; $("password").autocomplete = registering ? "new-password" : "current-password"; $("authSwap").textContent = registering ? "I already have an account" : "Create an account and a tenant instead"; previewTenant(); };
+  $("authSwap").onclick = () => { registering = !registering; $("authTitle").textContent = registering ? "Create an account" : "Sign in"; $("authGo").textContent = registering ? "Create account" : "Sign in"; $("authNote").hidden = !registering; $("password").autocomplete = registering ? "new-password" : "current-password"; $("authSwap").textContent = registering ? "I already have an account" : "Create an account instead"; };
   $("authForm").onsubmit = async (e) => {
     e.preventDefault(); $("authMsg").className = "msg"; $("authMsg").textContent = "";
     try {
-      if (registering) {
-        const r = await api("POST", "/api/register", { email: $("email").value, password: $("password").value, tenant: $("tenant").value, name: $("name").value, company: $("company").value, role: $("role").value, phone: $("phone").value, telegram: $("telegram").value });
-        $("firstToken").textContent = r.token; renderSetup($("firstSetup"), r.setup, true); show("welcome");
-      } else { await api("POST", "/api/login", { email: $("email").value, password: $("password").value }); await enter(); }
+      await api("POST", registering ? "/api/register" : "/api/login", { email: $("email").value, password: $("password").value });
+      await enter();
     } catch (err) { $("authMsg").className = "msg err"; $("authMsg").textContent = err.message; }
   };
+  $("onboardForm").onsubmit = async (e) => {
+    e.preventDefault(); $("onboardMsg").className = "msg"; $("onboardMsg").textContent = "";
+    try {
+      const r = await api("POST", "/api/onboard", { tenant: $("tenant").value, name: $("name").value, company: $("company").value, role: $("role").value, phone: $("phone").value, telegram: $("telegram").value });
+      $("firstToken").textContent = r.token; renderSetup($("firstSetup"), r.setup, true); show("welcome");
+    } catch (err) { $("onboardMsg").className = "msg err"; $("onboardMsg").textContent = err.message; }
+  };
+  $("signoutOnboard").onclick = async (e) => { e.preventDefault(); await api("POST", "/api/logout", {}); location.hash = ""; show("auth"); };
   $("copyFirst").onclick = () => navigator.clipboard.writeText($("firstToken").textContent);
   // Light or dark by choice, kept in this browser; unset, the page follows the system. The button says where it is going.
   const themeNow = () => document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
@@ -726,7 +872,11 @@ const PORTAL_PAGE = `<!doctype html>
   };
   const load = async () => { render(await api("GET", "/api/overview")); await loadPolicies(); };
   const enter = async () => {
-    try { const me = await api("GET", "/api/me"); $("who").textContent = me.email; show("app"); await load(); view((location.hash || "#overview").slice(1) || "overview"); }
+    try {
+      const me = await api("GET", "/api/me");
+      if (me.tenant === null) { $("onboardWho").textContent = me.email; if (me.profile) { for (const k of ["name", "company", "role", "phone", "telegram"]) if (me.profile[k]) $(k).value = me.profile[k]; } previewTenant(); show("onboard"); return; }
+      $("who").textContent = me.email; show("app"); await load(); view((location.hash || "#overview").slice(1) || "overview");
+    }
     catch (err) { if (err.status === 401) { show("auth"); if (location.hash === "#register" && !registering) $("authSwap").click(); } else { show("app"); $("who").textContent = err.message; } }
   };
   const sha256hex = async (text) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((b) => b.toString(16).padStart(2, "0")).join("");

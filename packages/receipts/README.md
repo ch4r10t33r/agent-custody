@@ -47,7 +47,7 @@ const bundle = JSON.parse(readFileSync("receipts/<id>.json", "utf8"));
 verifyBundle(bundle, { issuerKeys: [loadPublicKey("keys/app.pub")], logFile: "log.jsonl" }).ok;   // true
 ```
 
-Framework hooks and adapters, including Claude Code, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, OpenClaw and Hermes, are in [docs/sdk.md](docs/sdk.md). To enforce rather than record, put the gateway between the agent and its tools: `npx agent-custody gateway --config gateway.json`, set up in [docs/usage.md](docs/usage.md). The gateway is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.svayatta/agent-custody`; its entry is [server.json](server.json), published with `mcp-publisher publish` after each npm release.
+Framework hooks and adapters, including Claude Code, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, OpenClaw and Hermes, are in [docs/sdk.md](docs/sdk.md). To enforce rather than record, put the gateway between the agent and its tools: `npx agent-custody gateway --config gateway.json`, set up in [docs/usage.md](docs/usage.md). The gateway is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.svayatta/agent-custody`; its entry is [server.json](server.json), published after each npm release by running the `mcp-registry` workflow from the Actions tab (GitHub OIDC, no token).
 
 ## How it fits together
 

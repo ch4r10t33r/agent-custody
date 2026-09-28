@@ -118,7 +118,7 @@ export default withMermaid(
         { text: "Python", items: [{ text: "The Python client", link: "/python/" }] },
         { text: "Specification", items: [{ text: "Receipt v0.2", link: "/receipt/v0.2" }, { text: "Conformance vectors", link: "/receipt/vectors" }] },
         { text: "Tools", items: [{ text: "Verify a receipt in the browser", link: "/verify" }] },
-        { text: "Hosted", items: [{ text: "Register", link: "https://app.agent-custody.dev/" }, { text: "Pricing", link: "/pricing" }, { text: "The hosted log", link: "/early-access" }, { text: "Security questionnaire", link: "/security" }, { text: "Privacy", link: "/privacy" }, { text: "Terms for early access", link: "/terms" }, { text: "Contact", link: "/contact" }] },
+        { text: "Hosted", items: [{ text: "Register", link: "https://app.agent-custody.dev/#register" }, { text: "Pricing", link: "/pricing" }, { text: "The hosted log", link: "/early-access" }, { text: "Security questionnaire", link: "/security" }, { text: "Privacy", link: "/privacy" }, { text: "Terms for early access", link: "/terms" }, { text: "Contact", link: "/contact" }] },
       ] },
       socialLinks: [{ icon: "github", link: "https://github.com/svayatta/agent-custody" }, { icon: "npm", link: "https://www.npmjs.com/org/agent-custody" }],
       footer: { message: 'Apache-2.0 · <a href="https://github.com/svayatta/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a> · <a href="/reference/">Docs</a> · <a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a>', copyright: "Charioteer Consulting Ltd" },

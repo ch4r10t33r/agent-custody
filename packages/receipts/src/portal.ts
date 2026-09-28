@@ -412,6 +412,38 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
         await jsonBody();
         return json(200, { revoked: await o.tenancy.revokeToken(tenantId, revoke[1]!, `portal:${user.email}`) });
       }
+      // Policies: named versions the tenant publishes so a receipt's policyDigest reads as a name. The gateway never
+      // reads these; enforcement stays on the tenant's machines.
+      if (req.method === "GET" && url.pathname === "/api/policies") {
+        const digest = url.searchParams.get("digest");
+        if (digest !== null) {
+          if (!/^[0-9a-f]{64}$/i.test(digest)) return json(400, { error: "a policy digest is 64 hexadecimal characters, the policyDigest a receipt carries" });
+          return json(200, { match: await o.tenancy.policyByDigest(tenantId, digest) });
+        }
+        return json(200, { policies: await o.tenancy.listPolicies(tenantId) });
+      }
+      if (req.method === "POST" && url.pathname === "/api/policies") {
+        const b = await jsonBody();
+        const name = String(b.name ?? "").trim().slice(0, 80);
+        const text = typeof b.text === "string" ? b.text : "";
+        if (!name) return json(400, { error: "a name for this version is needed, for example refunds-v3 or 2026-10-01" });
+        if (!text.trim()) return json(400, { error: "the policy text is empty" });
+        if (text.length > 256_000) return json(400, { error: "a policy is at most 256 KB" });
+        try {
+          return json(200, { policy: await o.tenancy.addPolicy(tenantId, name, text, `portal:${user.email}`) });
+        } catch (e) {
+          return json(409, { error: e instanceof Error ? e.message : String(e) });
+        }
+      }
+      const pol = /^\/api\/policies\/(pol_[0-9a-f]{16})(\/remove)?$/.exec(url.pathname);
+      if (req.method === "GET" && pol && !pol[2]) {
+        const p = await o.tenancy.policy(tenantId, pol[1]!);
+        return p ? json(200, { policy: p }) : json(404, { error: "no such policy version" });
+      }
+      if (req.method === "POST" && pol && pol[2]) {
+        await jsonBody();
+        return json(200, { removed: await o.tenancy.removePolicy(tenantId, pol[1]!, `portal:${user.email}`) });
+      }
       if (req.method === "POST" && url.pathname === "/api/checkout") {
         if (!o.stripe) return json(503, { error: "billing is not configured on this portal yet; email us and we move the plan by hand" });
         await jsonBody();
@@ -493,6 +525,7 @@ const PORTAL_PAGE = `<!doctype html>
   .bar b { font-family: var(--mono); font-weight: 400; margin-top: .3rem; }
   label { display: grid; gap: .25rem; font-size: .85rem; color: var(--ink2); margin: 0 0 .8rem; }
   label .opt { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; margin-left: .3rem; } label .hint { font-size: .8rem; line-height: 1.45; } label .hint code { font-family: var(--mono); font-size: .9em; }
+  textarea { font: .86rem/1.5 var(--mono); padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); width: 100%; box-sizing: border-box; }
   input, select { font: inherit; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--ink); }
   button { font: inherit; padding: .5rem .9rem; border-radius: 4px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
   button.quiet { background: transparent; color: var(--accent); }
@@ -549,6 +582,7 @@ const PORTAL_PAGE = `<!doctype html>
     <div class="group">Configure</div>
     <a href="#setup" data-view="setup">Setup</a>
     <a href="#keys" data-view="keys">API keys <span class="n" id="nKeys"></span></a>
+    <a href="#policies" data-view="policies">Policies <span class="n" id="nPolicies"></span></a>
     <a href="#billing" data-view="billing">Billing</a>
     <a href="#export" data-view="export">Export</a>
     <div class="group">Account</div>
@@ -581,6 +615,15 @@ const PORTAL_PAGE = `<!doctype html>
         <div id="minted" class="once" hidden><p><b>Shown once.</b></p><p class="tok" id="mintedTok"></p><button class="quiet" id="copyMinted">Copy key</button></div>
         <table style="margin-top:1rem"><thead><tr><th>label</th><th>hash</th><th>created</th><th>state</th><th></th></tr></thead><tbody id="keys"></tbody></table></div>
       <p class="msg" id="keysMsg"></p>
+    </div>
+    <div data-pane="policies" hidden>
+      <h1>Policies</h1>
+      <p class="muted">Enforcement stays on your machines: the gateway reads its Cedar file locally and writes the file's SHA-256 into every receipt as <code>policyDigest</code>. This page gives those digests names. Publish each version you deploy, byte for byte as the gateway loads it, and a receipt's digest reads as "refunds-v3" instead of a hash, here and in your export. We never evaluate a policy and nothing here is read by the gateway.</p>
+      <div class="panel"><form id="policyForm"><label>Name for this version<input id="policyName" placeholder="refunds-v3" maxlength="80" required></label><label>Policy text, exactly as the gateway's file<textarea id="policyText" rows="8" spellcheck="false" placeholder="permit(principal, action == Action::&quot;stripe.refund&quot;, resource) when { context.args.amount <= 100000 };" required></textarea></label><button type="submit">Publish version</button> <span class="muted" id="policyDigestPreview"></span></form></div>
+      <div class="panel"><h2>Match a receipt</h2><p class="muted">Paste a receipt file, or just its <code>policyDigest</code>, to see which published version decided it.</p><form id="matchForm"><label>Receipt JSON or digest<textarea id="matchIn" rows="3" spellcheck="false"></textarea></label><button type="submit" class="quiet">Match</button></form><p class="msg" id="matchOut"></p></div>
+      <div class="panel"><table><thead><tr><th>name</th><th>digest</th><th>bytes</th><th>published</th><th>by</th><th></th></tr></thead><tbody id="policies"></tbody></table></div>
+      <div class="panel" id="policyView" hidden><h2 id="policyViewName"></h2><pre id="policyViewText"></pre></div>
+      <p class="msg" id="policiesMsg"></p>
     </div>
     <div data-pane="billing" hidden>
       <h1>Billing</h1>
@@ -681,11 +724,36 @@ const PORTAL_PAGE = `<!doctype html>
     const up = $("upgrade"); if (up) up.onclick = async () => { try { const r = await api("POST", "/api/checkout", {}); location.href = r.url; } catch (err) { $("billingMsg").className = "msg err"; $("billingMsg").textContent = err.message; } };
     const mg = $("manage"); if (mg) mg.onclick = async () => { try { const r = await api("POST", "/api/billing-portal", {}); location.href = r.url; } catch (err) { $("billingMsg").className = "msg err"; $("billingMsg").textContent = err.message; } };
   };
-  const load = async () => render(await api("GET", "/api/overview"));
+  const load = async () => { render(await api("GET", "/api/overview")); await loadPolicies(); };
   const enter = async () => {
     try { const me = await api("GET", "/api/me"); $("who").textContent = me.email; show("app"); await load(); view((location.hash || "#overview").slice(1) || "overview"); }
     catch (err) { if (err.status === 401) { show("auth"); if (location.hash === "#register" && !registering) $("authSwap").click(); } else { show("app"); $("who").textContent = err.message; } }
   };
+  const sha256hex = async (text) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const loadPolicies = async () => {
+    const r = await api("GET", "/api/policies");
+    $("nPolicies").textContent = r.policies.length || "";
+    $("policies").innerHTML = r.policies.map((p) => "<tr><td>" + esc(p.name) + "</td><td class=mono>" + esc(p.digest.slice(0, 16)) + "…</td><td>" + p.bytes + "</td><td>" + esc(p.createdAt.slice(0, 10)) + "</td><td class=mono>" + esc(p.createdBy.replace(/^portal:/, "")) + "</td><td><button class=link data-viewpol=\\"" + esc(p.id) + "\\">View</button> <button class=link data-rmpol=\\"" + esc(p.id) + "\\">Remove</button></td></tr>").join("") || "<tr><td colspan=6 class=muted>No versions published yet. Receipts keep their digests either way; a name is for the people reading them.</td></tr>";
+  };
+  $("policyText").oninput = async () => { const t = $("policyText").value; $("policyDigestPreview").textContent = t ? "sha256 " + (await sha256hex(t)).slice(0, 16) + "…" : ""; };
+  $("policyForm").onsubmit = async (e) => {
+    e.preventDefault(); $("policiesMsg").className = "msg";
+    try { const r = await api("POST", "/api/policies", { name: $("policyName").value, text: $("policyText").value }); $("policiesMsg").className = "msg ok"; $("policiesMsg").textContent = "Published " + r.policy.name + " as " + r.policy.digest.slice(0, 16) + "…"; $("policyName").value = ""; $("policyText").value = ""; $("policyDigestPreview").textContent = ""; await loadPolicies(); }
+    catch (err) { $("policiesMsg").className = "msg err"; $("policiesMsg").textContent = err.message; }
+  };
+  $("matchForm").onsubmit = async (e) => {
+    e.preventDefault(); $("matchOut").className = "msg";
+    try {
+      const raw = $("matchIn").value.trim(); let digest = raw;
+      if (!/^[0-9a-f]{64}$/i.test(raw)) { const b = JSON.parse(raw); const payload = b.envelope ? b.envelope.payload : b.payload; const st = JSON.parse(atob(payload)); digest = st.predicate && st.predicate.policy ? st.predicate.policy.policyDigest : ""; if (!digest) throw new Error("this receipt carries no policy decision"); }
+      const r = await api("GET", "/api/policies?digest=" + encodeURIComponent(digest));
+      $("matchOut").className = r.match ? "msg ok" : "msg"; $("matchOut").textContent = r.match ? "Decided by \\"" + r.match.name + "\\", published " + r.match.createdAt.slice(0, 10) + " (" + digest.slice(0, 16) + "…)" : "No published version has digest " + digest.slice(0, 16) + "…; publish the file the gateway loaded to name it.";
+    } catch (err) { $("matchOut").className = "msg err"; $("matchOut").textContent = err.message; }
+  };
+  document.addEventListener("click", async (e) => {
+    const v = e.target.closest("button[data-viewpol]"); if (v) { try { const r = await api("GET", "/api/policies/" + v.dataset.viewpol); $("policyViewName").textContent = r.policy.name + " · " + r.policy.digest; $("policyViewText").textContent = r.policy.text; $("policyView").hidden = false; } catch (err) { $("policiesMsg").className = "msg err"; $("policiesMsg").textContent = err.message; } return; }
+    const rm = e.target.closest("button[data-rmpol]"); if (rm && confirm("Remove this published version? Receipts keep their digests; only the name goes.")) { try { await api("POST", "/api/policies/" + rm.dataset.rmpol + "/remove", {}); $("policyView").hidden = true; await loadPolicies(); } catch (err) { $("policiesMsg").className = "msg err"; $("policiesMsg").textContent = err.message; } }
+  });
   $("mintForm").onsubmit = async (e) => { e.preventDefault(); try { const r = await api("POST", "/api/keys", { label: $("label").value }); $("mintedTok").textContent = r.token; $("minted").hidden = false; $("keysMsg").className = "msg ok"; $("keysMsg").textContent = "minted " + r.label + ", stored as hash " + r.tokenHash; await load(); } catch (err) { $("keysMsg").className = "msg err"; $("keysMsg").textContent = err.message; } };
   $("copyMinted").onclick = () => navigator.clipboard.writeText($("mintedTok").textContent);
   document.addEventListener("click", async (e) => { const b = e.target.closest("button[data-revoke]"); if (!b) return; if (!confirm("Revoke key " + b.dataset.revoke + "? A gateway using it stops appending at once.")) return; try { await api("POST", "/api/keys/" + b.dataset.revoke + "/revoke", {}); $("keysMsg").className = "msg ok"; $("keysMsg").textContent = "revoked"; await load(); } catch (err) { $("keysMsg").className = "msg err"; $("keysMsg").textContent = err.message; } });

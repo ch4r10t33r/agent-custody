@@ -3,6 +3,7 @@
 // writer per tenant enforced by an advisory lock so a second instance is safe, tenants and their tokens in tables of
 // their own, and rate limits per token. The subtree cache stays in memory on every instance and resyncs from the
 // table whenever the table has moved on without it.
+import { sha256Hex } from "./crypto.ts";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { leafHash, MerkleLog, SubtreeCache, type InclusionProof } from "./log.ts";
@@ -244,10 +245,13 @@ export interface AuditEntry {
   id: number;
   at: string;
   actor: string;
-  action: "tenant.add" | "tenant.disable" | "tenant.plan" | "token.add" | "token.revoke";
+  action: "tenant.add" | "tenant.disable" | "tenant.plan" | "token.add" | "token.revoke" | "policy.add" | "policy.remove";
   tenantId: string | null;
   detail: Record<string, unknown>;
 }
+
+/** A policy version a tenant published: a name for the digest that receipts carry. Never read by the gateway. */
+export interface PolicyRecord { id: string; tenantId: string; name: string; digest: string; bytes: number; createdAt: string; createdBy: string }
 
 /** Tenants and their tokens, in Postgres. Tokens are stored hashed; a lookup hashes what the caller presented. */
 export class PostgresTenancy {
@@ -275,6 +279,8 @@ export class PostgresTenancy {
         await this.client.query(`ALTER TABLE ${p}tenants ADD COLUMN IF NOT EXISTS plan TEXT NOT NULL DEFAULT 'free'`);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}tokens (token_hash TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES ${p}tenants(id), label TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), revoked_at TIMESTAMPTZ)`);
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}audit (id BIGSERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), actor TEXT NOT NULL, action TEXT NOT NULL, tenant_id TEXT, detail JSONB NOT NULL DEFAULT '{}')`);
+        // named policy versions a tenant chose to publish, so a receipt's policy digest can be read as a name; enforcement never reads this table
+        await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}policies (id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL REFERENCES ${p}tenants(id), name TEXT NOT NULL, digest TEXT NOT NULL, text TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), created_by TEXT NOT NULL, UNIQUE (tenant_id, digest))`);
       })();
     }
     return this.ready;
@@ -433,6 +439,48 @@ export class PostgresTenancy {
     return { month, tenants: rows.map((r) => { const plan = (PLANS as readonly string[]).includes(String(r.plan)) ? (String(r.plan) as Plan) : "free"; return { id: String(r.id), logId: String(r.log_id), plan, quota: this.quotas[plan], appends: Number(r.appends), totalLeaves: Number(r.total), liveTokens: Number(r.live), disabled: !!r.disabled_at }; }) };
   }
 
+  /**
+   * Publish a policy version under a name. The digest is the same sha256 of the text the gateway writes into every
+   * receipt as policyDigest, so the text must be byte-for-byte the file the gateway loads. The same text twice is
+   * refused, naming the version it already is.
+   */
+  async addPolicy(tenantId: string, name: string, text: string, by?: string): Promise<PolicyRecord> {
+    await this.init();
+    if (!(await this.tenant(tenantId))) throw new Error(`unknown tenant ${tenantId}`);
+    const digest = sha256Hex(text);
+    const dup = await this.policyByDigest(tenantId, digest);
+    if (dup) throw new Error(`this exact policy text is already published as "${dup.name}" (${dup.digest.slice(0, 12)})`);
+    const id = `pol_${sha256Hex(`${tenantId}\n${digest}\n${Date.now()}`).slice(0, 16)}`;
+    const rows = (await this.client.query(`INSERT INTO ${this.prefix}policies (id, tenant_id, name, digest, text, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, tenant_id, name, digest, length(text) AS bytes, created_at, created_by`, [id, tenantId, name, digest, text, by ?? "unattributed"])).rows as Record<string, unknown>[];
+    await this.record(by, "policy.add", tenantId, { policy: id, name, digest });
+    return this.policyRow(rows[0]!);
+  }
+  async listPolicies(tenantId: string): Promise<PolicyRecord[]> {
+    await this.init();
+    return ((await this.client.query(`SELECT id, tenant_id, name, digest, octet_length(text) AS bytes, created_at, created_by FROM ${this.prefix}policies WHERE tenant_id = $1 ORDER BY created_at DESC`, [tenantId])).rows as Record<string, unknown>[]).map((r) => this.policyRow(r));
+  }
+  /** one version with its text */
+  async policy(tenantId: string, id: string): Promise<(PolicyRecord & { text: string }) | null> {
+    await this.init();
+    const rows = (await this.client.query(`SELECT id, tenant_id, name, digest, octet_length(text) AS bytes, created_at, created_by, text FROM ${this.prefix}policies WHERE tenant_id = $1 AND id = $2`, [tenantId, id])).rows as Record<string, unknown>[];
+    return rows[0] ? { ...this.policyRow(rows[0]), text: String(rows[0].text) } : null;
+  }
+  /** the version a receipt's policyDigest names, if the tenant published it */
+  async policyByDigest(tenantId: string, digest: string): Promise<PolicyRecord | null> {
+    await this.init();
+    const rows = (await this.client.query(`SELECT id, tenant_id, name, digest, octet_length(text) AS bytes, created_at, created_by FROM ${this.prefix}policies WHERE tenant_id = $1 AND digest = $2`, [tenantId, digest.toLowerCase()])).rows as Record<string, unknown>[];
+    return rows[0] ? this.policyRow(rows[0]) : null;
+  }
+  async removePolicy(tenantId: string, id: string, by?: string): Promise<boolean> {
+    await this.init();
+    const rows = (await this.client.query(`DELETE FROM ${this.prefix}policies WHERE tenant_id = $1 AND id = $2 RETURNING name, digest`, [tenantId, id])).rows as Record<string, unknown>[];
+    if (!rows[0]) return false;
+    await this.record(by, "policy.remove", tenantId, { policy: id, name: rows[0].name, digest: rows[0].digest });
+    return true;
+  }
+  private policyRow(r: Record<string, unknown>): PolicyRecord {
+    return { id: String(r.id), tenantId: String(r.tenant_id), name: String(r.name), digest: String(r.digest), bytes: Number(r.bytes), createdAt: new Date(r.created_at as string).toISOString(), createdBy: String(r.created_by) };
+  }
   async listTokens(tenantId: string): Promise<TokenRecord[]> {
     await this.init();
     return ((await this.client.query(`SELECT tenant_id, label, token_hash, created_at, revoked_at FROM ${this.prefix}tokens WHERE tenant_id = $1 ORDER BY created_at`, [tenantId])).rows as Record<string, unknown>[]).map((r) => ({ tenantId: String(r.tenant_id), label: String(r.label), tokenHash: String(r.token_hash), createdAt: new Date(r.created_at as string).toISOString(), revokedAt: r.revoked_at ? new Date(r.revoked_at as string).toISOString() : null }));

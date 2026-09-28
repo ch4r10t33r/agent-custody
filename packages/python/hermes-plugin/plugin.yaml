@@ -1,0 +1,15 @@
+# Drop this directory in as ~/.hermes/plugins/agent-custody/ (or .hermes/plugins/agent-custody/ in a project), then
+# `hermes plugins enable agent-custody`. Needs the Python package (pip install agent-custody) and a sidecar running
+# (npx @agent-custody/receipts sidecar --config sdk.json). Every tool call Hermes makes becomes a receipt; a call the
+# policy denies is blocked before it runs, with the receipt id in the message.
+name: agent-custody
+version: 1.0.0
+description: A signed receipt for every tool call, and a policy that can deny one before it runs
+provides_hooks:
+  - pre_tool_call
+  - post_tool_call
+config_schema:
+  sidecar_url:
+    type: str
+    default: "http://127.0.0.1:8791"
+    description: "Where the agent-custody sidecar listens"

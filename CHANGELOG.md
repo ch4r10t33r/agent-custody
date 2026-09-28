@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.15 — 2026-09-28
+
+- **Receipts:** an OpenClaw adapter, `@agent-custody/receipts/sdk/openclaw`: `openclawHooks(issuer)` gives `before_tool_call`, which blocks a policy-denied call with the denial receipt's id in the reason and returns nothing otherwise, and `after_tool_call`, which records the executed or failed call; `registerOpenClaw(api, issuer)` wires both in a plugin's `register(api)`. Driven against OpenClaw's documented hook types in example 21 and a test.
+- **Python:** a Hermes Agent plugin, `agent_custody.hermes`: `pre_tool_call` blocks a denied call with the receipt id, `post_tool_call` records; `register(ctx)` is the plugin entry, and `packages/python/hermes-plugin/` is the drop-in directory with its `plugin.yaml`. Tested against the real sidecar.
+- **State:** unchanged; released in step.
+
 ## 0.6.14 — 2026-09-28
 
 - **Receipts:** registration in two steps: an account from an email and a password, or from a GitHub or Google sign-in, then the tenant on the next screen (name, company, tenant id, role, phone, Telegram), with the first key and the emails once the tenant exists. `POST /api/register` with only email and password creates the account; `POST /api/onboard` creates the tenant; the one-call register with everything still works for scripts. `GET /auth/github` and `GET /auth/google` run the OAuth web flow over fetch with a signed state cookie; a provider sign-in links to the account with the same verified email or creates one (`portal_identities`). `--github-client-id/--github-secret-env`, `--google-client-id/--google-secret-env`; `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` in the container.

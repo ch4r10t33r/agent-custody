@@ -30,6 +30,7 @@ Suggested reading order is the numbering. Output lands in `examples-out/`, which
 | 18 | OpenTelemetry export | [18-opentelemetry.ts](../examples/18-opentelemetry.ts) | a stand-in OTLP collector, `otel` in the config, one span per receipt with the receipt id as trace id, the collector going away and the next receipt still issued | `src/otel.ts`, `src/issue.ts` |
 | 19 | Splunk export | [19-splunk.ts](../examples/19-splunk.ts) | a stand-in HTTP Event Collector, `splunk` in the config with the token from the environment, one event per receipt with the receipt id and log position as fields, the collector going away and the next receipt still issued | `src/splunk.ts`, `src/otel.ts` |
 | 20 | one gateway for many agents, over HTTP | [20-http-gateway.ts](../examples/20-http-gateway.ts) | a gateway host served over Streamable HTTP, two agents connecting with their own grants and seeing their own tools, receipts naming the right agent, a refusal by grant, and a stranger's grant getting no session | `src/gateway-http.ts`, `src/gateway.ts` |
+| 21 | OpenClaw plugin hooks | [21-openclaw.ts](../examples/21-openclaw.ts) | the two hooks driven with OpenClaw's event shapes: an allowed call gets no result, a denied one is blocked with the receipt id, executed and failed calls are recorded, every receipt verifies | `src/sdk/openclaw.ts` |
 
 ## How policies are defined, in one paragraph
 

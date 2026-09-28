@@ -4,7 +4,7 @@ Two paths. The **SDK path** records what the agent's own process reports: the qu
 
 ## Pick your stack
 
-Install the package, make a key and a config once, then add the lines for your framework. Each produces a receipt in `receipts/` that [the browser verifier](/verify) checks with the `.pub` file.
+Install the package, make a key and a config once, then add the lines for your framework: Claude Code, the Claude Agent SDK, the OpenAI Agents SDK, LangChain, Vercel AI, OpenClaw, Hermes, or plain Python. Each produces a receipt in `receipts/` that [the browser verifier](/verify) checks with the `.pub` file.
 
 ```bash
 npm install @agent-custody/receipts && npx agent-custody keygen --dir keys --name app
@@ -55,6 +55,26 @@ import { wrapTools } from "@agent-custody/receipts/sdk/vercel-ai";
 
 const issuer = createSdkIssuer(loadSdkConfig("./sdk.json"));
 const result = await generateText({ model, prompt, tools: wrapTools(issuer, tools) });
+```
+
+```ts [OpenClaw]
+// an OpenClaw plugin entry: every tool call the agent makes, a denied one blocked before it runs
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-sdk";
+import { createSdkIssuer, loadSdkConfig } from "@agent-custody/receipts";
+import { registerOpenClaw } from "@agent-custody/receipts/sdk/openclaw";
+
+export default definePluginEntry({ id: "agent-custody", name: "agent-custody", description: "A receipt for every tool call",
+  register(api) { registerOpenClaw(api, createSdkIssuer(loadSdkConfig("./sdk.json"))); } });
+```
+
+```yaml [Hermes]
+# ~/.hermes/plugins/agent-custody/plugin.yaml, beside an __init__.py that reads: from agent_custody.hermes import register
+name: agent-custody
+version: 1.0.0
+provides_hooks: [pre_tool_call, post_tool_call]
+config_schema:
+  sidecar_url: { type: str, default: "http://127.0.0.1:8791" }
+# then: pip install agent-custody && hermes plugins enable agent-custody
 ```
 
 ```python [Python]

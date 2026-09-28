@@ -130,6 +130,35 @@ const refund = tool(issuer.wrap("stripe.refund", fn), { name: "stripe.refund", s
 
 LangChain callbacks cannot block a tool, so the handler evaluates no policy; it records what happened, including the `tool_call_id` when one is present, and unwraps `ToolMessage` outputs. For enforcement wrap the function at construction. Do not do both on one tool or it will be recorded twice.
 
+## OpenClaw
+
+[src/sdk/openclaw.ts](../src/sdk/openclaw.ts). OpenClaw runs plugins in the agent's process and awaits two tool hooks: `before_tool_call`, which can block a call with a reason the model sees, and `after_tool_call`, which carries the result or the error. A plugin is three files: `package.json` with `"openclaw": { "extensions": ["./index.ts"] }`, `openclaw.plugin.json`, and the entry:
+
+```ts
+import { definePluginEntry } from "openclaw/plugin-sdk/plugin-sdk";
+import { createSdkIssuer, loadSdkConfig } from "@agent-custody/receipts";
+import { registerOpenClaw } from "@agent-custody/receipts/sdk/openclaw";
+
+export default definePluginEntry({
+  id: "agent-custody",
+  name: "agent-custody",
+  description: "A signed receipt for every tool call; a policy can deny one before it runs",
+  register(api) {
+    registerOpenClaw(api, createSdkIssuer(loadSdkConfig(process.env.AGENT_CUSTODY_CONFIG ?? "./sdk.json")));
+  },
+});
+```
+
+```json
+{ "id": "agent-custody", "name": "agent-custody", "activation": { "onStartup": true }, "configSchema": { "type": "object", "additionalProperties": false } }
+```
+
+Then `openclaw plugins install --link ./agent-custody-plugin && openclaw plugins enable agent-custody`. `before_tool_call` evaluates the policy: on deny it issues a denial receipt and returns `{ block: true, blockReason: "agent-custody: … (receipt <id>)" }`; on allow, or with no policy, it returns nothing, so OpenClaw's own approvals and other plugins still apply. It never auto-approves, and if the denial receipt cannot be issued the call is blocked all the same. `after_tool_call` issues the receipt for the executed or failed call, with OpenClaw's `sessionId` and `toolCallId` as the receipt's session. `openclawHooks(issuer)` returns the two handlers for a plugin that registers them itself. Typed loosely on purpose, mirroring OpenClaw's `hook-types.ts`, so the package does not depend on `openclaw`; exercised against that contract in [example 21](../examples/21-openclaw.ts) and the test.
+
+## Hermes Agent
+
+[packages/python/agent_custody/hermes.py](../../python/agent_custody/hermes.py), through the sidecar like every Python adapter. Hermes runs Python plugins in the agent's process and fires `pre_tool_call(tool_name, args, task_id, **kwargs)`, which may return `{"action": "block", "message": …}`, and `post_tool_call(tool_name, args, result, task_id, duration_ms, **kwargs)`. The plugin is the directory [packages/python/hermes-plugin](../../python/hermes-plugin/): a `plugin.yaml` declaring both hooks and a `sidecar_url` setting, and an `__init__.py` that is one line, `from agent_custody.hermes import register`. Copy it to `~/.hermes/plugins/agent-custody/`, `pip install agent-custody`, start the sidecar, `hermes plugins enable agent-custody`. A denied call is blocked before it runs with the receipt id in the message; an allowed one gets no action, so Hermes's own guardrails and approvals still apply; every completed call is recorded with the Hermes `task_id` as the receipt's session. `hermes_hooks(client)` returns the two callables; `register_hermes(ctx, client)` registers them on a plugin context.
+
 ## Any other framework: wrap the function
 
 Every agent framework ends up calling a function. Wrap it.

@@ -35,11 +35,13 @@ const steps = [
         <svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="14" class="tile" /><path d="M19 11H45V45L41.75 48 38.5 45 35.25 48 32 45 28.75 48 25.5 45 22.25 48 19 45Z" fill="#fff" /><path d="M25 20h14M25 27h14" class="ink" stroke-width="2.6" stroke-linecap="round" /><path d="M25 37.5l5 4.5 9.5-10" fill="none" class="ink" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" /></svg>
         <span>agent-custody</span>
       </a>
-      <nav aria-label="Site">
+      <nav class="links" aria-label="Site">
         <a href="#problem">Problem</a><a href="#how">How it works</a><a href="#quickstart">Quick start</a><a href="/pricing">Pricing</a><a href="/faq">FAQ</a><a href="/guide/getting-started">Docs</a>
+      </nav>
+      <div class="acts">
         <button class="theme" type="button" :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'" @click="isDark = !isDark">{{ isDark ? "Light" : "Dark" }}</button>
         <a class="signin" href="https://app.agent-custody.dev/">Sign in</a>
-      </nav>
+      </div>
     </header>
 
     <main>
@@ -184,11 +186,12 @@ npx agent-custody verify receipts/&lt;id&gt;.json \
 
 <style scoped>
 .landing { --amber: var(--vp-c-brand-1); --mono: var(--vp-font-family-mono); --serif: "Source Serif 4", Georgia, "Times New Roman", serif; --paper: color-mix(in srgb, var(--vp-c-bg) 96%, #b45309); --panel: var(--vp-c-bg); --term: #1b1b1f; min-height: 100vh; background: var(--paper); color: var(--vp-c-text-1); font-family: var(--vp-font-family-base); line-height: 1.55; }
-.bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem; }
+.bar { display: flex; align-items: center; gap: 1.2rem; max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem; }
 .brand { display: inline-flex; align-items: center; gap: .7rem; font-family: var(--serif); font-weight: 600; font-size: 1.35rem; color: var(--vp-c-text-1); text-decoration: none; white-space: nowrap; }
 .brand svg { width: 40px; height: 40px; display: block; flex: none; } .tile { fill: var(--amber); } .ink { stroke: var(--amber); }
-.bar nav { display: flex; gap: 1.1rem; align-items: center; font-size: .92rem; flex-wrap: wrap; justify-content: flex-end; }
-.bar nav a { color: var(--vp-c-text-2); text-decoration: none; } .bar nav a:hover { color: var(--vp-c-text-1); }
+.bar .links { display: flex; gap: 1.1rem; align-items: center; font-size: .92rem; margin-left: auto; white-space: nowrap; }
+.bar .links a { color: var(--vp-c-text-2); text-decoration: none; } .bar .links a:hover { color: var(--vp-c-text-1); }
+.bar .acts { display: flex; gap: .7rem; align-items: center; flex: none; }
 .bar .theme { font: inherit; font-size: .8rem; color: var(--vp-c-text-2); background: transparent; border: 1px solid var(--vp-c-divider); border-radius: 5px; padding: .15rem .55rem; cursor: pointer; } .bar .theme:hover { color: var(--vp-c-text-1); }
 .bar .signin { padding: .4rem .9rem; border-radius: 6px; background: var(--amber); color: #fff !important; font-weight: 600; }
 main { max-width: 72rem; margin: 0 auto; padding: 1rem 1.25rem 3rem; }
@@ -250,5 +253,13 @@ tbody th { font-weight: 600; width: 30%; } td { color: var(--vp-c-text-2); } td:
 footer { max-width: 72rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; border-top: 1px solid var(--vp-c-divider); font-size: .85rem; color: var(--vp-c-text-2); }
 footer p { margin: 0 0 .3rem; }
 @media (max-width: 60rem) { .numbered { grid-template-columns: repeat(2, 1fr); } .split { grid-template-columns: 1fr; } .doors { grid-template-columns: 1fr; } }
-@media (max-width: 40rem) { .numbered { grid-template-columns: 1fr; } .receipt dl { grid-template-columns: 1fr; gap: .1rem; } .receipt dt { margin-top: .5rem; } .bar nav { gap: .7rem; } }
+/* On a phone the bar is two rows: the brand with the switch and Sign in, then the section links on a row that scrolls sideways instead of wrapping. */
+@media (max-width: 48rem) {
+  .bar { flex-wrap: wrap; row-gap: .5rem; }
+  .brand { font-size: 1.15rem; } .brand svg { width: 32px; height: 32px; }
+  .bar .acts { margin-left: auto; }
+  .bar .links { flex: 1 0 100%; margin: 0; order: 3; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; padding-bottom: .15rem; gap: 1rem; }
+  .bar .links::-webkit-scrollbar { display: none; }
+}
+@media (max-width: 40rem) { .numbered { grid-template-columns: 1fr; } .receipt dl { grid-template-columns: 1fr; gap: .1rem; } .receipt dt { margin-top: .5rem; } .bar .signin { padding: .35rem .75rem; } }
 </style>

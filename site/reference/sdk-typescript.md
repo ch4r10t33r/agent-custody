@@ -30,6 +30,7 @@ const issuer = createSdkIssuer(loadSdkConfig("sdk.json"));
 | `principalId` | *optional*, recorded as the principal, `claimed` |
 | `identity.keyFile` | the application's Ed25519 key; signs receipts |
 | `policyFile` | *optional* Cedar policy; with it, `decide` and `wrap` can deny |
+| `mode` | *optional* `"enforce"` (default) or `"observe"`: in observe mode `decide` returns the decision with `enforced: false`, `wrap` runs the function on a deny and records it, and every hook adapter returns no block |
 | `receiptsDir` | where bundles are written |
 | `logFile` or `log` | exactly one: a local Merkle log, or a remote one as in the [gateway config](./gateway#the-config-file) |
 | `framework` | *optional* free-text label, recorded on `issuer.framework` |

@@ -41,6 +41,10 @@ Not yet as a switch. Today a receipt carries the full arguments and the result, 
 
 What already sends actions only: the exporters. The OpenTelemetry and Splunk exporters emit one span or event per receipt with the receipt id, tool, agent, principal, decision, policy digest, argument digest, and log position. No arguments, no results. A trace backend or a SIEM sees that a refund was denied and which policy denied it, not the customer's details.
 
+## Can I run it without it blocking anything?
+
+Yes. Set `"mode": "observe"` in the gateway or SDK config. Every call the grant allows goes through, and each receipt records the decision the policy would have made, marked `enforced: false`. You run it against real traffic, read the receipts that say "would have been denied", fix the policy, and switch to enforce. The verifier accepts an observe-mode receipt and says so in its report; a receipt that claims a deny was enforced beside a call that ran fails verification, so the mode cannot be hidden after the fact.
+
 ## Does the gateway call any AI service?
 
 No. Policy evaluation is Cedar, evaluated in the gateway's process. The only network calls it makes are the ones you configure: to your own tools, to the log you name, and to the exporters you turn on. It runs offline against local tools and a local log file.

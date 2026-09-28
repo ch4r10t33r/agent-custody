@@ -128,6 +128,25 @@ const dgatewayKey = loadPrivateKey(join(dfx.dir, "keys", "gateway.key"));
   addCase({ name: "gateway-chain-escalated-resigned", description: "The same receipt with the chain's leaf replaced by one giving the refunder a scope the planner never held, signed with the planner's real key, then the receipt re-signed with the gateway key. The chain check fails on that link; the re-signed receipt also loses its inclusion.", bundle: resigned(chained, dgatewayKey, (st) => { st.predicate.delegation = { envelope: escalated, provenance: "attested" }; }), ...D, log: dlog });
 }
 
+// ---- observe mode: the decision is recorded, never enforced; the receipt says so and the verifier holds it to that ----
+const ofx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-observe-")));
+{
+  const cfg = JSON.parse(readFileSync(ofx.configFile, "utf8"));
+  cfg.mode = "observe";
+  writeFileSync(ofx.configFile, JSON.stringify(cfg));
+}
+key("gateway-observe", ofx.gatewayPub);
+key("principal-observe", ofx.principalPub);
+const ogatewayKey = loadPrivateKey(join(ofx.dir, "keys", "gateway.key"));
+const ogw = await createGateway(loadConfig(ofx.configFile));
+const observed = await ogw.handleCall({ name: "stripe.refund", arguments: { customer_id: "cust_123", amount: 5000000 } });
+await ogw.close();
+const observedBundle = bundleFile(ofx.receiptsDir, String(observed._meta?.[RECEIPT_META_KEY]));
+const olog = logLines(ofx.logFile);
+const O = { issuerKeys: ["gateway-observe"], principalKeys: ["principal-observe"], logKeys: [] as string[] };
+addCase({ name: "gateway-observe-denied", description: "The over-limit refund through a gateway in observe mode: the policy says deny, the call was forwarded anyway, and the receipt carries enforced: false. Every check passes; the consistency check names the mode.", bundle: observedBundle, ...O, log: olog });
+addCase({ name: "resigned-observe-flag-stripped", description: "The same receipt with enforced: false removed and re-signed with the gateway key: a deny now claims to have been enforced beside an executed call, and the consistency check fails.", bundle: resigned(observedBundle, ogatewayKey, (st) => { delete st.predicate.policy!.enforced; }), ...O, log: olog });
+
 // ---- a consequential tool: the authorization is committed to the log before the call is forwarded ----
 const cfx = buildFixture(mkdtempSync(join(tmpdir(), "vectors-precommit-")));
 {

@@ -72,6 +72,13 @@ export const GatewayConfigSchema = z.object({
    * authorization to the log and refuses the call if the log will not take it. Evidence then precedes the side effect.
    */
   precommit: z.array(z.string().min(1)).default([]),
+  /**
+   * "enforce" (the default when absent) denies what the policy denies. "observe" forwards every call the grant allows and records the
+   * decision the policy would have made, with `enforced: false` on the receipt: the way to run a new policy against
+   * real traffic before turning it on. A log that refuses a consequential call's authorization does not withhold the
+   * call in observe mode; it is printed.
+   */
+  mode: z.enum(["enforce", "observe"]).optional(),
   receiptsDir: z.string(),
   logFile: z.string().optional(),
   log: LogSchema.optional(),
@@ -104,6 +111,8 @@ export const SdkConfigSchema = z.object({
   identity: z.object({ keyFile: z.string() }),
   /** optional Cedar policy; when present, wrapped tools and PreToolUse hooks can deny */
   policyFile: z.string().optional(),
+  /** "observe" records the policy's decision with `enforced: false` and never blocks; "enforce" (default) blocks a deny */
+  mode: z.enum(["enforce", "observe"]).optional(),
   receiptsDir: z.string(),
   logFile: z.string().optional(),
   log: LogSchema.optional(),

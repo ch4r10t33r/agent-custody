@@ -224,8 +224,9 @@ export async function verifyBundle(bundle: Bundle, opts: Options): Promise<Resul
     add("upstream signature (upstream key)", ok, detail);
   }
   if (p.policy) {
-    const consistent = p.policy.decision === "allow" ? p.execution.status !== "denied" : p.execution.status === "denied";
-    add("policy decision consistent with execution", consistent, `${p.policy.decision} -> ${p.execution.status}`);
+    // a deny that was not enforced (observe mode, enforced: false on the receipt) may sit beside an executed call; an enforced one never does
+    const consistent = p.policy.decision === "allow" ? p.execution.status !== "denied" : p.policy.enforced === false ? p.execution.status !== "denied" : p.execution.status === "denied";
+    add("policy decision consistent with execution", consistent, `${p.policy.decision}${p.policy.enforced === false ? " (observe mode, not enforced)" : ""} -> ${p.execution.status}`);
     add("no policy errors on an allow", !(p.policy.decision === "allow" && p.policy.errors.length > 0));
   }
   const logKeys = opts.logKeys ?? [];
@@ -325,7 +326,7 @@ export function formatReport(r: Result): string {
   row("tool", p.tool.provenance, p.tool.name);
   row("args", p.request.provenance, p.request.args);
   for (const [k, f] of Object.entries<any>(p.facts)) row(`fact.${k}`, f.provenance, f.value);
-  if (p.policy) row("policy", p.policy.provenance, `${p.policy.decision} [${p.policy.reasons.join(",")}] policy ${short(p.policy.policyDigest)}`); else row("policy", "-", "(none evaluated)");
+  if (p.policy) row("policy", p.policy.provenance, `${p.policy.decision}${p.policy.enforced === false ? " (observe mode, not enforced)" : ""} [${p.policy.reasons.join(",")}] policy ${short(p.policy.policyDigest)}`); else row("policy", "-", "(none evaluated)");
   if (p.consumed) row("consumed", p.consumed.provenance, p.consumed.factIds.length === 0 ? "(no facts shown before this call)" : p.consumed.factIds);
   const upstreamCheck = r.checks.find((c) => c.name === "upstream signature (upstream key)" || c.name === "upstream signature (provider secret)");
   const hasUpstream = (p.execution.status === "executed" || p.execution.status === "failed") && !!p.execution.upstream;

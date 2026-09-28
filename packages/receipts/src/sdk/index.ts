@@ -37,6 +37,11 @@ export interface SdkIssuer {
   wrap<A extends Record<string, unknown>, R>(tool: string, fn: (args: A) => R | Promise<R>, meta?: Omit<ToolEvent, "tool" | "args">): (args: A) => Promise<R>;
 }
 
+/** True when a decision is a deny that must be enforced: a deny made in observe mode (`enforced: false`) is recorded, not acted on. */
+export function denies(policy: PolicyDecision | null | undefined): policy is PolicyDecision & { decision: "deny" } {
+  return !!policy && policy.decision === "deny" && policy.enforced !== false;
+}
+
 export class PolicyDeniedError extends Error {
   readonly tool: string;
   readonly reason: string;
@@ -55,8 +60,11 @@ export function createSdkIssuer(cfg: SdkConfig): SdkIssuer {
   const issuer = createIssuer(key, cfg.receiptsDir, openLog(cfg, key), { exporter: openExporter(cfg) });
   const policyText = cfg.policyFile ? readFileSync(cfg.policyFile, "utf8") : null;
 
-  const decide = (ev: ToolEvent): PolicyDecision | null =>
-    policyText === null ? null : evaluate(policyText, { agentId: cfg.agentId, tool: ev.tool, context: { args: ev.args, facts: {} } });
+  const decide = (ev: ToolEvent): PolicyDecision | null => {
+    if (policyText === null) return null;
+    const d = evaluate(policyText, { agentId: cfg.agentId, tool: ev.tool, context: { args: ev.args, facts: {} } });
+    return cfg.mode === "observe" ? { ...d, enforced: false } : d;
+  };
 
   function record(ev: ToolEvent, outcome: Outcome, policy: PolicyDecision | null = null): Promise<ReceiptBundle> {
     const execution: ReceiptPredicate["execution"] =
@@ -91,7 +99,7 @@ export function createSdkIssuer(cfg: SdkConfig): SdkIssuer {
       return async (args) => {
         const ev: ToolEvent = { tool, args, ...meta };
         const policy = decide(ev);
-        if (policy && policy.decision === "deny") {
+        if (denies(policy)) {
           const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
           const bundle = await record(ev, { status: "denied", reason }, policy);
           throw new PolicyDeniedError(tool, reason, receiptIdOf(bundle));

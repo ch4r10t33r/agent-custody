@@ -1,6 +1,6 @@
 # Getting started
 
-Two paths. The **SDK path** records what the agent's own process reports: the quickest way to a receipt, and every field in it is the agent's word (`claimed`). The **gateway path** puts a process the agent does not control between it and the tools, so a call can be denied before it runs and a stranger can accept the record. Start with the SDK to see a receipt today; move a tool to the gateway when its call moves money or touches production.
+Two paths. The **SDK path** records what the agent's own process reports: the quickest way to a receipt, and every field in it is the agent's word (`claimed`). The **gateway path** puts a process the agent does not control between it and the tools, so a call can be denied before it runs and a stranger can accept the record. Start with the SDK to see a receipt today; move a tool to the gateway when its call moves money or touches production. Either path runs in observe mode first, `"mode": "observe"` in the config, recording what the policy would deny without blocking anything, until the policy is right.
 
 ## Pick your stack
 

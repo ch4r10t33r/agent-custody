@@ -176,7 +176,7 @@ export function formatExplain(pack: ActionPack, verification: VerifyResult | nul
     for (const id of pack.consumed.unknown) more(`  ${id.slice(0, 8)} (not in this ledger)`);
   }
   row("WHAT IT DID", `${p.tool.name} ${JSON.stringify(p.request.args)} -> ${p.execution.status}${p.execution.status === "denied" ? `: ${p.execution.reason}` : p.execution.status === "withheld" ? `: ${p.execution.reason}` : p.execution.status === "error" ? `: ${p.execution.error}` : ""}`);
-  row("WHY", p.policy ? (p.policy.decision === "allow" ? `the policy permitted it${p.policy.reasons.length ? ` (${p.policy.reasons.join(", ")})` : ""}` : `the policy refused it: ${[...p.policy.reasons, ...p.policy.errors].join("; ") || "no permit matched"}`) : "no policy was evaluated");
+  row("WHY", p.policy ? (p.policy.decision === "allow" ? `the policy permitted it${p.policy.reasons.length ? ` (${p.policy.reasons.join(", ")})` : ""}` : p.policy.enforced === false ? `the policy would have refused it, and was in observe mode, so the call went through: ${[...p.policy.reasons, ...p.policy.errors].join("; ") || "no permit matched"}` : `the policy refused it: ${[...p.policy.reasons, ...p.policy.errors].join("; ") || "no permit matched"}`) : "no policy was evaluated");
   const th = pack.receipt.treeHead.signatures[0]?.keyid ?? "?";
   row("WHAT EVIDENCE", `receipt ${p.receiptId}, leaf ${pack.receipt.inclusion.leafIndex} of a log whose head is signed by ${th.slice(0, 12)}`);
   if (p.authorization) more(`authorization committed as leaf ${p.authorization.inclusion.leafIndex}, before the call was forwarded`);

@@ -1,6 +1,6 @@
 // Adapter for Claude Code hooks (command hooks over stdin/stdout) and the Claude Agent SDK (in-process hooks).
 // Both use the same input and output JSON, so one handler serves both.
-import { createSdkIssuer, receiptIdOf, type SdkIssuer, type ToolEvent } from "./index.ts";
+import { createSdkIssuer, receiptIdOf, type SdkIssuer, type ToolEvent, denies } from "./index.ts";
 
 export interface HookInput {
   hook_event_name: string;
@@ -38,7 +38,7 @@ export async function handleHookEvent(issuer: SdkIssuer, input: HookInput): Prom
   switch (input.hook_event_name) {
     case "PreToolUse": {
       const policy = issuer.decide(ev);
-      if (policy && policy.decision === "deny") {
+      if (denies(policy)) {
         const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
         const bundle = await issuer.record(ev, { status: "denied", reason }, policy);
         return {

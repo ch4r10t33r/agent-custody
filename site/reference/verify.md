@@ -42,7 +42,7 @@ In code: `verifyBundle(bundle, { issuerKeys, principalKeys, logKeys?, upstreamKe
 | principal is claimed, not attested | SDK receipts: the principal is a config string and labelled so |
 | request args digest | the arguments match their digest and the statement's subject |
 | execution result digest, upstream signature, provider delivery | the result matches its digest; the upstream's signature over it verifies when a key is given; a Stripe or GitHub delivery verifies when its secret is given |
-| policy decision consistent with execution | `deny` never sits beside `executed` |
+| policy decision consistent with execution | an enforced `deny` never sits beside `executed`; a `deny` with `enforced: false` (observe mode) may, and the detail says so |
 | authorization … (five checks) | pre-committed calls: the authorization verifies, names this call, was allowed, is included in the log, and precedes the receipt leaf |
 | tree head signature, tree head names the expected log | the head was signed by an issuer or log key, and by the log the verifier expected |
 | log inclusion proof | the leaf is in the tree the head describes |

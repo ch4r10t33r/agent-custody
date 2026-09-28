@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 
 from agents import FunctionTool
 
-from . import Client, receipt_id_of
+from . import Client, denies, receipt_id_of
 
 
 def _parse(input_json: str) -> Dict[str, Any]:
@@ -38,7 +38,7 @@ def wrap_tools(client: Client, tools: List[FunctionTool]) -> List[FunctionTool]:
         async def invoke(ctx: Any, input_json: str, _t: FunctionTool = t, _orig=original) -> Any:
             args = _parse(input_json)
             policy = client.decide(_t.name, args)
-            if policy and policy["decision"] == "deny":
+            if denies(policy):
                 reason = "; ".join(policy["reasons"] + policy["errors"]) or "no permit policy matched"
                 bundle = client.record(_t.name, args, {"status": "denied", "reason": reason}, policy)
                 return f"Denied by policy: {reason} (receipt {receipt_id_of(bundle)})"

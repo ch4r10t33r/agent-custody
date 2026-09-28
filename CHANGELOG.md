@@ -2,6 +2,12 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.16 — 2026-09-28
+
+- **Receipts:** observe mode. `"mode": "observe"` in the gateway or SDK config forwards every call the grant allows and records the decision the policy would have made, with `enforced: false` on the receipt's `policy`; a deny is recorded, not acted on, in the gateway, `wrap`, and every hook adapter (Claude Code, Claude Agent SDK, OpenAI Agents, Vercel AI, OpenClaw), and the sidecar carries the flag so the Python adapters and Hermes plugin do the same. The verifier's consistency check accepts a not-enforced deny beside an executed call and names the mode; a receipt with the flag stripped fails. Two new conformance vectors, `gateway-observe-denied` and `resigned-observe-flag-stripped`; the browser verifier mirrors the check. The receipt format stays v0.2: the field is optional.
+- **Python:** `denies(policy)` tells an enforced deny from a recorded one; the adapters use it.
+- **State:** `explain` says when a call went through because the policy was in observe mode.
+
 ## 0.6.15 — 2026-09-28
 
 - **Receipts:** an OpenClaw adapter, `@agent-custody/receipts/sdk/openclaw`: `openclawHooks(issuer)` gives `before_tool_call`, which blocks a policy-denied call with the denial receipt's id in the reason and returns nothing otherwise, and `after_tool_call`, which records the executed or failed call; `registerOpenClaw(api, issuer)` wires both in a plugin's `register(api)`. Driven against OpenClaw's documented hook types in example 21 and a test.

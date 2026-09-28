@@ -76,7 +76,7 @@ execution       observed    executed
 | executed tool within delegated scope | if the tool ran, the grant covered it. Denied calls pass this check by construction | a gateway that forwarded out of scope |
 | principal is claimed, not attested | SDK receipts only: there is no delegation, so the principal is a config string and is labelled as such | an SDK receipt pretending to an attested principal |
 | request args digest | the args in the predicate hash to the digest in the subject | edited arguments |
-| policy decision consistent with execution | allow went with executed or failed; deny went with denied. Skipped when no policy was evaluated | an issuer that executed after a deny |
+| policy decision consistent with execution | allow went with executed or failed; an enforced deny went with denied; a deny carrying `enforced: false` (observe mode) went with anything but denied, and the detail says "observe mode, not enforced". Skipped when no policy was evaluated | an issuer that executed after a deny |
 | no policy errors on an allow | an allow was not produced while Cedar reported errors | broken fail-closed behaviour |
 | authorization signature (issuer key) | pre-commit receipts only: the embedded authorization statement was signed by the same issuer key as the receipt | an authorization from another gateway, or none the issuer signed |
 | authorization names this call | the committed authorization names this receipt id, tool, argument digest, agent, and principal, and recorded an allow | an authorization spliced in from a different call |

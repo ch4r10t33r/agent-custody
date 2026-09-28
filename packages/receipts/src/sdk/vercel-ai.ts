@@ -1,6 +1,6 @@
 // Vercel AI SDK adapter: wraps every tool's execute() in a ToolSet. Decides, runs, records.
 // Typed structurally so this file does not import the `ai` package.
-import { PolicyDeniedError, receiptIdOf, type SdkIssuer } from "./index.ts";
+import { PolicyDeniedError, receiptIdOf, type SdkIssuer, denies } from "./index.ts";
 
 // Parameters are `any` on purpose: each tool's execute() has its own input type, and a narrower structural signature
 // here would not be assignable under strictFunctionTypes.
@@ -20,7 +20,7 @@ export function wrapTools<T extends Record<string, { execute?: ExecuteFn }>>(iss
       const args = input && typeof input === "object" && !Array.isArray(input) ? (input as Record<string, unknown>) : { input };
       const ev = { tool: name, args, session: { id: null, toolUseId: options?.toolCallId ?? null } };
       const policy = issuer.decide(ev);
-      if (policy && policy.decision === "deny") {
+      if (denies(policy)) {
         const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
         const bundle = await issuer.record(ev, { status: "denied", reason }, policy);
         throw new PolicyDeniedError(name, reason, receiptIdOf(bundle));

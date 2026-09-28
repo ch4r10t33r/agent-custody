@@ -38,7 +38,7 @@ function parseOutcome(v: unknown): Outcome {
 function parsePolicy(v: unknown): PolicyDecision | null {
   if (v === undefined || v === null) return null;
   if (!isRecord(v) || (v.decision !== "allow" && v.decision !== "deny") || !Array.isArray(v.reasons) || !Array.isArray(v.errors) || typeof v.policyDigest !== "string") throw new Error("policy must be a PolicyDecision from /decide");
-  return { decision: v.decision, reasons: v.reasons.map(String), errors: v.errors.map(String), policyDigest: v.policyDigest };
+  return { decision: v.decision, reasons: v.reasons.map(String), errors: v.errors.map(String), policyDigest: v.policyDigest, ...(typeof v.enforced === "boolean" ? { enforced: v.enforced } : {}) };
 }
 
 export function sidecarHandler(issuer: SdkIssuer): (req: IncomingMessage, res: ServerResponse) => Promise<void> {

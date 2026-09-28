@@ -29,6 +29,11 @@ class PolicyDeniedError(PermissionError):
         self.receipt_id = receipt_id
 
 
+def denies(policy: Optional[Dict[str, Any]]) -> bool:
+    """True when a decision is a deny that must be enforced. A deny made in observe mode carries enforced=False: recorded, not acted on."""
+    return bool(policy) and policy["decision"] == "deny" and policy.get("enforced", True) is not False
+
+
 def receipt_id_of(bundle: Dict[str, Any]) -> str:
     payload = json.loads(base64.b64decode(bundle["envelope"]["payload"]))
     return payload["predicate"]["receiptId"]
@@ -79,7 +84,7 @@ class Client:
 
         def wrapped(args: Dict[str, Any]) -> Any:
             policy = self.decide(tool, args, model=model)
-            if policy and policy["decision"] == "deny":
+            if denies(policy):
                 reason = "; ".join(policy["reasons"] + policy["errors"]) or "no permit policy matched"
                 bundle = self.record(tool, args, {"status": "denied", "reason": reason}, policy, model=model)
                 raise PolicyDeniedError(tool, reason, receipt_id_of(bundle))

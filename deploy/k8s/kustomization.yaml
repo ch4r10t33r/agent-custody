@@ -14,5 +14,5 @@ resources:
   - service.yaml
   - ingress.yaml
 images:
-  - name: ghcr.io/ch4r10t33r/agent-custody-log
+  - name: ghcr.io/svayatta/agent-custody-log
     newTag: "0.6.3"

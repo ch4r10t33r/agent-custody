@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.13 — 2026-09-28
+
+- **Receipts:** published policy versions. A tenant publishes each Cedar file it deploys under a name; the digest is the same SHA-256 the gateway writes into receipts as `policyDigest`, so a receipt's digest reads as a name on the portal's new Policies page, in its match-a-receipt tool, and in the export's `policies.json`. `PostgresTenancy.addPolicy/listPolicies/policy/policyByDigest/removePolicy`, audited as `policy.add` and `policy.remove`; `GET /t/<tenant>/policies` with the tenant token; portal routes under `/api/policies`. Enforcement is untouched: the gateway never reads any of it.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.12 — 2026-09-28
 
 - **Receipts:** listed in the MCP Registry as `io.github.svayatta/agent-custody`. The package carries `mcpName`, which the registry checks against the published npm package, and `packages/receipts/server.json` describes the entry: the gateway over stdio, run as `npx @agent-custody/receipts gateway --config <gateway.json>`. The repository moved to the `svayatta` organisation; links and the container image (`ghcr.io/svayatta/agent-custody-log`) follow it.

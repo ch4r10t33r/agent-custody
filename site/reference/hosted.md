@@ -34,12 +34,20 @@ The gateway's log client retries a 429 three times with backoff and then fails t
 | `GET /api/keys` | | `{ "keys": [...] }` |
 | `POST /api/keys` | `{ "label" }` | `{ "token": "<shown once>", "tokenHash": "<12 hex>", "label" }` |
 | `POST /api/keys/<hash prefix>/revoke` | `{}` | `{ "revoked": 1 }` |
+| `GET /api/policies` | | `{ "policies": [{ "id", "name", "digest", "bytes", "createdAt", "createdBy" }] }`; with `?digest=<64 hex>`, `{ "match": <policy> \| null }`: the published version a receipt's `policyDigest` names |
+| `POST /api/policies` | `{ "name", "text" }` (the Cedar file byte for byte as the gateway loads it) | `{ "policy": { "id", "name", "digest", … } }`; `409` when that exact text is already published, naming the version |
+| `GET /api/policies/<id>` | | `{ "policy": { …, "text" } }` |
+| `POST /api/policies/<id>/remove` | `{}` | `{ "removed": true\|false }`; receipts keep their digests, only the name goes |
 | `POST /api/checkout` | `{}` | `{ "url": "https://checkout.stripe.com/…" }`; `409` if not on `free`; `503` when billing is not configured |
 | `POST /api/billing-portal` | `{}` | `{ "url": "https://billing.stripe.com/…" }` |
 | `POST /stripe/webhook` | Stripe's event, `Stripe-Signature` header | `{ "received": true }`; `400` on a bad or stale signature |
 | `GET /health` | | `{ "ok": true, "stripe": true\|false }` |
 
 Every write needs `Content-Type: application/json`; the cookie is `HttpOnly; SameSite=Strict`. Every action is in the tenant's audit trail as `portal:<email>`, and plan changes made by Stripe as `stripe:<event>`.
+
+## Policies: names for the digests receipts carry
+
+Enforcement is local: the gateway reads its Cedar file and writes the file's SHA-256 into every receipt as `policyDigest`. The portal's Policies page lets a tenant publish each version they deploy under a name, so a digest reads as "refunds-v3" here, in the match tool (paste a receipt or a digest), and in the export's `policies.json`. Nothing on this page is read by the gateway, and the hosted log never evaluates a policy. Every publish and removal is in the tenant's audit trail.
 
 ## Using a tenant
 

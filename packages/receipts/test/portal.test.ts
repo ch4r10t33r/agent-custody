@@ -11,6 +11,7 @@ import { generateKeyPair } from "../src/crypto.ts";
 import { httpLog, postgresResolver, serveLog, type RunningLog } from "../src/log-sink.ts";
 import { PostgresTenancy } from "../src/log-store.ts";
 import { PortalStore, readSession, servePortal, signSession, verifyStripeSignature, type RunningPortal } from "../src/portal.ts";
+import { policyDigest } from "../src/policy.ts";
 
 let db: PGlite;
 let tenancy: PostgresTenancy;
@@ -199,5 +200,33 @@ describe("the tenant portal", () => {
     expect(PortalStore.checkPassword("correct horse battery", h1)).toBe(true);
     expect(PortalStore.checkPassword("correct horse batter", h1)).toBe(false);
     expect(PortalStore.checkPassword("x", "garbage")).toBe(false);
+  });
+});
+
+describe("policies", () => {
+  it("a tenant publishes named policy versions whose digest is exactly the policyDigest the gateway writes, matches a receipt's digest to a name, sees the text, removes a version, and every change is in the audit trail; the same text twice is refused", async () => {
+    const b = browser();
+    expect((await b.call("POST", "/api/register", { email: "pol@example.com", password: "a-long-enough-password", tenant: "polco", name: "Pol", company: "Polco" })).status).toBe(200);
+    const text = 'permit(principal, action == Action::"stripe.refund", resource) when { context.args.amount <= 100000 };\n';
+    const published = await b.call("POST", "/api/policies", { name: "refunds-v1", text });
+    expect(published.status).toBe(200);
+    expect(published.json.policy).toMatchObject({ name: "refunds-v1", digest: policyDigest(text), bytes: text.length, createdBy: "portal:pol@example.com" });
+    const id = published.json.policy.id as string;
+    expect((await b.call("POST", "/api/policies", { name: "refunds-v1-again", text })).status).toBe(409); // same bytes, already named
+    expect((await b.call("POST", "/api/policies", { name: "", text })).status).toBe(400);
+    const listed = await b.call("GET", "/api/policies");
+    expect(listed.json.policies.map((p: { name: string }) => p.name)).toEqual(["refunds-v1"]);
+    // the digest a receipt carries reads as the name; a digest nobody published reads as nothing, not an error
+    expect((await b.call("GET", `/api/policies?digest=${policyDigest(text)}`)).json.match).toMatchObject({ id, name: "refunds-v1" });
+    expect((await b.call("GET", `/api/policies?digest=${"0".repeat(64)}`)).json.match).toBeNull();
+    expect((await b.call("GET", "/api/policies?digest=nope")).status).toBe(400);
+    expect((await b.call("GET", `/api/policies/${id}`)).json.policy.text).toBe(text);
+    expect((await b.call("POST", `/api/policies/${id}/remove`, {})).json).toEqual({ removed: true });
+    expect((await b.call("GET", "/api/policies")).json.policies).toEqual([]);
+    const audit = (await tenancy.audit({ tenant: "polco" })).map((e) => e.action);
+    expect(audit.slice(0, 2)).toEqual(["policy.remove", "policy.add"]);
+    // another tenant's session never sees it
+    const page = await (await fetch(portal.url)).text();
+    expect(page).toContain('data-view="policies"');
   });
 });

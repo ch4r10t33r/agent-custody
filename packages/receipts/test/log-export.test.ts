@@ -26,6 +26,7 @@ beforeAll(async () => {
   await tenancy.addTenant("acme", "acme-eu");
   await tenancy.addTenant("other", "other-eu");
   acmeToken = (await tenancy.addToken("acme", "fleet")).token;
+  await tenancy.addPolicy("acme", "refunds-v1", "permit(principal, action, resource);\n", "test");
   otherToken = (await tenancy.addToken("other", "fleet")).token;
   const cpDir = mkdtempSync(join(tmpdir(), "export-cp-"));
   log = await serveLog(postgresResolver(tenancy), generateKeyPair(), { port: 0, checkpoints: dirCheckpoints(cpDir) });
@@ -47,12 +48,16 @@ describe("a tenant's export", () => {
     expect(r.problems).toEqual([]);
     expect(r).toMatchObject({ logId: "acme-eu", treeSize: 7, rootHash: expect.any(String) });
     expect(r.usage).toMatchObject([{ month: new Date().toISOString().slice(0, 7), appends: 7, totalLeaves: 7, liveTokens: 1, plan: "free", quota: 10_000 }]);
-    for (const f of ["log.jsonl", "head.json", "keys.json", "checkpoints.json", "usage.json", "audit.json", "export.json"]) expect(existsSync(join(out, f)), f).toBe(true);
+    for (const f of ["log.jsonl", "head.json", "keys.json", "checkpoints.json", "usage.json", "audit.json", "policies.json", "export.json"]) expect(existsSync(join(out, f)), f).toBe(true);
     // the tenant's administrative history travels with the export: the tenant's creation and the token minted for it
     const audit = JSON.parse(readFileSync(join(out, "audit.json"), "utf8")) as { action: string; tenantId: string }[];
-    expect(audit.map((e) => e.action)).toEqual(["token.add", "tenant.add"]);
+    expect(audit.map((e) => e.action)).toEqual(["policy.add", "token.add", "tenant.add"]);
+    const policies = JSON.parse(readFileSync(join(out, "policies.json"), "utf8")) as { name: string; text: string }[];
+    expect(policies).toHaveLength(1);
+    expect(policies[0]).toMatchObject({ name: "refunds-v1", text: "permit(principal, action, resource);\n" });
+    expect(r.policies).toBe(1);
     expect(audit.every((e) => e.tenantId === "acme")).toBe(true);
-    expect(r.audit).toBe(2);
+    expect(r.audit).toBe(3);
     // the exported log file is a copy the verifier reads: same size, same root as the head it was exported under
     const copy = new MerkleLog(join(out, "log.jsonl"));
     expect(copy.size).toBe(7);

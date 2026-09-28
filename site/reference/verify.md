@@ -82,6 +82,7 @@ agent-custody log-export --log-url https://log.example.com/ --tenant acme --toke
 | `checkpoints.json` | every published checkpoint for the tenant |
 | `usage.json` | appends per month, plan, quota, live keys |
 | `audit.json` | every administrative action on the tenant |
+| `policies.json` | the policy versions the tenant published, each with its name, text, and the digest receipts carry |
 | `export.json` | the summary: `{ "exportedAt", "logUrl", "tenant", "logId", "treeSize", "rootHash", "keyid", "checkpoints", "audit", "usage", "problems": [] }` |
 
 Before writing, the export checks that the head verifies against the published keys, that the leaves fetched hash to the head's root, and that every checkpoint verifies and matches the leaves at its size. Anything that does not add up is listed under `problems`, the command exits 1, and the report ends `RESULT: EXPORT DOES NOT ADD UP`. In code: `exportLog({ logUrl, tenant?, token, outDir, months?, fetch? }): Promise<ExportResult>` and `formatExport(result)`.

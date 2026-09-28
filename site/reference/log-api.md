@@ -66,6 +66,7 @@ Token required. What the [export](./verify#log-export) fetches.
 | --- | --- |
 | `GET /t/<tenant>/leaves?since=N&limit=M` | `{ "since": N, "size": <tree size>, "leaves": ["<hex>", …] }`, at most 10,000 per page |
 | `GET /t/<tenant>/usage?month=YYYY-MM` | `{ "month", "appends", "totalLeaves", "liveTokens", "plan", "quota" }` |
+| `GET /t/<tenant>/policies` | `{ "policies": [{ "id", "name", "digest", "bytes", "createdAt", "createdBy", "text" }] }`, the versions the tenant published through the portal, with the tenant token |
 | `GET /t/<tenant>/audit?limit=N` | `{ "entries": [{ "id", "at", "actor", "action", "tenantId", "detail" }, …] }`, newest first |
 
 ### Checkpoints

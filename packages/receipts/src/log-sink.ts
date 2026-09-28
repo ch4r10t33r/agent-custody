@@ -9,7 +9,7 @@ import type { AddressInfo } from "node:net";
 import { dsseSign, type Envelope, type KeyPair } from "./crypto.ts";
 import { createHash } from "node:crypto";
 import { leafHash, MerkleLog, type InclusionProof } from "./log.ts";
-import { type AuditEntry, type QuotaState, fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions } from "./log-store.ts";
+import { type AuditEntry, type QuotaState, fileBackend, RateLimiter, type LogBackend, type PostgresTenancy, type RateLimitOptions , type PolicyRecord } from "./log-store.ts";
 import { localSigner, type Signer } from "./signer.ts";
 import type { Checkpoint, CheckpointStore } from "./checkpoints.ts";
 import { adminRoutes, type AdminOptions } from "./log-admin.ts";
@@ -193,6 +193,8 @@ export interface ResolvedLog {
   quota?(): Promise<QuotaState>;
   /** told after an append lands, so a cached quota count stays honest */
   appended?(): void;
+  /** the policy versions the tenant published, with their text, for the export */
+  policies?: () => Promise<PolicyRecord[] & { text?: string }[]>;
 }
 
 /** Turns the tenant in a path, or null for the root paths, into a log. */
@@ -249,6 +251,7 @@ export function postgresResolver(tenancy: PostgresTenancy, opts: { defaultTenant
           return { month, appends: row?.appends ?? 0, totalLeaves: row?.totalLeaves ?? 0, liveTokens: row?.liveTokens ?? 0 };
         },
         audit: (limit) => tenancy.audit({ tenant: id, limit }),
+        policies: async () => Promise.all((await tenancy.listPolicies(id)).map(async (p) => ({ ...p, text: (await tenancy.policy(id, p.id))?.text }))),
         quota: () => tenancy.quota(id),
         appended: () => tenancy.noteAppend(id),
       };
@@ -365,7 +368,7 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       }
     }
     // /t/<tenant>/<op> reaches that tenant's log; anything else is the default log.
-    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head|checkpoints|leaves|usage|audit)$/.exec(url.pathname);
+    const m = /^\/t\/([A-Za-z0-9_.-]+)\/(append|root|consistency|head|checkpoints|leaves|usage|audit|policies)$/.exec(url.pathname);
     let which: ResolvedLog | null;
     try {
       which = await resolver.resolve(m ? m[1]! : null);
@@ -416,8 +419,12 @@ export function logHandler(source: string | LogResolver, keyOrSigner: KeyPair | 
       const current = await log.size();
       // A tenant's own data, with their token: every leaf hash, in pages, and their metering. The export command
       // pages through these and rebuilds a log file the verifier reads directly.
-      if (req.method === "GET" && (url.pathname.endsWith("/leaves") || url.pathname.endsWith("/usage") || url.pathname.endsWith("/audit"))) {
+      if (req.method === "GET" && (url.pathname.endsWith("/leaves") || url.pathname.endsWith("/usage") || url.pathname.endsWith("/audit") || url.pathname.endsWith("/policies"))) {
         if (!(await which.authorize(bearer(req)))) return json(401, { error: "unauthorized" });
+        if (url.pathname.endsWith("/policies")) {
+          if (!which.policies) return json(404, { error: "this log keeps no policies" });
+          return json(200, { policies: await which.policies() }, { "cache-control": "no-store" });
+        }
         if (url.pathname.endsWith("/audit")) {
           if (!which.audit) return json(404, { error: "this log keeps no audit trail" });
           const limit = url.searchParams.has("limit") ? Number(url.searchParams.get("limit")) : 200;

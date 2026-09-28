@@ -169,14 +169,14 @@ npx agent-custody verify receipts/&lt;id&gt;.json \
         <div class="doors">
           <a class="door" href="/guide/getting-started"><b>Try it</b><p>Pick a stack. Ten minutes to a receipt that verifies in the browser.</p><span class="note">The SDK path records the agent's own word.</span></a>
           <a class="door" href="/receipts/usage"><b>Make it evidence</b><p>The gateway, a signed grant, and a log run by someone else. For calls that move money or touch production.</p><span class="note">Hosted log: free to 10,000 appends a month.</span></a>
-          <a class="door" href="/security"><b>For security review</b><p>The questionnaire with every no left as a no, the threat model, the compliance mapping, and what you are trusting in each setup.</p><span class="note">Dated, and honest about the witness.</span></a>
+          <a class="door" href="/security"><b>For security review</b><p>The questionnaire with every no left as a no, the threat model, the compliance mapping, and the FAQ on where the data goes: what a receipt holds, what reaches the log, how secrets are handled.</p><span class="note">Dated, and honest about the witness.</span></a>
         </div>
         <p class="intro">This repository is developed under custody: every tool call the coding agent makes is a receipt, hash-logged to our tenant on the hosted log. The <a href="/custody">custody page</a> shows the hook, the policy, the keys, and two of those receipts to verify. Everything you run yourself is Apache-2.0.</p>
       </section>
     </main>
 
     <footer>
-      <p>Apache-2.0 · <a href="https://github.com/svayatta/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a> · <a href="/reference/">Reference</a> · <a href="/pricing">Pricing</a> · <a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a></p>
+      <p>Apache-2.0 · <a href="https://github.com/svayatta/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a> · <a href="/reference/">Reference</a> · <a href="/faq">FAQ</a> · <a href="/pricing">Pricing</a> · <a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a></p>
       <p>Charioteer Consulting Ltd, {{ year }}</p>
     </footer>
   </div>

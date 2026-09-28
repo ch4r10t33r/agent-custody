@@ -1,5 +1,7 @@
 # Security questionnaire
 
+Where the data goes, in plain words, is on the [FAQ](/faq): what a receipt contains, what reaches the hosted log, how secrets are handled.
+
 The answers a procurement or security team asks for, written once, dated, and kept honest. Every "no" is a no. Where a control is planned, the answer says planned, not done. Last reviewed 2026-09-27; the [changelog](/changelog) records what has changed since.
 
 The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-custody/state`, `agent-custody` on PyPI), which run on your machines, and the **hosted log** at log.agent-custody.dev, which we run. Receipts, arguments, results, and the memory ledger never leave your machines in either case; the hosted log receives leaf hashes.

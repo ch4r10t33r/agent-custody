@@ -39,6 +39,7 @@ except PolicyDeniedError as e:
 | `agent_custody.openai_agents` | `wrap_tools(client, tools)` | enforce: each `FunctionTool`'s `on_invoke_tool` decides, runs, records; a denial is returned as the tool's result text |
 | `agent_custody.crewai` | `wrap_tools(client, tools)` | enforce: one `CustodyTool` per tool, same name, description, and schema; `_run` decides, runs, records; a denial is returned as `Denied by policy: … (receipt …)` |
 | `agent_custody.claude_agent_sdk` | `claude_hook(client)` | the async hook callable `(input_data, tool_use_id, context) -> dict` for the Claude Agent SDK; `handle_hook_event(client, input_data)` is the same for any host that passes the hook JSON. Same semantics as [Claude Code](./claude-code) |
+| `agent_custody.hermes` | `hermes_hooks(client)` → `{"pre_tool_call", "post_tool_call"}` | Hermes Agent plugin hooks: `pre_tool_call(tool_name, args, task_id, **kwargs)` returns `{"action": "block", "message": "agent-custody: … (receipt …)"}` on a policy deny after recording the denial, `None` otherwise; `post_tool_call(tool_name, args, result, task_id, duration_ms, **kwargs)` records the call. `register_hermes(ctx, client)` registers both with `ctx.register_hook`; `register(ctx)` is the plugin entry, reading `sidecar_url` from the plugin's settings |
 
 ## `MemoryClient`
 

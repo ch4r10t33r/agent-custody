@@ -167,7 +167,7 @@ npx agent-custody verify receipts/&lt;id&gt;.json \
       <section id="go" class="block">
         <p class="eyebrow">Where to go</p>
         <div class="doors">
-          <a class="door" href="/guide/getting-started"><b>Try it</b><p>Pick a stack. Ten minutes to a receipt that verifies in the browser.</p><span class="note">The SDK path records the agent's own word.</span></a>
+          <a class="door" href="/guide/getting-started"><b>Try it</b><p>Pick a stack: Claude Code, OpenAI Agents, LangChain, Vercel AI, OpenClaw, Hermes, Python. Ten minutes to a receipt that verifies in the browser.</p><span class="note">The SDK path records the agent's own word.</span></a>
           <a class="door" href="/receipts/usage"><b>Make it evidence</b><p>The gateway, a signed grant, and a log run by someone else. For calls that move money or touch production.</p><span class="note">Hosted log: free to 10,000 appends a month.</span></a>
           <a class="door" href="/security"><b>For security review</b><p>The questionnaire with every no left as a no, the threat model, the compliance mapping, and the FAQ on where the data goes: what a receipt holds, what reaches the log, how secrets are handled.</p><span class="note">Dated, and honest about the witness.</span></a>
         </div>

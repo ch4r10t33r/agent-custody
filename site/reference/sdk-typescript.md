@@ -95,6 +95,8 @@ Each records the framework's tool calls through the issuer. Enforce or observe, 
 | `@agent-custody/receipts/sdk/langchain` | `receiptCallbacks(issuer)` → `{ callbacks }` | record-only callback handler for LangChain and LangGraph; pass it in the run config |
 | `@agent-custody/receipts/sdk/claude` | `handleHookEvent(issuer, input)` | Claude Code and Claude Agent SDK hooks; see [Claude Code](./claude-code) |
 | `@agent-custody/receipts/sdk/claude` | `claudeAgentHooks(issuer, matcher?)` | the in-process hooks object for the Claude Agent SDK, built on `handleHookEvent` |
+| `@agent-custody/receipts/sdk/openclaw` | `openclawHooks(issuer)` → `{ before_tool_call, after_tool_call }` | OpenClaw plugin hooks: `before_tool_call(event, ctx)` returns `{ block: true, blockReason }` on a policy deny after issuing the denial receipt, nothing otherwise; `after_tool_call(event, ctx)` records the executed or failed call. `event` is OpenClaw's `{ toolName, params, toolCallId?, result?, error? }`, `ctx` its `{ sessionId?, sessionKey? }` |
+| `@agent-custody/receipts/sdk/openclaw` | `registerOpenClaw(api, issuer)` | calls `api.on` for both hooks, for a plugin's `register(api)` |
 
 ## The log client
 

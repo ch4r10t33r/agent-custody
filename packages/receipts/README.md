@@ -5,7 +5,7 @@ Chain of custody for AI agents: a signed receipt for every tool call, checkable 
 Two producers, one receipt format, one verifier.
 
 - **The gateway** is an MCP proxy between an agent and the systems it can affect. For every tool call, allowed or denied, it checks a delegation grant signed by the human principal, gathers the facts the policy needs by calling upstream itself, evaluates a Cedar policy that fails closed, forwards the call only on allow, and emits a signed receipt appended to a Merkle transparency log.
-- **The SDK** is an interceptor inside the agent's own process, hooked into the framework's tool-call callbacks: Claude Code, the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, or any function you wrap. It reaches everything the gateway cannot see and issues the same receipts, labelled as self-reported.
+- **The SDK** is an interceptor inside the agent's own process, hooked into the framework's tool-call callbacks: Claude Code, the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, OpenClaw, Hermes, LangChain, or any function you wrap. It reaches everything the gateway cannot see and issues the same receipts, labelled as self-reported.
 
 Anyone holding the public keys can verify a receipt offline. The agent is not trusted. The layer around it is, and the receipt says exactly how far that trust extends, starting with who issued it.
 
@@ -107,6 +107,8 @@ Every receipt names its issuer, and the verifier prints what that issuer kind is
 | OpenAI Agents SDK (JS) | SDK | `wrapTools` | `observeRunner` | a real `Runner` with a scripted model |
 | Vercel AI SDK | SDK | `wrapTools` | | a real `generateText` loop over the SDK's mock model |
 | LangChain / LangGraph (JS) | SDK | `tool(issuer.wrap(fn))` | `ReceiptCallbackHandler` | real `StructuredTool` invocations |
+| OpenClaw | SDK | `registerOpenClaw` / `openclawHooks`: `before_tool_call` deny | `after_tool_call` | OpenClaw's documented hook contract, in the plugin's process |
+| Hermes Agent | sidecar + [Python package](../python/README.md) | `agent_custody.hermes`: `pre_tool_call` block | `post_tool_call` | the documented hook contract, against a live sidecar |
 | anything else | SDK | `issuer.wrap(name, fn)` | `issuer.record` | plain functions |
 | Python: LangChain, OpenAI Agents SDK, CrewAI, Claude Agent SDK | sidecar + [Python package](../python/README.md) | `wrap_tools` (OpenAI Agents, CrewAI), `claude_hook` PreToolUse deny, `client.wrap` | `ReceiptCallbackHandler` | the real Python packages, receipts checked by this verifier |
 | Go, Java, Rust, any language with HTTP | sidecar | decide then record | record | [examples/languages](examples/languages), each run against a live sidecar |

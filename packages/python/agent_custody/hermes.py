@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from . import Client, receipt_id_of
+from . import Client, denies, receipt_id_of
 
 
 def _session(task_id: Optional[str], kwargs: Dict[str, Any]) -> Dict[str, Optional[str]]:
@@ -27,7 +27,7 @@ def hermes_hooks(client: Client) -> Dict[str, Callable[..., Any]]:
     def pre_tool_call(tool_name: str, args: Optional[Dict[str, Any]] = None, task_id: Optional[str] = None, **kwargs: Any) -> Optional[Dict[str, str]]:
         session = _session(task_id, kwargs)
         policy = client.decide(tool_name, args, session=session)
-        if not policy or policy["decision"] != "deny":
+        if not denies(policy):
             return None
         reason = "; ".join(policy["reasons"] + policy["errors"]) or "no permit policy matched"
         try:

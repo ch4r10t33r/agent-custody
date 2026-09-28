@@ -8,7 +8,7 @@
 //   import { registerOpenClaw } from "@agent-custody/receipts/sdk/openclaw";
 //   export default definePluginEntry({ id: "agent-custody", name: "agent-custody", description: "A receipt for every tool call",
 //     register(api) { registerOpenClaw(api, createSdkIssuer(loadSdkConfig(process.env.AGENT_CUSTODY_CONFIG!))); } });
-import { receiptIdOf, type SdkIssuer, type ToolEvent } from "./index.ts";
+import { denies, receiptIdOf, type SdkIssuer, type ToolEvent } from "./index.ts";
 
 /** What OpenClaw passes as the hook context (PluginHookToolContext), the fields this adapter reads. */
 export interface OpenClawToolContext {
@@ -63,7 +63,7 @@ export function openclawHooks(issuer: SdkIssuer) {
     before_tool_call: async (event: OpenClawBeforeToolCallEvent, ctx?: OpenClawToolContext): Promise<OpenClawBeforeToolCallResult | undefined> => {
       const ev = toEvent(event, ctx);
       const policy = issuer.decide(ev);
-      if (!policy || policy.decision !== "deny") return undefined;
+      if (!denies(policy)) return undefined;
       const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
       try {
         const bundle = await issuer.record(ev, { status: "denied", reason }, policy);

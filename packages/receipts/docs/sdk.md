@@ -34,6 +34,8 @@ Use the SDK for reach. Use the gateway for anything that moves money, touches pr
 
 Policies see `context.args` and an empty `context.facts`. A policy that reads `context.facts` or `context.grant` errors, which is a deny. That is intended: an SDK policy cannot pretend it checked something outside the agent's process.
 
+`"mode": "observe"` in the SDK config records the policy's decision without acting on it: `decide` returns it with `enforced: false`, `wrap` runs the function on a deny and records it as executed, and every hook adapter below returns no block. Run a policy that way first, read the receipts that say "would have been denied", then remove the line.
+
 ## Claude Code
 
 Register the hook command in `.claude/settings.json`. The same command handles all three events.

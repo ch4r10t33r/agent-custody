@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from . import Client, receipt_id_of
+from . import Client, denies, receipt_id_of
 
 
 def _event(input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -24,7 +24,7 @@ def handle_hook_event(client: Client, input_data: Dict[str, Any]) -> Dict[str, A
     name = input_data.get("hook_event_name")
     if name == "PreToolUse":
         policy = client.decide(ev["tool"], ev["args"], session=ev["session"])
-        if policy and policy["decision"] == "deny":
+        if denies(policy):
             reason = "; ".join(policy["reasons"] + policy["errors"]) or "no permit policy matched"
             bundle = client.record(ev["tool"], ev["args"], {"status": "denied", "reason": reason}, policy, session=ev["session"])
             return {"continue": True, "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": f"agent-custody: {reason} (receipt {receipt_id_of(bundle)})"}}

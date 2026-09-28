@@ -9,6 +9,8 @@ export interface PolicyDecision {
   /** evaluation errors; non-empty always yields deny */
   errors: string[];
   policyDigest: string;
+  /** false when the issuer ran in observe mode: the decision was recorded but a deny was not enforced. Absent means enforced. */
+  enforced?: boolean;
 }
 
 export interface PolicyRequest {

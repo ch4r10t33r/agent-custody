@@ -12,7 +12,7 @@ from typing import Any, Dict, Iterable, List, Optional, Type
 from crewai.tools import BaseTool
 from pydantic import BaseModel, PrivateAttr
 
-from . import Client, receipt_id_of
+from . import Client, denies, receipt_id_of
 
 
 def _result(v: Any) -> Any:
@@ -36,7 +36,7 @@ class CustodyTool(BaseTool):
     def _run(self, *args: Any, **kwargs: Any) -> Any:
         recorded: Dict[str, Any] = dict(kwargs) if kwargs else ({"input": args[0]} if len(args) == 1 else {"input": list(args)} if args else {})
         policy = self._client.decide(self.name, recorded)
-        if policy and policy["decision"] == "deny":
+        if denies(policy):
             reason = "; ".join(policy["reasons"] + policy["errors"]) or "no permit policy matched"
             bundle = self._client.record(self.name, recorded, {"status": "denied", "reason": reason}, policy)
             return f"Denied by policy: {reason} (receipt {receipt_id_of(bundle)})"

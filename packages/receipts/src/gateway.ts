@@ -217,6 +217,10 @@ export async function createGatewayHost(cfg: GatewayConfig, options: GatewayOpti
           policy = { decision: "deny", reasons: [], errors: [String(e instanceof Error ? e.message : e)], policyDigest: pDigest };
         }
       }
+      // Observe mode: the decision is recorded, never enforced. The receipt says so on every call, so a verifier can
+      // tell a policy that was being tested from one that was in force.
+      if (cfg.mode === "observe") policy = { ...policy, enforced: false };
+      const forward = policy.decision === "allow" || policy.enforced === false;
 
       const head = {
         receiptId,
@@ -233,17 +237,19 @@ export async function createGatewayHost(cfg: GatewayConfig, options: GatewayOpti
 
       if (policy.decision === "allow" && consequential(tool)) {
         // A consequential call is committed to the log before it goes out, so that evidence of the side effect exists
-        // before the side effect does. If the log will not take the authorization, the call is not forwarded.
+        // before the side effect does. If the log will not take the authorization, the call is not forwarded; in
+        // observe mode nothing is withheld, and the missing authorization is printed instead.
         try {
           authorization = await issuer.authorize({ ...head, policy: { ...policy, provenance: "observed" } });
         } catch (e) {
-          execution = { status: "withheld", reason: `the log did not commit the authorization, so the call was not forwarded: ${String(e instanceof Error ? e.message : e)}`, provenance: "observed" };
+          if (cfg.mode === "observe") console.error(`agent-custody gateway (observe mode): the log did not commit the authorization for ${tool}, receipt ${receiptId}; the call was forwarded without it: ${String(e instanceof Error ? e.message : e)}`);
+          else execution = { status: "withheld", reason: `the log did not commit the authorization, so the call was not forwarded: ${String(e instanceof Error ? e.message : e)}`, provenance: "observed" };
         }
       }
 
       if (execution) {
         // withheld: nothing was forwarded
-      } else if (policy.decision === "allow") {
+      } else if (forward) {
         try {
           // The upstream learns which receipt this call is, and who the grant says is calling. An upstream that keeps
           // state, such as the memory server, cites the receipt as the source of what it stores.

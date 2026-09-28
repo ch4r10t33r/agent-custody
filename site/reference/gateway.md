@@ -34,6 +34,7 @@ A separate process between the agent and its tools. The agent connects to it as 
 | `policyFile` | path | the Cedar policy; its SHA-256 is in every receipt |
 | `facts` | array | lookups the gateway makes itself before deciding: `name` under `context.facts`, the upstream `tool` to call, `args` templates where `"$args.<key>"` copies the agent's argument, `forTools` the intercepted tools that trigger it, `optional` skips the lookup when the template's argument is absent |
 | `precommit` | array of tool names or `["*"]` | consequential tools: the authorization is logged before the call is forwarded, and the call is withheld if the log will not take it |
+| `mode` | `"enforce"` (default) or `"observe"` | observe forwards every call the grant allows and records the decision the policy would have made, with `enforced: false` on the receipt; nothing is withheld, and a log that refuses an authorization is printed instead. The way to run a new policy against real traffic before turning it on |
 | `receiptsDir` | path | one `<receiptId>.json` per receipt, and `<receiptId>.authorization.json` for pre-committed calls |
 | `logFile` | path | a local Merkle log, one leaf per line. Exactly one of `logFile` or `log` |
 | `log` | `{ url, tokenEnv?, hashOnly?, timeoutMs? }` | a remote log: the tenant's append URL, the bearer token's environment variable, `hashOnly: true` to send only the leaf hash (use it for any log run by someone else), and how long one append may take, default 10000 ms |

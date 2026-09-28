@@ -4,7 +4,7 @@
 //   observeRunner: receipts only, from the runner's agent_tool_start / agent_tool_end events. Cannot block, so it
 //                  evaluates no policy. Use one or the other per tool, not both.
 // Typed structurally so this file does not import the package.
-import { receiptIdOf, type SdkIssuer, type ToolEvent } from "./index.ts";
+import { receiptIdOf, type SdkIssuer, type ToolEvent, denies } from "./index.ts";
 
 interface ToolCallDetails {
   toolCall?: { callId?: string; arguments?: string };
@@ -38,7 +38,7 @@ export function wrapTools<T extends { name: string; invoke: InvokeFn }>(issuer: 
     const invoke: InvokeFn = async (ctx, input, details?: ToolCallDetails) => {
       const ev: ToolEvent = { tool: t.name, args: parseArgs(input), session: { id: null, toolUseId: details?.toolCall?.callId ?? null } };
       const policy = issuer.decide(ev);
-      if (policy && policy.decision === "deny") {
+      if (denies(policy)) {
         const reason = [...policy.reasons, ...policy.errors].join("; ") || "no permit policy matched";
         const bundle = await issuer.record(ev, { status: "denied", reason }, policy);
         return `Denied by policy: ${reason} (receipt ${receiptIdOf(bundle)})`;

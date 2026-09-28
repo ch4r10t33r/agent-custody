@@ -36,7 +36,7 @@ const steps = [
         <span>agent-custody</span>
       </a>
       <nav aria-label="Site">
-        <a href="#problem">Problem</a><a href="#how">How it works</a><a href="#quickstart">Quick start</a><a href="/pricing">Pricing</a><a href="/guide/getting-started">Docs</a>
+        <a href="#problem">Problem</a><a href="#how">How it works</a><a href="#quickstart">Quick start</a><a href="/pricing">Pricing</a><a href="/faq">FAQ</a><a href="/guide/getting-started">Docs</a>
         <button class="theme" type="button" :aria-label="isDark ? 'Switch to light mode' : 'Switch to dark mode'" @click="isDark = !isDark">{{ isDark ? "Light" : "Dark" }}</button>
         <a class="signin" href="https://app.agent-custody.dev/">Sign in</a>
       </nav>
@@ -86,7 +86,7 @@ const steps = [
             <p class="open"><a :href="`/verify?sample=${sample}`">Open in the verifier</a><span>From the published conformance vectors. Runs in your browser; nothing is uploaded.</span></p>
           </figure>
         </div>
-        <p class="limit">A receipt proves what was signed, observed, and logged, and labels everything else as the agent's own claim. The <a href="/receipts/#what-a-receipt-proves-and-what-it-does-not">proof table</a> says which is which, for whoever has to sign off.</p>
+        <p class="limit">A receipt proves what was signed, observed, and logged, and labels everything else as the agent's own claim. The <a href="/receipts/#what-a-receipt-proves-and-what-it-does-not">proof table</a> says which is which, for whoever has to sign off. Where the data goes, what reaches the log, and how secrets are handled: the <a href="/faq">FAQ</a>.</p>
       </section>
 
       <section id="how" class="block">

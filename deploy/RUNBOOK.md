@@ -25,6 +25,15 @@ Both `log` and `signer` restart on the new image; Postgres and Caddy do not. Rol
 
 **Docs.** `docs.<domain>` is the site built from the checkout on this host. After `git pull`, `./update-docs.sh` rebuilds the image and restarts the container; nothing else changes.
 
+**Caddyfile changes.** The `caddy` service mounts `./Caddyfile` as a single file, and `git pull` replaces that file rather than editing it, so the running container keeps the old one: `caddy reload` then re-reads the old config and reports success. After a pull that touches the Caddyfile, recreate the container instead, which drops every host for a second or two:
+
+```bash
+docker compose --profile public up -d --force-recreate --no-deps caddy
+docker compose exec -T caddy grep -c '<a line you changed>' /etc/caddy/Caddyfile
+```
+
+The second command proves the container sees the new file; a count of 0 means it is still on the old one.
+
 **Backups.** `/etc/cron.daily/agent-custody-log-backup` runs nightly:
 
 ```bash

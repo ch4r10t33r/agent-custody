@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.12 — 2026-09-28
+
+- **Receipts:** listed in the MCP Registry as `io.github.svayatta/agent-custody`. The package carries `mcpName`, which the registry checks against the published npm package, and `packages/receipts/server.json` describes the entry: the gateway over stdio, run as `npx @agent-custody/receipts gateway --config <gateway.json>`. The repository moved to the `svayatta` organisation; links and the container image (`ghcr.io/svayatta/agent-custody-log`) follow it.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.11 — 2026-09-27
 
 - **Site:** a logo: a receipt with a torn edge, two ledger lines, and a tick, on the amber tile; `logo.svg`, `wordmark.svg`, and the PNG icons. The home page is laid out along the lines of dunetrace.com: a centred hero with three actions (Register for a free account, View GitHub, Verify a receipt) and the film under them, then the problem, how it works, denied at runtime, not a trace, a quick start with the commands, and where to go.

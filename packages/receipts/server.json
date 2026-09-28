@@ -1,0 +1,40 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.svayatta/agent-custody",
+  "title": "agent-custody",
+  "description": "MCP gateway that checks each agent tool call against a signed grant and policy, and signs a receipt",
+  "websiteUrl": "https://agent-custody.dev",
+  "repository": {
+    "url": "https://github.com/svayatta/agent-custody",
+    "source": "github",
+    "subfolder": "packages/receipts"
+  },
+  "version": "0.6.12",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@agent-custody/receipts",
+      "version": "0.6.12",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "gateway",
+          "valueHint": "command",
+          "description": "Run the MCP gateway in front of your upstream tools"
+        },
+        {
+          "type": "named",
+          "name": "--config",
+          "description": "Path to gateway.json: the upstream MCP or REST tools, the signed grant, the Cedar policy, the gateway key, and the log",
+          "format": "filepath",
+          "isRequired": true
+        }
+      ]
+    }
+  ]
+}

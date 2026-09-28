@@ -12,7 +12,7 @@ Anyone holding the public keys can verify a receipt offline. The agent is not tr
 - [Reference](https://docs.agent-custody.dev/reference/): every function, endpoint, MCP tool, and command with its request and response
 - [Tutorials](docs/tutorials.md): twenty runnable examples, one per aspect of the code, all executed by the test suite
 - [Usage guide](docs/usage.md): gateway setup, wiring into Claude Desktop, Claude Code, or your own agent loop
-- [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, adapters for the OpenAI Agents SDK, Vercel AI SDK and LangChain, and wrapping tool functions in anything else
+- [The interceptor SDK](docs/sdk.md): Claude Code hooks, the Claude Agent SDK, adapters for the OpenAI Agents SDK, Vercel AI SDK, LangChain and OpenClaw, a Hermes Agent plugin through the Python package, and wrapping tool functions in anything else
 - [Writing policies](docs/policies.md): how a tool call becomes a Cedar request, with tested examples
 - [Verifying a receipt](docs/verification.md): what each check means and what a verified receipt does and does not prove
 - [What the evidence satisfies](docs/compliance.md): the receipts, packs, and certificates mapped to SOC 2, ISO 27001, the EU AI Act, and UK GDPR, with what none of them claims
@@ -47,7 +47,7 @@ const bundle = JSON.parse(readFileSync("receipts/<id>.json", "utf8"));
 verifyBundle(bundle, { issuerKeys: [loadPublicKey("keys/app.pub")], logFile: "log.jsonl" }).ok;   // true
 ```
 
-Framework hooks and adapters, including Claude Code, the OpenAI Agents SDK, the Vercel AI SDK and LangChain, are in [docs/sdk.md](docs/sdk.md). To enforce rather than record, put the gateway between the agent and its tools: `npx agent-custody gateway --config gateway.json`, set up in [docs/usage.md](docs/usage.md). The gateway is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.svayatta/agent-custody`; its entry is [server.json](server.json), published with `mcp-publisher publish` after each npm release.
+Framework hooks and adapters, including Claude Code, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, OpenClaw and Hermes, are in [docs/sdk.md](docs/sdk.md). To enforce rather than record, put the gateway between the agent and its tools: `npx agent-custody gateway --config gateway.json`, set up in [docs/usage.md](docs/usage.md). The gateway is listed in the [MCP Registry](https://registry.modelcontextprotocol.io/) as `io.github.svayatta/agent-custody`; its entry is [server.json](server.json), published with `mcp-publisher publish` after each npm release.
 
 ## How it fits together
 

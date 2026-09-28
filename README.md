@@ -11,7 +11,7 @@ It is a chain of custody for both what an agent does and what it believes: autho
 | package | what it is | status |
 | --- | --- | --- |
 | [`@agent-custody/receipts`](packages/receipts/README.md) | Signed receipts for tool calls: an MCP gateway with Cedar policy and a Merkle transparency log, an in-process SDK with framework adapters, and an offline verifier | working, fourteen runnable tutorials |
-| [`agent-custody` on PyPI](packages/python/README.md) | The Python client of the sidecar: `decide`, `record`, `wrap`, and adapters for LangChain, the OpenAI Agents SDK, and the Claude Agent SDK, tested against the real packages | working; Go, Java, and Rust clients live in [examples/languages](packages/receipts/examples/languages) |
+| [`agent-custody` on PyPI](packages/python/README.md) | The Python client of the sidecar: `decide`, `record`, `wrap`, and adapters for LangChain, the OpenAI Agents SDK, the Claude Agent SDK, CrewAI, and a Hermes Agent plugin, tested against the real packages | working; Go, Java, and Rust clients live in [examples/languages](packages/receipts/examples/languages) |
 | [`@agent-custody/state`](packages/state/README.md) | Governed memory: a fact ledger where every write cites the receipt that caused it, carries valid time and transaction time, and can be superseded or rolled back | ledger on JSONL or SQLite, memory server behind the gateway or shared over HTTP, quarantine and verified provenance, blast radius, certified forget, retention and legal holds, write-through to Mem0 and Zep, eval CLI with signed reports |
 
 Receipts are the unit. State is the ledger of what the agent came to believe from them. Both append to the same kind of signed log and are checked by the same kind of verifier.
@@ -111,7 +111,7 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 **Where to go next**
 
 - Enforce instead of record: put the gateway between the agent and its MCP tools, with a signed delegation grant and a Cedar policy. Denied calls never reach the tool and still get a receipt. [packages/receipts/docs/usage.md](packages/receipts/docs/usage.md)
-- Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
+- Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, OpenClaw; in Python also CrewAI and Hermes Agent. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
 - Write policies, for tools and for memory, with tested examples, and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
 - Answer a security questionnaire with a file: which artefact satisfies which SOC 2, ISO 27001, EU AI Act, and UK GDPR requirement. [compliance.md](packages/receipts/docs/compliance.md)
 - Give a security reviewer the attacker's view: who could make a receipt false, what stops them, and what is not defended. [threat-model.md](packages/receipts/docs/threat-model.md)

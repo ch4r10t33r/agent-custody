@@ -39,7 +39,7 @@ Any Linux VM with Docker works. A Hetzner CX22 (2 vCPU, 4 GB, about 4 EUR a mont
 
 ```bash
 # on the VM
-git clone https://github.com/ch4r10t33r/agent-custody.git && cd agent-custody/deploy
+git clone https://github.com/svayatta/agent-custody.git && cd agent-custody/deploy
 cp .env.example .env
 sed -i "s/^AGENT_CUSTODY_LOG_TOKEN=.*/AGENT_CUSTODY_LOG_TOKEN=$(openssl rand -hex 32)/" .env
 sed -i "s/^SIGNER_TOKEN=.*/SIGNER_TOKEN=$(openssl rand -hex 32)/; s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env

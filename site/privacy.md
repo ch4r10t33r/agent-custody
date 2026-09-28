@@ -20,7 +20,7 @@ The log's web server records the requesting IP address and the request path in i
 
 The log runs on a server in Helsinki, Finland, operated by Hetzner Online GmbH. Backups of the database are kept for thirty days on the same server and, once configured, on EU object storage. Data is not transferred outside the EU or the UK except to a tenant who exports it.
 
-A tenant can export everything the log holds about them at any time with their own token, and can ask for their log to be disabled or deleted; deletion is irreversible and breaks the inclusion proofs in the tenant's own receipts, which the [runbook](https://github.com/ch4r10t33r/agent-custody/blob/main/deploy/RUNBOOK.md) explains.
+A tenant can export everything the log holds about them at any time with their own token, and can ask for their log to be disabled or deleted; deletion is irreversible and breaks the inclusion proofs in the tenant's own receipts, which the [runbook](https://github.com/svayatta/agent-custody/blob/main/deploy/RUNBOOK.md) explains.
 
 ## The portal
 

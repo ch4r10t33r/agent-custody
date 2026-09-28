@@ -4,7 +4,7 @@ import { cpSync, existsSync } from "node:fs";
 import { dirname, posix, relative, resolve } from "node:path";
 
 // The site is generated from the repository's own markdown. Nothing here is a second copy of the docs.
-const REPO = "https://github.com/ch4r10t33r/agent-custody/blob/main/";
+const REPO = "https://github.com/svayatta/agent-custody/blob/main/";
 
 /** Repository-relative markdown path to site path, mirroring `rewrites` below; null when the file is not a page. */
 function sitePath(repoPath: string): string | null {
@@ -120,8 +120,8 @@ export default withMermaid(
         { text: "Tools", items: [{ text: "Verify a receipt in the browser", link: "/verify" }] },
         { text: "Hosted", items: [{ text: "Register", link: "https://app.agent-custody.dev/" }, { text: "Pricing", link: "/pricing" }, { text: "The hosted log", link: "/early-access" }, { text: "Security questionnaire", link: "/security" }, { text: "Privacy", link: "/privacy" }, { text: "Terms for early access", link: "/terms" }, { text: "Contact", link: "/contact" }] },
       ] },
-      socialLinks: [{ icon: "github", link: "https://github.com/ch4r10t33r/agent-custody" }, { icon: "npm", link: "https://www.npmjs.com/org/agent-custody" }],
-      footer: { message: 'Apache-2.0 · <a href="https://github.com/ch4r10t33r/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a> · <a href="/reference/">Docs</a> · <a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a>', copyright: "Charioteer Consulting Ltd" },
+      socialLinks: [{ icon: "github", link: "https://github.com/svayatta/agent-custody" }, { icon: "npm", link: "https://www.npmjs.com/org/agent-custody" }],
+      footer: { message: 'Apache-2.0 · <a href="https://github.com/svayatta/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a> · <a href="/reference/">Docs</a> · <a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a>', copyright: "Charioteer Consulting Ltd" },
       search: { provider: "local" },
     },
     markdown: {

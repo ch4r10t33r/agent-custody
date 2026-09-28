@@ -23,7 +23,7 @@ Everything below asks who could make that claim false, and what stops them.
 
 ## What the design assumes
 
-- Ed25519 signatures and SHA-256 are sound. Post-quantum signatures are [issue #11](https://github.com/ch4r10t33r/agent-custody/issues/11), not present.
+- Ed25519 signatures and SHA-256 are sound. Post-quantum signatures are [issue #11](https://github.com/svayatta/agent-custody/issues/11), not present.
 - Private keys stay private to their holder. Key custody is the holder's problem; the packages read keys from files or a signer process and never transmit them.
 - The gateway runs where the agent cannot read its key or its receipts directory. A gateway in the agent's own container, with the key readable by the agent, is an SDK with extra steps and the receipts it produces are worth exactly that.
 - Clocks are roughly right. Timestamps in receipts are the producer's; the log's checkpoint times and the witness's countersignature times are the only times a verifier can hold anyone to.

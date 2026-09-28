@@ -8,7 +8,7 @@ Operators who log here should set `"hashOnly": true` in their `log` config, so t
 
 ## The image
 
-`ghcr.io/ch4r10t33r/agent-custody-log:<version>`, built for amd64 and arm64 by the `image` workflow from `deploy/Dockerfile` and the published npm package of that version. The compose file builds the same image locally if the registry has no such tag yet, so nothing waits on the registry. To publish a version by hand: `gh workflow run image.yml -f version=0.3.0`; a `v0.3.0` tag does the same. The first push creates the package as private; make it public once in the package settings on GitHub so `docker pull` needs no login.
+`ghcr.io/svayatta/agent-custody-log:<version>`, built for amd64 and arm64 by the `image` workflow from `deploy/Dockerfile` and the published npm package of that version. The compose file builds the same image locally if the registry has no such tag yet, so nothing waits on the registry. To publish a version by hand: `gh workflow run image.yml -f version=0.3.0`; a `v0.3.0` tag does the same. The first push creates the package as private; make it public once in the package settings on GitHub so `docker pull` needs no login.
 
 ## The contract
 

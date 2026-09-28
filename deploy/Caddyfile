@@ -38,7 +38,7 @@
 			<tr><td><code>/t/&lt;tenant&gt;/append</code>, <code>/root</code>, <code>/consistency</code>, <code>/checkpoints</code></td><td>a tenant's log; appends need the tenant's token</td></tr>
 			<tr><td><a href="https://{$CHECKPOINTS_HOST}/">{$CHECKPOINTS_HOST}</a></td><td>signed checkpoints, published on a second host</td></tr>
 			</table>
-			<p>Status: <a href="https://github.com/ch4r10t33r/agent-custody/actions/workflows/monitor.yml">an outside probe every ten minutes</a>. Security: <a href="https://agent-custody.dev/security">the questionnaire</a>, <a href="/.well-known/security.txt">security.txt</a>. Terms: <a href="https://agent-custody.dev/terms">early access</a>, <a href="https://agent-custody.dev/privacy">privacy</a>.</p>
+			<p>Status: <a href="https://github.com/svayatta/agent-custody/actions/workflows/monitor.yml">an outside probe every ten minutes</a>. Security: <a href="https://agent-custody.dev/security">the questionnaire</a>, <a href="/.well-known/security.txt">security.txt</a>. Terms: <a href="https://agent-custody.dev/terms">early access</a>, <a href="https://agent-custody.dev/privacy">privacy</a>.</p>
 			</main>
 			HTML 200
 	}
@@ -50,7 +50,7 @@
 			Expires: 2027-09-09T00:00:00.000Z
 			Preferred-Languages: en
 			Canonical: https://{$LOG_HOST}/.well-known/security.txt
-			Policy: https://github.com/ch4r10t33r/agent-custody/blob/main/SECURITY.md
+			Policy: https://github.com/svayatta/agent-custody/blob/main/SECURITY.md
 			TXT 200
 	}
 	reverse_proxy log:8787
@@ -135,7 +135,7 @@
 			Expires: 2027-09-09T00:00:00.000Z
 			Preferred-Languages: en
 			Canonical: https://{$CHECKPOINTS_HOST}/.well-known/security.txt
-			Policy: https://github.com/ch4r10t33r/agent-custody/blob/main/SECURITY.md
+			Policy: https://github.com/svayatta/agent-custody/blob/main/SECURITY.md
 			TXT 200
 	}
 	file_server

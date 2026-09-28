@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ch4r10t33r/agent-custody.git",
+    "url": "git+https://github.com/svayatta/agent-custody.git",
     "directory": "packages/receipts"
   },
   "publishConfig": {

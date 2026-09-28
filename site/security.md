@@ -9,10 +9,10 @@ The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-cu
 | question | answer |
 | --- | --- |
 | Who operates the service, and who is the contracting entity? | Charioteer Consulting Ltd, reachable at partha@charioteerconsulting.com. One operator today; a second, independent operator is being sought for the witness, which by design must not be us. |
-| Is there a security contact and disclosure policy? | Yes: [SECURITY.md](https://github.com/ch4r10t33r/agent-custody/blob/main/SECURITY.md), acknowledgement within two working days, assessment within seven. |
+| Is there a security contact and disclosure policy? | Yes: [SECURITY.md](https://github.com/svayatta/agent-custody/blob/main/SECURITY.md), acknowledgement within two working days, assessment within seven. |
 | Do you hold SOC 2, ISO 27001, or Cyber Essentials? | No. The [compliance mapping](/receipts/compliance) says which of your controls our artefacts are evidence for; it makes no claim about our own certification. |
 | Has the service had an independent penetration test? | No. A [threat model](/receipts/threat-model) is published and is the scope we would give a tester. |
-| Is the source open? | Yes, Apache-2.0, at [github.com/ch4r10t33r/agent-custody](https://github.com/ch4r10t33r/agent-custody), the same code that runs the hosted log. Anyone can run the log themselves from [deploy/](https://github.com/ch4r10t33r/agent-custody/tree/main/deploy). |
+| Is the source open? | Yes, Apache-2.0, at [github.com/svayatta/agent-custody](https://github.com/svayatta/agent-custody), the same code that runs the hosted log. Anyone can run the log themselves from [deploy/](https://github.com/svayatta/agent-custody/tree/main/deploy). |
 
 ## Data
 
@@ -41,9 +41,9 @@ The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-cu
 
 | question | answer |
 | --- | --- |
-| Monitoring | A probe from GitHub's machines every ten minutes verifies the head against the published keys, that checkpoints keep up, and that the head extends them; failures email the operator. [Status](https://github.com/ch4r10t33r/agent-custody/actions/workflows/monitor.yml). |
+| Monitoring | A probe from GitHub's machines every ten minutes verifies the head against the published keys, that checkpoints keep up, and that the head extends them; failures email the operator. [Status](https://github.com/svayatta/agent-custody/actions/workflows/monitor.yml). |
 | Availability commitment | None contractually yet. The design fails closed: a pre-committed call is withheld when the log is unreachable, so an outage is a denial of service on the agent, not a loss of evidence. One VM, no failover. |
-| Backups and restore | Nightly: the key volume and a database dump, kept thirty days. A restore drill script in the [runbook](https://github.com/ch4r10t33r/agent-custody/blob/main/deploy/RUNBOOK.md) restores a night's backups beside the live service and checks the restored log against the live key; first run 2026-09-09, passed, to be repeated quarterly. |
+| Backups and restore | Nightly: the key volume and a database dump, kept thirty days. A restore drill script in the [runbook](https://github.com/svayatta/agent-custody/blob/main/deploy/RUNBOOK.md) restores a night's backups beside the live service and checks the restored log against the live key; first run 2026-09-09, passed, to be repeated quarterly. |
 | Patching | Ubuntu unattended upgrades; the application image is rebuilt per release from the published package; Dependabot opens updates weekly for npm, pip, GitHub Actions, and the image base. |
 | Incident response | The runbook covers a leaked admin or signer token, a compromised host, and every monitor failure. Affected tenants receive the written record of what was noticed, when, and what was done. No formal SLA on notification time yet; the intent is 72 hours. |
 | Key management | Ed25519. The log's private key is held only by the signer process; the log process facing the internet has no key. Keys are published at a well-known URL and pinned by verifiers; rotation keeps old public keys published so old heads keep verifying; yearly rotation and on suspicion. No HSM. |
@@ -62,4 +62,4 @@ The scope is two things: the **packages** (`@agent-custody/receipts`, `@agent-cu
 
 1. The [threat model](/receipts/threat-model): which defences are properties of the evidence and which depend on the deployment.
 2. The [verification guide](/receipts/verification): what each check proves, and the browser verifier that runs them on a receipt with no server.
-3. The [runbook](https://github.com/ch4r10t33r/agent-custody/blob/main/deploy/RUNBOOK.md): what the operator does, and what is not yet done.
+3. The [runbook](https://github.com/svayatta/agent-custody/blob/main/deploy/RUNBOOK.md): what the operator does, and what is not yet done.

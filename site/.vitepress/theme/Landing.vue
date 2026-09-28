@@ -49,7 +49,7 @@ const steps = [
         <p class="lede">A gateway between an agent and its tools. Every call is checked against a grant a person signed and a policy, then forwarded or denied, and a signed receipt is issued either way. The receipt's hash lands in a log nobody in the chain can rewrite. For every agent framework, in any language.</p>
         <p class="actions">
           <a class="btn primary" href="https://app.agent-custody.dev/#register">Register for a free account</a>
-          <a class="btn" href="https://github.com/ch4r10t33r/agent-custody">View GitHub <span aria-hidden="true">↗</span></a>
+          <a class="btn" href="https://github.com/svayatta/agent-custody">View GitHub <span aria-hidden="true">↗</span></a>
           <a class="btn quiet" :href="`/verify?sample=${sample}`">Verify a receipt</a>
         </p>
         <figure class="promo">
@@ -176,7 +176,7 @@ npx agent-custody verify receipts/&lt;id&gt;.json \
     </main>
 
     <footer>
-      <p>Apache-2.0 · <a href="https://github.com/ch4r10t33r/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a> · <a href="/reference/">Reference</a> · <a href="/pricing">Pricing</a> · <a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a></p>
+      <p>Apache-2.0 · <a href="https://github.com/svayatta/agent-custody">GitHub</a> · <a href="https://www.npmjs.com/org/agent-custody">npm</a> · <a href="https://pypi.org/project/agent-custody/">PyPI</a> · <a href="/reference/">Reference</a> · <a href="/pricing">Pricing</a> · <a href="/security">Security</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · <a href="/contact">Contact</a></p>
       <p>Charioteer Consulting Ltd, {{ year }}</p>
     </footer>
   </div>

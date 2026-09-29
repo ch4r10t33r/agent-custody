@@ -10,7 +10,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { generateKeyPair } from "../src/crypto.ts";
 import { httpLog, postgresResolver, serveLog, type RunningLog } from "../src/log-sink.ts";
 import { PostgresTenancy } from "../src/log-store.ts";
-import { PortalStore, readSession, servePortal, signSession, verifyStripeSignature, type RunningPortal } from "../src/portal.ts";
+import { founderNote, PortalStore, readSession, sendFollowUps, servePortal, signSession, verifyStripeSignature, type RunningPortal } from "../src/portal.ts";
 import { policyDigest } from "../src/policy.ts";
 
 let db: PGlite;
@@ -310,5 +310,48 @@ describe("two-step registration and provider sign-in", () => {
     const page = await (await fetch(portal.url)).text();
     expect(page).toContain('["github","google"]');
     expect(page).toContain('id="onboardForm"');
+  });
+});
+
+describe("the founder's note", () => {
+  it("goes once to each registration between an hour and a week old, by name and tenant, never to the operator's own domains, is retried after a provider failure, and a dry run sends nothing", async () => {
+    const store = new PortalStore(db);
+    const t0 = new Date("2026-09-29T07:00:00Z");
+    const mk = async (email: string, name: string, tenant: string, at: Date) => {
+      const u = await store.createUser(email, "a-long-enough-password", { name, company: "Co " + tenant });
+      await tenancy.addTenant(tenant, tenant, "test");
+      await store.addMember(u.id, tenant);
+      await db.query("UPDATE portal_users SET created_at = $2 WHERE id = $1", [u.id, at.toISOString()]);
+      return u;
+    };
+    await mk("burak@example.com", "Burak Yilmaz", "zyai", new Date(t0.getTime() - 2 * 3_600_000));     // two hours old: due
+    await mk("fresh@example.com", "Fresh One", "fresh", new Date(t0.getTime() - 10 * 60_000));           // ten minutes old: not yet
+    await mk("old@example.com", "Old One", "oldco", new Date(t0.getTime() - 9 * 86_400_000));           // nine days old: too late, left alone
+    await mk("ops@example.test", "Us", "usco", new Date(t0.getTime() - 3 * 3_600_000));                  // our own domain: marked, not written to
+    const captured: { to: string[]; subject: string; text: string }[] = [];
+    let refuse = false;
+    const mailFetch: typeof fetch = async (_u, init) => { if (refuse) return new Response("nope", { status: 500 }); captured.push(JSON.parse(String(init?.body))); return new Response("{}", { status: 200 }); };
+    const mail = { apiKey: "re", from: "Partha <partha@example.test>", notify: "partha@example.test", fetch: mailFetch };
+    const dry = await sendFollowUps(store, mail, { portalUrl: "https://app.example.test/", now: t0, dryRun: true, log: () => {} });
+    expect(dry.sent).toEqual(["burak@example.com"]);
+    expect(captured).toHaveLength(0);
+    refuse = true;
+    const first = await sendFollowUps(store, mail, { portalUrl: "https://app.example.test/", now: t0, log: () => {} });
+    expect(first).toEqual({ sent: [], skipped: ["ops@example.test"], failed: ["burak@example.com"] });
+    refuse = false;
+    const second = await sendFollowUps(store, mail, { portalUrl: "https://app.example.test/", now: t0, log: () => {} });
+    expect(second).toEqual({ sent: ["burak@example.com"], skipped: [], failed: [] });
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.to).toEqual(["burak@example.com"]);
+    expect(captured[0]!.subject).toBe("Welcome to agent-custody, and one question");
+    expect(captured[0]!.text).toContain("Hi Burak,");
+    expect(captured[0]!.text).toContain("registering zyai");
+    expect(captured[0]!.text).toContain("at Co zyai?");
+    expect(captured[0]!.text).toContain('"mode": "observe"');
+    expect(captured[0]!.text).toContain("partha@example.test");
+    // once only, and the ten-minute-old one becomes due later
+    expect((await sendFollowUps(store, mail, { portalUrl: "https://app.example.test/", now: t0, log: () => {} })).sent).toEqual([]);
+    expect((await sendFollowUps(store, mail, { portalUrl: "https://app.example.test/", now: new Date(t0.getTime() + 2 * 3_600_000), log: () => {} })).sent).toContain("fresh@example.com"); // other tests' registrations may be due too
+    expect(founderNote({ name: "Solo", tenant: "t", company: null, portalUrl: "https://p/", from: "x@y.z" }).text).toContain("What are you building?");
   });
 });

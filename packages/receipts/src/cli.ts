@@ -15,7 +15,7 @@ import { connectSigner, fetchLogKeys, localSigner, serveSigner, type RetiredKey,
 import { fetchWitnessKeys, Witness } from "./witness.ts";
 import { checkLog, formatLogCheck } from "./log-check.ts";
 import { serveHttp } from "./gateway-http.ts";
-import { PortalStore, servePortal, type MailOptions, type OAuthOptions, type StripeOptions } from "./portal.ts";
+import { PortalStore, sendFollowUps, servePortal, type MailOptions, type OAuthOptions, type StripeOptions } from "./portal.ts";
 import { exportLog, formatExport } from "./log-export.ts";
 import { CheckpointPublisher, fileResolver, type LogResolver } from "./log-sink.ts";
 import type { AdminOptions } from "./log-admin.ts";
@@ -82,6 +82,8 @@ const USAGE = `agent-custody <command>
           [--stripe-key-env NAME --stripe-webhook-env NAME --stripe-price-team <price id>] [--trust-proxy]
                                                    the tenant portal: register, first key, usage against plan, keys, billing, export
   log-admin --db-env NAME import --file <log.jsonl> [--tenant default]      copies a file log into the database as hashes
+  portal-followup --db-env NAME --mail-key-env NAME --mail-from <address> [--mail-notify <address>] [--portal-url <url>] [--dry-run]
+                                                   the founder's note to registrations an hour to a week old that have not had it; hourly from cron
   audit   --older <bundle.json> --newer <bundle.json> (--log <log.jsonl> | --log-url <url>) [--issuer-key <pub>] [--log-key <pub>] [--log-id <id>] [--witness-key <pub> | --witness-url <url>] [--json]
                                                  with --log-url the log's published keys are fetched and pinned by keyid; with a witness key or
                                                  URL the newer head must also carry the witness's countersignature
@@ -254,6 +256,16 @@ async function main(argv: string[]): Promise<number> {
       await new Promise<void>((resolve) => process.once("SIGINT", resolve));
       await running.close();
       return 0;
+    }
+    case "portal-followup": {
+      // The founder's note to every registration between an hour and a week old that has not had it; run hourly from cron.
+      const { values } = parseArgs({ args: rest, options: { "db-env": { type: "string" }, "mail-key-env": { type: "string" }, "mail-from": { type: "string" }, "mail-notify": { type: "string" }, "portal-url": { type: "string", default: "https://app.agent-custody.dev/" }, "dry-run": { type: "boolean", default: false } } });
+      if (!values["db-env"] || !values["mail-key-env"] || !values["mail-from"]) throw new Error("portal-followup needs --db-env, --mail-key-env, and --mail-from");
+      const apiKey = process.env[values["mail-key-env"]];
+      if (!apiKey) throw new Error(`portal-followup: environment variable ${values["mail-key-env"]} is not set`);
+      const r = await sendFollowUps(new PortalStore(openPostgres(values["db-env"])), { apiKey, from: values["mail-from"], ...(values["mail-notify"] ? { notify: values["mail-notify"] } : {}) }, { portalUrl: values["portal-url"], dryRun: values["dry-run"] });
+      console.log(`${values["dry-run"] ? "would send" : "sent"} ${r.sent.length}, skipped ${r.skipped.length} (operator's own), failed ${r.failed.length}${r.sent.length ? `: ${r.sent.join(", ")}` : ""}`);
+      return r.failed.length ? 1 : 0;
     }
     case "portal": {
       const { values } = parseArgs({ args: rest, options: { "db-env": { type: "string" }, "secret-env": { type: "string" }, "public-url": { type: "string" }, "checkpoints-url": { type: "string" }, "portal-url": { type: "string" }, port: { type: "string", default: "8792" }, host: { type: "string", default: "127.0.0.1" }, "stripe-key-env": { type: "string" }, "stripe-webhook-env": { type: "string" }, "stripe-price-team": { type: "string" }, "mail-key-env": { type: "string" }, "mail-from": { type: "string" }, "mail-notify": { type: "string" }, "github-client-id": { type: "string" }, "github-secret-env": { type: "string" }, "google-client-id": { type: "string" }, "google-secret-env": { type: "string" }, "trust-proxy": { type: "boolean", default: false } } });

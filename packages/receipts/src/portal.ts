@@ -100,6 +100,8 @@ export class PortalStore {
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}billing (tenant_id TEXT PRIMARY KEY, customer_id TEXT, subscription_id TEXT, status TEXT NOT NULL, updated_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
         // who the account belongs to: added after the first tenants registered, so the columns are optional
         for (const c of PROFILE_COLUMNS) await this.client.query(`ALTER TABLE ${p}users ADD COLUMN IF NOT EXISTS ${c} TEXT`);
+        // when the founder's note went out, so it goes once
+        await this.client.query(`ALTER TABLE ${p}users ADD COLUMN IF NOT EXISTS followed_up_at TIMESTAMPTZ`);
         // a provider identity linked to an account: GitHub or Google's stable subject, and the verified email it gave
         await this.client.query(`CREATE TABLE IF NOT EXISTS ${p}identities (provider TEXT NOT NULL, subject TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES ${p}users(id), email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), PRIMARY KEY (provider, subject))`);
       })();
@@ -137,6 +139,20 @@ export class PortalStore {
     const r = rows[0] ?? {};
     const str = (v: unknown) => (v == null ? null : String(v));
     return { name: str(r.name), company: str(r.company), role: str(r.role), phone: str(r.phone), telegram: str(r.telegram) };
+  }
+  /** Accounts with a tenant, a name, and no founder's note yet, registered inside the window: the hourly job's work list. */
+  async pendingFollowUps(o: { now: Date; minAgeMs: number; maxAgeMs: number }): Promise<{ id: string; email: string; name: string; company: string | null; tenantId: string; createdAt: string }[]> {
+    await this.init();
+    const rows = (await this.client.query(
+      `SELECT u.id, u.email, u.name, u.company, m.tenant_id, u.created_at FROM ${this.p}users u JOIN ${this.p}members m ON m.user_id = u.id
+       WHERE u.followed_up_at IS NULL AND u.name IS NOT NULL AND u.created_at <= $1 AND u.created_at >= $2 ORDER BY u.created_at`,
+      [new Date(o.now.getTime() - o.minAgeMs).toISOString(), new Date(o.now.getTime() - o.maxAgeMs).toISOString()],
+    )).rows as Record<string, unknown>[];
+    return rows.map((r) => ({ id: String(r.id), email: String(r.email), name: String(r.name), company: r.company == null ? null : String(r.company), tenantId: String(r.tenant_id), createdAt: new Date(r.created_at as string).toISOString() }));
+  }
+  async markFollowedUp(userId: string, at = new Date()): Promise<void> {
+    await this.init();
+    await this.client.query(`UPDATE ${this.p}users SET followed_up_at = $2 WHERE id = $1`, [userId, at.toISOString()]);
   }
   async updateProfile(userId: string, profile: Profile): Promise<void> {
     await this.init();
@@ -263,6 +279,70 @@ const TENANT_ID = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESERVED = new Set(["default", "admin", "api", "www", "log", "checkpoints", "app", "portal", "stripe", "health", "t"]);
 
+/** One message through the provider. Best effort: a refusal or a failure is reported through `log`, never thrown. Returns whether it was accepted. */
+export async function deliverMail(mail: MailOptions, m: { to: string; subject: string; text: string }, log: (message: string) => void = console.error): Promise<boolean> {
+  const f = mail.fetch ?? fetch;
+  try {
+    const r = await f(mail.url ?? "https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${mail.apiKey}`, "content-type": "application/json" }, body: JSON.stringify({ from: mail.from, to: [m.to], subject: m.subject, text: m.text }), signal: AbortSignal.timeout(10_000) });
+    if (r.ok) return true;
+    log(`agent-custody portal: mail to ${m.to} refused: ${r.status} ${(await r.text()).slice(0, 200)}`);
+  } catch (e) {
+    log(`agent-custody portal: mail to ${m.to} failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  return false;
+}
+
+/**
+ * The founder's note, sent about an hour after a registration by `sendFollowUps`, once. Written to get the first
+ * receipt appended: it asks which stack they are on, offers to do the integration, and says to start in observe mode.
+ */
+export function founderNote(o: { name: string; tenant: string; company: string | null; portalUrl: string; from: string }): { subject: string; text: string } {
+  const first = o.name.trim().split(/\s+/)[0] || o.name;
+  const signer = o.from.replace(/^.*<|>.*$/g, "");
+  return {
+    subject: "Welcome to agent-custody, and one question",
+    text: [
+      `Hi ${first},`, "",
+      `Thanks for registering ${o.tenant} on agent-custody. I am Partha, the founder; you will get me, not a queue.`, "",
+      "One question so I can help rather than guess: which stack are your agents on, and what do they touch? Claude Code, the OpenAI Agents SDK, LangChain, OpenClaw, DeepSeek Harness, Hermes, plain Python, or an MCP host. If you tell me, I will send the exact config for it, and if it is quicker, I will do the integration with you on a call: twenty minutes gets a first receipt into your log and verified in the browser.", "",
+      'Two things worth knowing from the start. Run it in observe mode first, "mode": "observe" in the config: nothing is blocked, and each receipt records what the policy would have denied, so you tune the policy against real traffic before turning it on. And the log only ever receives a hash per receipt; the receipts stay on your machines.', "",
+      `You are on the free plan, ten thousand appends a month, no card. If you hit that, tell me and I move you up while we talk. The setup sheet is under Setup in the dashboard whenever you need it: ${o.portalUrl}`, "",
+      `What are you building${o.company ? ` at ${o.company}` : ""}? I would like to know what you want the receipts to prove, and to whom.`, "",
+      "Partha", `agent-custody.dev · ${signer}`,
+    ].join("\n"),
+  };
+}
+
+/**
+ * Sends the founder's note to every account registered between an hour and a week ago that has not had it, and
+ * marks each one. Accounts on the operator's own mail domains are marked without a message. Idempotent: run it hourly.
+ */
+export async function sendFollowUps(store: PortalStore, mail: MailOptions, o: { portalUrl: string; now?: Date; minAgeMs?: number; maxAgeMs?: number; dryRun?: boolean; log?: (message: string) => void } = { portalUrl: "https://app.agent-custody.dev/" }): Promise<{ sent: string[]; skipped: string[]; failed: string[] }> {
+  const log = o.log ?? console.error;
+  const now = o.now ?? new Date();
+  const own = new Set([mail.from, mail.notify ?? ""].map((a) => a.replace(/^.*<|>.*$/g, "").split("@")[1]?.toLowerCase()).filter(Boolean));
+  const sent: string[] = [];
+  const skipped: string[] = [];
+  const failed: string[] = [];
+  for (const u of await store.pendingFollowUps({ now, minAgeMs: o.minAgeMs ?? 3_600_000, maxAgeMs: o.maxAgeMs ?? 7 * 86_400_000 })) {
+    if (own.has(u.email.split("@")[1]?.toLowerCase() ?? "")) {
+      if (!o.dryRun) await store.markFollowedUp(u.id, now);
+      skipped.push(u.email);
+      continue;
+    }
+    const note = founderNote({ name: u.name, tenant: u.tenantId, company: u.company, portalUrl: o.portalUrl, from: mail.from });
+    if (o.dryRun) { sent.push(u.email); continue; }
+    if (await deliverMail(mail, { to: u.email, ...note }, log)) {
+      await store.markFollowedUp(u.id, now);
+      sent.push(u.email);
+      log(`agent-custody portal: founder's note sent to ${u.email} for tenant ${u.tenantId}`);
+    } else {
+      failed.push(u.email); // left pending; the next run tries again
+    }
+  }
+  return { sent, skipped, failed };
+}
+
 export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: ServerResponse) => Promise<void> {
   const store = new PortalStore(o.client, o.prefix);
   const heads: CheckpointStore = postgresCheckpoints(o.client);
@@ -275,16 +355,7 @@ export function portalHandler(o: PortalOptions): (req: IncomingMessage, res: Ser
   const sheet = (tenant: string, logId: string) => welcomeSheet({ tenant, logId, publicUrl: base, ...(o.checkpointsUrl ? { checkpointsUrl: o.checkpointsUrl } : {}), ...(o.keyid ? { keyid: o.keyid } : {}) });
   const portalBase = (o.portalUrl ?? "http://localhost/").replace(/\/?$/, "/");
   // Mail is best effort and off the request path: a provider outage is logged, never a failed registration.
-  const send = async (m: { to: string; subject: string; text: string }) => {
-    if (!o.mail) return;
-    const f = o.mail.fetch ?? fetch;
-    try {
-      const r = await f(o.mail.url ?? "https://api.resend.com/emails", { method: "POST", headers: { authorization: `Bearer ${o.mail.apiKey}`, "content-type": "application/json" }, body: JSON.stringify({ from: o.mail.from, to: [m.to], subject: m.subject, text: m.text }), signal: AbortSignal.timeout(10_000) });
-      if (!r.ok) log(`agent-custody portal: mail to ${m.to} refused: ${r.status} ${(await r.text()).slice(0, 200)}`);
-    } catch (e) {
-      log(`agent-custody portal: mail to ${m.to} failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
+  const send = async (m: { to: string; subject: string; text: string }) => { if (o.mail) await deliverMail(o.mail, m, log); };
   const welcomeMail = (to: string, name: string, tenant: string, logId: string) => send({ to, subject: `Your agent-custody log "${tenant}" is ready`, text: [
     `Hello ${name},`, "",
     `Your tenant "${tenant}" is live on the hosted log. Your API key was shown once when you registered and is not in this email; if it is gone, mint another under API keys at ${portalBase}.`, "",

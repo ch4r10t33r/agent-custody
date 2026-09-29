@@ -47,6 +47,8 @@ The gateway's log client retries a 429 three times with backoff and then fails t
 
 Every write needs `Content-Type: application/json`; the cookie is `HttpOnly; SameSite=Strict`. Every action is in the tenant's audit trail as `portal:<email>`, and plan changes made by Stripe as `stripe:<event>`.
 
+Two emails follow a registration when the operator has mail configured: the setup sheet at once, and about an hour later a personal note from the founder asking which stack the agents are on and offering to do the integration, sent once by an hourly job (`portal-followup`).
+
 ## Policies: names for the digests receipts carry
 
 Enforcement is local: the gateway reads its Cedar file and writes the file's SHA-256 into every receipt as `policyDigest`. The portal's Policies page lets a tenant publish each version they deploy under a name, so a digest reads as "refunds-v3" here, in the match tool (paste a receipt or a digest), and in the export's `policies.json`. Nothing on this page is read by the gateway, and the hosted log never evaluates a policy. Every publish and removal is in the tenant's audit trail.

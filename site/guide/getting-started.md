@@ -4,7 +4,7 @@ Two paths. The **SDK path** records what the agent's own process reports: the qu
 
 ## Pick your stack
 
-Install the package, make a key and a config once, then add the lines for your framework: Claude Code, the Claude Agent SDK, the OpenAI Agents SDK, LangChain, Vercel AI, OpenClaw, Hermes, or plain Python. Each produces a receipt in `receipts/` that [the browser verifier](/verify) checks with the `.pub` file.
+Install the package, make a key and a config once, then add the lines for your framework: Claude Code, the Claude Agent SDK, the OpenAI Agents SDK, LangChain, Vercel AI, OpenClaw, DeepSeek Harness, Hermes, or plain Python. Each produces a receipt in `receipts/` that [the browser verifier](/verify) checks with the `.pub` file.
 
 ```bash
 npm install @agent-custody/receipts && npx agent-custody keygen --dir keys --name app
@@ -65,6 +65,15 @@ import { registerOpenClaw } from "@agent-custody/receipts/sdk/openclaw";
 
 export default definePluginEntry({ id: "agent-custody", name: "agent-custody", description: "A receipt for every tool call",
   register(api) { registerOpenClaw(api, createSdkIssuer(loadSdkConfig("./sdk.json"))); } });
+```
+
+```yaml [DeepSeek Harness]
+# the module is the plugin: list it in cordis.yml (dsh web --patch ./cordis.yml) with the SDK config as its setting
+- insert:
+    - id: agent-custody
+      name: "@agent-custody/receipts/sdk/deepseek-harness"
+      config:
+        config: /abs/path/sdk.json
 ```
 
 ```yaml [Hermes]

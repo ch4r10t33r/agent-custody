@@ -98,6 +98,9 @@ Each records the framework's tool calls through the issuer. Enforce or observe, 
 | `@agent-custody/receipts/sdk/claude` | `claudeAgentHooks(issuer, matcher?)` | the in-process hooks object for the Claude Agent SDK, built on `handleHookEvent` |
 | `@agent-custody/receipts/sdk/openclaw` | `openclawHooks(issuer)` → `{ before_tool_call, after_tool_call }` | OpenClaw plugin hooks: `before_tool_call(event, ctx)` returns `{ block: true, blockReason }` on a policy deny after issuing the denial receipt, nothing otherwise; `after_tool_call(event, ctx)` records the executed or failed call. `event` is OpenClaw's `{ toolName, params, toolCallId?, result?, error? }`, `ctx` its `{ sessionId?, sessionKey? }` |
 | `@agent-custody/receipts/sdk/openclaw` | `registerOpenClaw(api, issuer)` | calls `api.on` for both hooks, for a plugin's `register(api)` |
+| `@agent-custody/receipts/sdk/deepseek-harness` | the module itself: `name`, `inject`, `Config`, `apply(ctx, { config? })` | a DeepSeek Harness plugin, listed by this path with the SDK config file as its setting (or `AGENT_CUSTODY_CONFIG`); registers `tools/pre-execute` and `tools/post-execute` |
+| `@agent-custody/receipts/sdk/deepseek-harness` | `deepseekHarnessHooks(issuer)` → `{ preExecute, postExecute }` | `preExecute(exec, next)` returns `{ kind: "deny", reason }` on an enforced policy deny after issuing the denial receipt, else `next()`; `postExecute(exec, result, next)` records the executed (`content`/`value`) or failed (`error`) call, then `next()`. `exec` is the harness's `{ name, arguments, callId, agent }` |
+| `@agent-custody/receipts/sdk/deepseek-harness` | `registerDeepSeekHarness(ctx, issuer)` | calls `ctx.on` for both events |
 
 ## The log client
 

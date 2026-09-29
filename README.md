@@ -111,7 +111,7 @@ This whole loop is one runnable file, [packages/state/examples/02-receipt-to-bel
 **Where to go next**
 
 - Enforce instead of record: put the gateway between the agent and its MCP tools, with a signed delegation grant and a Cedar policy. Denied calls never reach the tool and still get a receipt. [packages/receipts/docs/usage.md](packages/receipts/docs/usage.md)
-- Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, OpenClaw; in Python also CrewAI and Hermes Agent. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
+- Hook an existing framework: Claude Code and the Claude Agent SDK, the OpenAI Agents SDK, the Vercel AI SDK, LangChain, OpenClaw, DeepSeek Harness; in Python also CrewAI and Hermes Agent. [packages/receipts/docs/sdk.md](packages/receipts/docs/sdk.md)
 - Write policies, for tools and for memory, with tested examples, and read what a verified receipt does and does not prove. [policies.md](packages/receipts/docs/policies.md), [verification.md](packages/receipts/docs/verification.md)
 - Answer a security questionnaire with a file: which artefact satisfies which SOC 2, ISO 27001, EU AI Act, and UK GDPR requirement. [compliance.md](packages/receipts/docs/compliance.md)
 - Give a security reviewer the attacker's view: who could make a receipt false, what stops them, and what is not defended. [threat-model.md](packages/receipts/docs/threat-model.md)

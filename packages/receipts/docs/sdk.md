@@ -157,6 +157,23 @@ export default definePluginEntry({
 
 Then `openclaw plugins install --link ./agent-custody-plugin && openclaw plugins enable agent-custody`. `before_tool_call` evaluates the policy: on deny it issues a denial receipt and returns `{ block: true, blockReason: "agent-custody: … (receipt <id>)" }`; on allow, or with no policy, it returns nothing, so OpenClaw's own approvals and other plugins still apply. It never auto-approves, and if the denial receipt cannot be issued the call is blocked all the same. `after_tool_call` issues the receipt for the executed or failed call, with OpenClaw's `sessionId` and `toolCallId` as the receipt's session. `openclawHooks(issuer)` returns the two handlers for a plugin that registers them itself. Typed loosely on purpose, mirroring OpenClaw's `hook-types.ts`, so the package does not depend on `openclaw`; exercised against that contract in [example 21](../examples/21-openclaw.ts) and the test.
 
+## DeepSeek Harness
+
+[src/sdk/deepseek-harness.ts](../src/sdk/deepseek-harness.ts). DeepSeek Harness (dsh) is Node, everything in it is a plugin, and it runs two awaited waterfalls around every tool call: `tools/pre-execute`, whose handler returns `{ kind: "deny", reason }` (the reason reaches the model) or delegates with `next()`, and `tools/post-execute`, which sees the result. This module is a harness plugin itself: it exports `name`, `inject`, `Config`, and `apply`, so it is listed by its package path with the SDK config file as its one setting:
+
+```yaml
+# cordis.yml overlay (dsh web --patch ./cordis.yml), or the plugin list the dsh CLI manages
+- insert:
+    - id: agent-custody
+      name: "@agent-custody/receipts/sdk/deepseek-harness"
+      config:
+        config: /abs/path/sdk.json
+```
+
+`AGENT_CUSTODY_CONFIG` in the environment works instead of the setting. `tools/pre-execute` evaluates the policy: on an enforced deny it issues the denial receipt and denies with `agent-custody: … (receipt <id>)`; otherwise it delegates, so the harness's own approvals and other plugins still apply, and it never decides `allow` itself. `tools/post-execute` records the executed or failed call with the harness's session and call ids and delegates. `deepseekHarnessHooks(issuer)` returns the two handlers, `registerDeepSeekHarness(ctx, issuer)` registers them, for a plugin of your own. Typed loosely from the harness's `packages/core/tools/src/index.ts`, no dependency on `@deepseek-ai/dsh-tools`; driven with the harness's event shapes in [example 22](../examples/22-deepseek-harness.ts) and the test.
+
+The harness also ships `@deepseek-ai/dsh-hooks-claude-code`, a bridge that runs a Claude Code `hooks.json` on the same seams. The [`agent-custody hook`](#claude-code) command works through it unchanged, one process per call; this plugin is the in-process path.
+
 ## Hermes Agent
 
 [packages/python/agent_custody/hermes.py](../../python/agent_custody/hermes.py), through the sidecar like every Python adapter. Hermes runs Python plugins in the agent's process and fires `pre_tool_call(tool_name, args, task_id, **kwargs)`, which may return `{"action": "block", "message": …}`, and `post_tool_call(tool_name, args, result, task_id, duration_ms, **kwargs)`. The plugin is the directory [packages/python/hermes-plugin](../../python/hermes-plugin/): a `plugin.yaml` declaring both hooks and a `sidecar_url` setting, and an `__init__.py` that is one line, `from agent_custody.hermes import register`. Copy it to `~/.hermes/plugins/agent-custody/`, `pip install agent-custody`, start the sidecar, `hermes plugins enable agent-custody`. A denied call is blocked before it runs with the receipt id in the message; an allowed one gets no action, so Hermes's own guardrails and approvals still apply; every completed call is recorded with the Hermes `task_id` as the receipt's session. `hermes_hooks(client)` returns the two callables; `register_hermes(ctx, client)` registers them on a plugin context.

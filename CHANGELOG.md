@@ -2,6 +2,11 @@
 
 All three packages, `@agent-custody/receipts`, `@agent-custody/state`, and `agent-custody` on PyPI, move in lockstep. The receipt format has stayed at v0.2 throughout; every addition to it is an optional field, so earlier receipts and the published conformance vectors remain valid.
 
+## 0.6.17 — 2026-09-29
+
+- **Receipts:** a DeepSeek Harness plugin, `@agent-custody/receipts/sdk/deepseek-harness`. The module is the plugin: list it by its package path with the SDK config file as its setting. `tools/pre-execute` denies an enforced policy deny with the receipt id in the reason the model sees and delegates otherwise; `tools/post-execute` records the executed or failed call with the harness's session and call ids. Typed from the harness's own tool types with no dependency; driven as the harness drives it in example 22 and a test. The harness's Claude Code hooks bridge runs the `hook` command unchanged as the out-of-process alternative.
+- **State, Python:** unchanged; released in step.
+
 ## 0.6.16 — 2026-09-28
 
 - **Receipts:** observe mode. `"mode": "observe"` in the gateway or SDK config forwards every call the grant allows and records the decision the policy would have made, with `enforced: false` on the receipt's `policy`; a deny is recorded, not acted on, in the gateway, `wrap`, and every hook adapter (Claude Code, Claude Agent SDK, OpenAI Agents, Vercel AI, OpenClaw), and the sidecar carries the flag so the Python adapters and Hermes plugin do the same. The verifier's consistency check accepts a not-enforced deny beside an executed call and names the mode; a receipt with the flag stripped fails. Two new conformance vectors, `gateway-observe-denied` and `resigned-observe-flag-stripped`; the browser verifier mirrors the check. The receipt format stays v0.2: the field is optional.

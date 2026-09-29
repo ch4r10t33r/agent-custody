@@ -1,6 +1,6 @@
 {
   "name": "@agent-custody/receipts",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "mcpName": "io.github.svayatta/agent-custody",
   "description": "Chain of custody for AI agents: signed, independently verifiable receipts for tool calls. MCP gateway + Cedar policy + Merkle transparency log",
   "license": "Apache-2.0",
@@ -44,6 +44,10 @@
     "./sdk/openclaw": {
       "types": "./dist/sdk/openclaw.d.ts",
       "default": "./dist/sdk/openclaw.js"
+    },
+    "./sdk/deepseek-harness": {
+      "types": "./dist/sdk/deepseek-harness.d.ts",
+      "default": "./dist/sdk/deepseek-harness.js"
     },
     "./cli": {
       "types": "./dist/cli.d.ts",

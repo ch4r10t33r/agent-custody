@@ -130,6 +130,8 @@ const graph = workflow.compile().withConfig({ callbacks: [new ReceiptCallbackHan
 const refund = tool(issuer.wrap("stripe.refund", fn), { name: "stripe.refund", schema });
 ```
 
+[Example 23](../examples/23-langchain-kb-agent.ts) is a whole agent on `createAgent`, a docs agent over a knowledge base with a policy that allows writes under `notes/` only, with every receipt verified at the end; it runs with no API key. A 22-second film of it: [agent-custody.dev/demo-langchain-kb.mp4](https://agent-custody.dev/demo-langchain-kb.mp4).
+
 LangChain callbacks cannot block a tool, so the handler evaluates no policy; it records what happened, including the `tool_call_id` when one is present, and unwraps `ToolMessage` outputs. For enforcement wrap the function at construction. Do not do both on one tool or it will be recorded twice.
 
 ## OpenClaw

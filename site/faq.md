@@ -41,6 +41,10 @@ Not yet as a switch. Today a receipt carries the full arguments and the result, 
 
 What already sends actions only: the exporters. The OpenTelemetry and Splunk exporters emit one span or event per receipt with the receipt id, tool, agent, principal, decision, policy digest, argument digest, and log position. No arguments, no results. A trace backend or a SIEM sees that a refund was denied and which policy denied it, not the customer's details.
 
+## What does an integration look like, concretely?
+
+For an in-process framework, three things: a key and a config file for the agent's process, a Cedar policy, and the adapter for your framework. A LangChain agent on `createAgent` with two tools and a policy that allows writes under `notes/` only is [example 23](https://github.com/svayatta/agent-custody/blob/main/packages/receipts/examples/23-langchain-kb-agent.ts), about a hundred lines including the knowledge base it writes to; a [22-second film](/demo-langchain-kb.mp4) shows it run, refuse a runbook edit, and verify every receipt. For evidence a stranger accepts, the gateway goes in front of the tool instead, with no change to the agent: it is an MCP server.
+
 ## Can I run it without it blocking anything?
 
 Yes. Set `"mode": "observe"` in the gateway or SDK config. Every call the grant allows goes through, and each receipt records the decision the policy would have made, marked `enforced: false`. You run it against real traffic, read the receipts that say "would have been denied", fix the policy, and switch to enforce. The verifier accepts an observe-mode receipt and says so in its report; a receipt that claims a deny was enforced beside a call that ran fails verification, so the mode cannot be hidden after the fact.

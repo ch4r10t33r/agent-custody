@@ -28,7 +28,7 @@ Two rules keep the answers honest. First, say which producer made the receipt: a
 | CC7.2, monitoring for anomalies | the entity monitors system components for anomalies | every call has a receipt, allowed or denied, and `explain` answers who, why, and what depended on it; the OpenTelemetry and Splunk exports carry each receipt into the existing SIEM |
 | CC7.3, evaluation of security events | events are evaluated to determine whether they are incidents | the action pack: one receipt with every downstream receipt, verifiable by the evaluator without access to the system |
 | CC7.4, incident response | incidents are contained and remediated | blast radius names every action and belief that depended on a wrong fact; retract and forget are receipted calls, so the remediation has its own evidence |
-| CC8.1, change management | changes are authorized and tracked | the policy digest in every receipt identifies the exact policy that decided the call, so a policy change is visible in the receipts on either side of it |
+| CC8.1, change management | changes are authorized and tracked | the policy digest in every receipt identifies the exact policy that decided the call, so a policy change is visible in the receipts; for changes made by agents, the merge gate below gives per-change evidence of tier, approval, and authority on either side of it |
 
 ## ISO/IEC 27001:2022, Annex A
 
@@ -39,7 +39,7 @@ Two rules keep the answers honest. First, say which producer made the receipt: a
 | A.8.10, information deletion | information is deleted when no longer required | forget erases a value from the ledger and the adapted stores and the receipt is the certificate, with each store's own answer; retention sweeps run as receipted calls; a legal hold refuses both |
 | A.8.15, logging | logs are produced, stored, protected, and analysed | the transparency log, append-only and hashed, with a log run by someone else where the operator must not be trusted |
 | A.8.16, monitoring activities | networks, systems, and applications are monitored | `log-check` from a machine that is not the log's, and the per-receipt spans in the SIEM |
-| A.8.32, change management | changes are subject to change management | the policy digest, the grant's window, and the receipts either side of a change |
+| A.8.32, change management | changes are subject to change management | the policy digest, the grant's window, and the receipts either side of a change; for agent-made changes, the merge gate below |
 
 ## EU AI Act, obligations on high-risk systems and their deployers
 
@@ -58,6 +58,12 @@ Two rules keep the answers honest. First, say which producer made the receipt: a
 | Article 17, right to erasure | personal data is erased on request | the forget certificate, including `stillIndexed` when a store has not caught up, which is what an honest response to a data subject says |
 | Article 30, records of processing | records of processing activities are kept | the receipts, and the memory ledger's history of every fact with its source receipt |
 | Article 32, security of processing | appropriate technical measures | the hosted log holds hashes only, and receipts stay with the controller |
+
+## Agent-made changes: the merge gate
+
+Teams whose agents open pull requests hit two problems at once. Volume: SOC 2 and ISO 27001 ask that changes are authorized, tested, and approved under a defined process, and a human on every PR does not scale. Accountability: a pipeline's own audit trail, including an "evidence store" at the end of it, is written by the pipeline that made the decisions. Risk-tiered review solves the first only if the tier decision itself is evidence.
+
+[Example 24](../examples/24-agentic-cicd-merge-gate.ts) is that gate. A release agent merges through the gateway; the risk tier is a Cedar policy over facts the gateway fetches from the git host itself, never from the agent: the diff size, whether sensitive paths are touched, the deterministic gate results, which humans approved. Low risk merges on the agent's own authority, medium needs a CODEOWNER's approval the gateway can see, high has no permit for any agent and goes to two humans in the host, and production promotion is refused. Every merge is pre-committed to the log before it is forwarded. The receipts give, per change: the tier, the decision, the approvers as the gateway saw them, the policy digest, the human whose signed grant authorized the agent, and the log positions showing authorization preceded execution, each line verifiable with public keys and no account with us. That is what the two controls above ask for, produced by a key the agent does not hold, instead of a trail the pipeline wrote about itself.
 
 ## What no artefact here claims
 
